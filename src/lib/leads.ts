@@ -9,27 +9,32 @@ export type GetLeadsOptions = {
 
 export async function getLeads(options: GetLeadsOptions = {}): Promise<Lead[]> {
   noStore()
-  const supabase = await createClient()
-  let query = supabase.from("leads").select("*").order("created_at", { ascending: false })
+  try {
+    const supabase = await createClient()
+    let query = supabase.from("leads").select("*").order("created_at", { ascending: false })
 
-  if (!options.includeMerged) {
-    query = query.is("merged_into_id", null)
-  }
+    if (!options.includeMerged) {
+      query = query.is("merged_into_id", null)
+    }
 
-  const { data, error } = await query
+    const { data, error } = await query
 
-  if (error) {
-    console.error("[leads] getLeads query failed:", error.message)
+    if (error) {
+      console.error("[leads] getLeads query failed:", error.message)
+      return []
+    }
+    return (data ?? []).map((row) => {
+      try {
+        return mapLead(row as Record<string, unknown>)
+      } catch (e) {
+        console.error("[leads] mapLead failed for row:", (row as { id?: string })?.id, e)
+        return null
+      }
+    }).filter((l): l is Lead => l !== null)
+  } catch (e) {
+    console.error("[leads] getLeads threw:", e)
     return []
   }
-  return (data ?? []).map((row) => {
-    try {
-      return mapLead(row as Record<string, unknown>)
-    } catch (e) {
-      console.error("[leads] mapLead failed for row:", (row as { id?: string })?.id, e)
-      return null
-    }
-  }).filter((l): l is Lead => l !== null)
 }
 
 export async function getLead(id: string): Promise<Lead | null> {

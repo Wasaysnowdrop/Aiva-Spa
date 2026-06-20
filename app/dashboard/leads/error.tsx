@@ -38,6 +38,11 @@ export default function LeadsError({
             Reference: {error.digest}
           </p>
         ) : null}
+        {error.message ? (
+          <p className="mt-2 text-[11px] text-[#62666D]">
+            {error.message}
+          </p>
+        ) : null}
         <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
           <Button
             onClick={() => unstable_retry()}

@@ -15,14 +15,21 @@ export const metadata: Metadata = {
 }
 
 export default async function LeadsPage() {
-  const [leads, channels] = await Promise.all([
-    getLeads(),
-    getNotificationChannelsServer(),
-  ])
+  let leads: Awaited<ReturnType<typeof getLeads>> = []
+  let emailConfigured = false
 
-  const emailChannel = channels.find((c) => c.channel === "email")
-  const emailConfigured =
-    !!emailChannel?.enabled && (emailChannel.recipients?.length ?? 0) > 0
+  try {
+    const [fetchedLeads, channels] = await Promise.all([
+      getLeads(),
+      getNotificationChannelsServer(),
+    ])
+    leads = fetchedLeads ?? []
+    const emailChannel = channels.find((c) => c.channel === "email")
+    emailConfigured =
+      !!emailChannel?.enabled && (emailChannel.recipients?.length ?? 0) > 0
+  } catch (e) {
+    console.error("[aivaspa] /dashboard/leads render failed:", e)
+  }
 
   return (
     <>
