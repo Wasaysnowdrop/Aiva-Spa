@@ -18,8 +18,18 @@ export async function getLeads(options: GetLeadsOptions = {}): Promise<Lead[]> {
 
   const { data, error } = await query
 
-  if (error) throw new Error(error.message)
-  return (data ?? []).map((row) => mapLead(row as Record<string, unknown>))
+  if (error) {
+    console.error("[leads] getLeads query failed:", error.message)
+    return []
+  }
+  return (data ?? []).map((row) => {
+    try {
+      return mapLead(row as Record<string, unknown>)
+    } catch (e) {
+      console.error("[leads] mapLead failed for row:", (row as { id?: string })?.id, e)
+      return null
+    }
+  }).filter((l): l is Lead => l !== null)
 }
 
 export async function getLead(id: string): Promise<Lead | null> {
@@ -31,8 +41,17 @@ export async function getLead(id: string): Promise<Lead | null> {
     .eq("id", id)
     .maybeSingle()
 
-  if (error) throw new Error(error.message)
-  return data ? mapLead(data as Record<string, unknown>) : null
+  if (error) {
+    console.error("[leads] getLead query failed:", error.message)
+    return null
+  }
+  if (!data) return null
+  try {
+    return mapLead(data as Record<string, unknown>)
+  } catch (e) {
+    console.error("[leads] mapLead failed for id:", id, e)
+    return null
+  }
 }
 
 export async function getTeamMembers(): Promise<TeamMember[]> {
