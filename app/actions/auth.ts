@@ -139,7 +139,8 @@ export async function signUpWithPassword(
 
   if (data.user) {
     try {
-      await ensureTrialSubscription(data.user.id);
+      const adminSupabase = createAdminClient();
+      await ensureTrialSubscription(data.user.id, adminSupabase);
     } catch (e) {
       console.error("ensureTrialSubscription after signup failed", e);
     }

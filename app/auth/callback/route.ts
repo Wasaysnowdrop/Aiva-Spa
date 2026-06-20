@@ -41,36 +41,47 @@ export async function GET(request: NextRequest) {
         data: { user },
       } = await supabase.auth.getUser();
 
-      const createdAt = user?.created_at ? new Date(user.created_at).getTime() : 0;
-      const isNewOAuthUser =
-        !isRecovery &&
-        !!user &&
-        user.app_metadata?.provider === "google" &&
-        user.user_metadata?.onboarding_completed !== true &&
-        Date.now() - createdAt < 5 * 60 * 1000;
+      if (user && !isRecovery) {
+        const createdAt = user.created_at ? new Date(user.created_at).getTime() : 0;
+        const isNewOAuthUser =
+          user.app_metadata?.provider === "google" &&
+          user.user_metadata?.onboarding_completed !== true &&
+          Date.now() - createdAt < 5 * 60 * 1000;
 
-      if (isNewOAuthUser) {
-        await supabase.auth.updateUser({
-          data: {
-            ...user.user_metadata,
-            onboarding_started_at:
-              (user.user_metadata?.onboarding_started_at as string | undefined) ??
-              new Date().toISOString(),
-          },
-        });
+        const isNewPasswordUser =
+          user.app_metadata?.provider === "email" &&
+          user.user_metadata?.onboarding_completed !== true &&
+          Date.now() - createdAt < 30 * 60 * 1000;
 
-        try {
-          const adminSupabase = createAdminClient();
-          await ensureTrialSubscription(user.id, adminSupabase);
-        } catch (e) {
-          console.error("ensureTrialSubscription after OAuth signup failed", e);
+        const isFirstSignIn = isNewOAuthUser || isNewPasswordUser;
+
+        if (isNewPasswordUser) {
+          await supabase.auth.updateUser({
+            data: {
+              ...user.user_metadata,
+              onboarding_started_at:
+                (user.user_metadata?.onboarding_started_at as string | undefined) ??
+                new Date().toISOString(),
+            },
+          });
         }
 
-        const onboardingResponse = NextResponse.redirect(`${origin}/onboarding`);
-        response.cookies.getAll().forEach((cookie) => {
-          onboardingResponse.cookies.set(cookie);
-        });
-        return onboardingResponse;
+        if (isFirstSignIn) {
+          try {
+            const adminSupabase = createAdminClient();
+            await ensureTrialSubscription(user.id, adminSupabase);
+          } catch (e) {
+            console.error("ensureTrialSubscription after signup failed", e);
+          }
+        }
+
+        if (isNewOAuthUser) {
+          const onboardingResponse = NextResponse.redirect(`${origin}/onboarding`);
+          response.cookies.getAll().forEach((cookie) => {
+            onboardingResponse.cookies.set(cookie);
+          });
+          return onboardingResponse;
+        }
       }
 
       return response;
