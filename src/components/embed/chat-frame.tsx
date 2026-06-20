@@ -5,7 +5,6 @@ import {
   ArrowRight,
   CheckCircle2,
   Loader2,
-  Lock,
   MessageCircle,
   Send,
   Sparkles,
@@ -42,9 +41,6 @@ const STORAGE_KEY = (spaId: string) => `aiva:session:${spaId}`
 const STORAGE_CONSENT = (spaId: string) => `aiva:consent:${spaId}`
 const STORAGE_SESSION_ID = (spaId: string) => `aiva:sid:${spaId}`
 const STORAGE_LANGUAGE = (spaId: string) => `aiva:lang:${spaId}`
-
-const DEFAULT_DISCLAIMER =
-  "Information provided is general; a licensed provider confirms treatment suitability and pricing."
 
 function resolveInitialLanguage(input?: string | null): LanguageCode {
   if (isSupportedLanguage(input)) return input
@@ -246,7 +242,6 @@ export function ChatFrame({
   })
   const [leadSubmitted, setLeadSubmitted] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [disclaimer, setDisclaimer] = React.useState<string | null>(null)
   const [, startLanguageTransition] = React.useTransition()
   const [language, setLanguageState] = React.useState<LanguageCode>(
     () => resolveInitialLanguage(initialLanguage),
@@ -545,8 +540,6 @@ export function ChatFrame({
           if (!dataStr) continue
           let payload: {
             text?: string
-            disclaimerText?: string
-            disclaimerShown?: boolean
             message?: string
           } = {}
           try {
@@ -556,10 +549,6 @@ export function ChatFrame({
           }
           if (currentEvent === "chunk" && typeof payload.text === "string") {
             appendChunk(payload.text)
-          } else if (currentEvent === "meta") {
-            if (payload.disclaimerShown) {
-              setDisclaimer(payload.disclaimerText || DEFAULT_DISCLAIMER)
-            }
           } else if (currentEvent === "error") {
             errored = true
             appendChunk(
@@ -625,16 +614,11 @@ export function ChatFrame({
     }
     const data = (await res.json()) as {
       reply: string
-      disclaimerText?: string
-      disclaimerShown?: boolean
       leadSaved?: boolean
       leadId?: string
       error?: string
     }
     const reply = (data.reply ?? "").trim() || "Sorry — could you rephrase that?"
-    if (data.disclaimerShown) {
-      setDisclaimer(data.disclaimerText || DEFAULT_DISCLAIMER)
-    }
     if (data.leadId && !chatId) setChatId(data.leadId)
     if (data.leadSaved) setLeadSubmitted(true)
     setMessages((prev) =>
@@ -763,16 +747,6 @@ export function ChatFrame({
         aria-live="polite"
         aria-relevant="additions"
       >
-        {disclaimer ? (
-          <div className="flex items-start gap-2 rounded-lg border border-[#5E6AD2]/30 bg-[#5E6AD2]/10 p-2.5 text-[11px] leading-4 text-[#C9CCD2]">
-            <Lock className="mt-0.5 size-3 shrink-0 text-[#5E6AD2]" />
-            <p>
-              <span className="font-semibold text-[#F7F8F8]">Compliance:</span>{" "}
-              {disclaimer}
-            </p>
-          </div>
-        ) : null}
-
         {messages.map((m) => (
           <MessageBubble key={m.id} message={m} brandName={config.brandName} showTime={hydrated} />
         ))}

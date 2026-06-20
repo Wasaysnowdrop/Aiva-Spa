@@ -30,7 +30,6 @@ export type ConversationTurnResult = {
   provider: "openai" | "mock" | "deterministic"
   isFirstReply: boolean
   afterHours: boolean
-  disclaimerShown: boolean
   durationMs: number
   retrievedIds: string[]
   greetingMatched?: "pure_greeting" | "small_talk" | "thanks"
@@ -66,16 +65,13 @@ export async function runConversationTurn(
       provider: "deterministic",
       isFirstReply,
       afterHours,
-      disclaimerShown: false,
       durationMs: Date.now() - start,
       retrievedIds: [],
       greetingMatched: greeting.reason,
     }
   }
 
-  const { system, retrieved } = buildSystemPrompt(kb, input.message, {
-    includeDisclaimer: true,
-  })
+  const { system, retrieved } = buildSystemPrompt(kb, input.message)
   const languageDirective =
     input.language && isSupportedLanguage(input.language)
       ? buildLanguageDirective(input.language)
@@ -96,7 +92,6 @@ export async function runConversationTurn(
     provider: result.provider,
     isFirstReply,
     afterHours,
-    disclaimerShown: isFirstReply,
     durationMs: Date.now() - start,
     retrievedIds: retrieved.map((r) =>
       r.kind === "service" ? r.service.id : r.faq.id,
@@ -204,16 +199,13 @@ export async function streamConversationTurn(
       provider: "deterministic",
       isFirstReply,
       afterHours,
-      disclaimerShown: false,
       durationMs: Date.now() - start,
       retrievedIds: [],
       greetingMatched: greeting.reason,
     }
   }
 
-  const { system, retrieved } = buildSystemPrompt(kb, input.message, {
-    includeDisclaimer: true,
-  })
+  const { system, retrieved } = buildSystemPrompt(kb, input.message)
   const languageDirective =
     input.language && isSupportedLanguage(input.language)
       ? buildLanguageDirective(input.language)
@@ -319,7 +311,6 @@ export async function streamConversationTurn(
     provider: providerName,
     isFirstReply,
     afterHours,
-    disclaimerShown: isFirstReply,
     durationMs: Date.now() - start,
     retrievedIds: retrieved.map((r) =>
       r.kind === "service" ? r.service.id : r.faq.id,

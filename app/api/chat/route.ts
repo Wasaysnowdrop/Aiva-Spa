@@ -27,9 +27,6 @@ import { isSupportedLanguage, buildLanguageDirective } from "@/lib/i18n"
 
 type ChatRequest = z.infer<typeof chatRequestSchema>
 
-const DEFAULT_DISCLAIMER =
-  "Information provided is general; a licensed provider confirms treatment suitability and pricing."
-
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
@@ -177,8 +174,6 @@ async function handleStreamingChat(
           provider: result.provider,
           isFirstReply: result.isFirstReply,
           afterHours: result.afterHours,
-          disclaimerShown: result.disclaimerShown,
-          disclaimerText: result.disclaimerShown ? DEFAULT_DISCLAIMER : undefined,
           durationMs: result.durationMs,
         })
 
@@ -287,8 +282,6 @@ async function handleBufferedChat(
         model: result.model,
         provider: result.provider,
         durationMs: result.durationMs,
-        disclaimerShown: result.disclaimerShown,
-        disclaimerText: result.disclaimerShown ? DEFAULT_DISCLAIMER : undefined,
         afterHours: result.afterHours,
         leadSaved,
         leadId,
@@ -304,7 +297,6 @@ async function handleBufferedChat(
         model: "aiva-fallback",
         provider: "mock",
         durationMs: 0,
-        disclaimerShown: false,
         afterHours: false,
         leadSaved: false,
         leadId: null,
@@ -331,7 +323,6 @@ type PersistArgs = {
   result: {
     afterHours: boolean
     isFirstReply: boolean
-    disclaimerShown: boolean
   }
   accessUserId: string | null
   inline?: boolean

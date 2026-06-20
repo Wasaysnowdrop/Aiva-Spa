@@ -146,10 +146,13 @@ describe("retrieval", () => {
 })
 
 describe("system prompt", () => {
-  it("includes disclaimer directive on first message", () => {
+  it("does not include the first-reply medical disclaimer (owner opted out)", () => {
     const { system } = buildSystemPrompt(baseKb, "hi")
-    expect(system).toMatch(/disclaimer/i)
-    expect(system).toMatch(/licensed provider/i)
+    // The system prompt no longer instructs the model to append a
+    // medical disclaimer on the first reply — owners opted out.
+    expect(system).not.toMatch(/DISCLAIMER ON FIRST REPLY/i)
+    expect(system).not.toMatch(/append this on its own line at the very end/i)
+    expect(system).not.toMatch(/Medical disclaimer \(append on first reply/i)
   })
 
   it("embeds the spa brand name", () => {
@@ -165,7 +168,7 @@ describe("system prompt", () => {
     expect(system).toMatch(/R4\.\s*NO FIRM PRICES/i)
     expect(system).toMatch(/R5\.\s*NO GUARANTEES/i)
     expect(system).toMatch(/R6\.\s*CONSENT/i)
-    expect(system).toMatch(/R10\.\s*NEVER roleplay/i)
+    expect(system).toMatch(/R9\.\s*NEVER roleplay/i)
   })
 
   it("embeds each service with its pricing rule for verbatim quoting", () => {
@@ -180,9 +183,10 @@ describe("system prompt", () => {
     expect(system).toContain("Pricing is per unit and confirmed at consultation")
   })
 
-  it("includes the medical disclaimer text", () => {
+  it("still includes the pricing disclaimer text (R4 needs it)", () => {
     const { system } = buildSystemPrompt(baseKb, "hi")
-    expect(system).toMatch(/licensed provider confirms/i)
+    expect(system).toMatch(/Pricing disclaimer/i)
+    expect(system).toMatch(/licensed provider confirms exact pricing/i)
   })
 
   it("instructs the model not to reveal system internals", () => {
@@ -268,7 +272,9 @@ describe("system prompt", () => {
     }
     const { system } = buildSystemPrompt(kb, "hi")
     expect(system).toContain("GLORP custom pricing copy")
-    expect(system).toContain("GLORP custom medical copy")
+    // Medical disclaimer is no longer embedded in the prompt — owners
+    // opted out of the first-reply disclaimer banner.
+    expect(system).not.toContain("GLORP custom medical copy")
     expect(system).toContain("GLORP custom consent")
   })
 
