@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
+import type { SupabaseClient } from "@supabase/supabase-js"
 import {
   PLANS,
   TRIAL_DAYS,
@@ -197,35 +198,64 @@ function newDateAddDays(d: Date, days: number) {
   return new Date(d.getTime() + days * 24 * 60 * 60 * 1000)
 }
 
-export async function ensureTrialSubscription(userId: string): Promise<SubscriptionRow> {
-  const supabase = await createClient()
+export async function ensureTrialSubscription(
+  userId: string,
+  client?: SupabaseClient,
+): Promise<SubscriptionRow> {
+  const supabase = client ?? (await createClient())
   const existing = await supabase
     .from("subscriptions")
     .select("*")
     .eq("user_id", userId)
     .maybeSingle()
 
-  if (existing.data) {
-    return mapRow(existing.data as RawSubscription)
+  const raw = existing.data as RawSubscription | null
+  const isFreshTrialNeeded =
+    !raw ||
+    raw.status === "expired" ||
+    raw.status === "canceled" ||
+    (raw.status === "trialing" &&
+      raw.trial_ends_at &&
+      new Date(raw.trial_ends_at).getTime() <= Date.now())
+
+  if (raw && !isFreshTrialNeeded) {
+    return mapRow(raw)
   }
 
   const now = new Date()
   const trialEndsAt = newDateAddDays(now, TRIAL_DAYS)
   const trialPlan = PLANS[TRIAL_PLAN_ID] ?? PLANS.starter
 
+  const payload = {
+    plan: trialPlan.id,
+    status: "trialing" as const,
+    billing_interval: "monthly" as const,
+    monthly_quota: TRIAL_QUOTA,
+    conversations_used: 0,
+    period_start: now.toISOString(),
+    period_end: trialEndsAt.toISOString(),
+    trial_started_at: now.toISOString(),
+    trial_ends_at: trialEndsAt.toISOString(),
+    trial_popup_dismissed_at: null,
+    canceled_at: null,
+  }
+
+  if (raw?.id) {
+    const { data, error } = await supabase
+      .from("subscriptions")
+      .update(payload as never)
+      .eq("id", raw.id)
+      .select()
+      .single()
+    if (error) throw new Error(error.message)
+    return mapRow(data as RawSubscription)
+  }
+
   const { data, error } = await supabase
     .from("subscriptions")
     .insert({
       user_id: userId,
-      plan: trialPlan.id,
-      status: "trialing",
-      billing_interval: "monthly",
-      monthly_quota: TRIAL_QUOTA,
-      conversations_used: 0,
-      period_start: now.toISOString(),
-      period_end: trialEndsAt.toISOString(),
-      trial_started_at: now.toISOString(),
-      trial_ends_at: trialEndsAt.toISOString(),
+      ...payload,
     } as never)
     .select()
     .single()

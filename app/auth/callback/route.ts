@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { ensureTrialSubscription } from "@/lib/subscription";
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -56,6 +58,13 @@ export async function GET(request: NextRequest) {
               new Date().toISOString(),
           },
         });
+
+        try {
+          const adminSupabase = createAdminClient();
+          await ensureTrialSubscription(user.id, adminSupabase);
+        } catch (e) {
+          console.error("ensureTrialSubscription after OAuth signup failed", e);
+        }
 
         const onboardingResponse = NextResponse.redirect(`${origin}/onboarding`);
         response.cookies.getAll().forEach((cookie) => {

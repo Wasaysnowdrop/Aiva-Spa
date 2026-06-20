@@ -6,7 +6,10 @@ import { Logo } from "@/components/logo";
 
 import { CheckoutForm } from "./checkout-form";
 import { PLANS, type PlanId, formatPrice } from "@/lib/subscription/plans";
-import { getCurrentSubscription } from "@/lib/subscription";
+import {
+  ensureTrialSubscription,
+  getCurrentSubscription,
+} from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
@@ -33,6 +36,14 @@ export default async function CheckoutPage({
   } = await supabase.auth.getUser();
   if (!user) {
     redirect(`/login?redirectTo=/checkout/${planId}`);
+  }
+
+  if (planId === "growth") {
+    try {
+      await ensureTrialSubscription(user.id);
+    } catch (e) {
+      console.error("ensureTrialSubscription on checkout failed", e);
+    }
   }
 
   const subscription = await getCurrentSubscription();
