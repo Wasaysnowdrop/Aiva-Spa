@@ -76,7 +76,7 @@ export function AnimatedClosingCta() {
             viewport={{ once: true }}
             transition={{ delay: 0.3, duration: 0.6 }}
           >
-            Start your 14-day free trial or talk to our team about a custom rollout for your med spa group.
+            Start your 7-day free trial on Growth or talk to our team about a custom rollout for your med spa group.
           </motion.p>
           <motion.div
             className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row"

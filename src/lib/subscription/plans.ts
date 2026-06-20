@@ -16,8 +16,8 @@ export type PlanDefinition = {
   maxCustomDomains: number
 }
 
-export const TRIAL_DAYS = 14
-export const TRIAL_QUOTA = 300
+export const TRIAL_DAYS = 7
+export const TRIAL_PLAN_ID: PlanId = "growth"
 
 export const PLANS: Record<PlanId, PlanDefinition> = {
   starter: {
@@ -114,6 +114,8 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
 }
 
 export const PLAN_ORDER: PlanId[] = ["starter", "growth", "pro"]
+
+export const TRIAL_QUOTA = PLANS[TRIAL_PLAN_ID].monthlyQuota
 
 export function getPlan(id: string | null | undefined): PlanDefinition {
   if (id && id in PLANS) return PLANS[id as PlanId]

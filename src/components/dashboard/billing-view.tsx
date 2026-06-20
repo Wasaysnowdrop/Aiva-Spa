@@ -414,7 +414,7 @@ export function BillingView(props: BillingViewProps) {
           <ul className="mt-3 space-y-2 text-xs text-[#8A8F98]">
             <li className="flex items-start gap-2">
               <Check className="mt-0.5 size-3 shrink-0 text-[#4CB782]" />
-              <span>14-day free trial on every new account</span>
+              <span>7-day free trial on the Growth plan</span>
             </li>
             <li className="flex items-start gap-2">
               <Check className="mt-0.5 size-3 shrink-0 text-[#4CB782]" />

@@ -26,7 +26,7 @@ import { createClient } from "@/lib/supabase/server";
 export const metadata: Metadata = {
   title: "Pricing | AivaSpa",
   description:
-    "Simple, fair pricing for the AivaSpa 24/7 AI receptionist. Plans for single-location med spas, growing practices, and multi-location groups — with a 14-day free trial.",
+    "Simple, fair pricing for the AivaSpa 24/7 AI receptionist. Plans for single-location med spas, growing practices, and multi-location groups — with a 7-day free trial on the Growth plan.",
 };
 
 const navLinks = [
@@ -59,7 +59,7 @@ const plans: Plan[] = [
     suffix: "billed monthly",
     description:
       "Everything a single-location med spa needs to greet visitors, answer FAQs, and capture consultation leads 24/7 — with AI analytics, lead scoring, and HIPAA-aware handling baked in. Upgrade to Growth to add the built-in calendar, URL-scraper onboarding, and multi-language widget.",
-    cta: { label: "Start free trial", href: "/checkout/starter" },
+    cta: { label: "Choose Starter", href: "/checkout/starter" },
     accent: "#22D3EE",
     features: [
       "1 website widget, 1 location",
@@ -91,7 +91,7 @@ const plans: Plan[] = [
     suffix: "billed monthly · save 20% yearly",
     description:
       "Built for med spas booking 40+ consultations a month. Unlock advanced widget customisation, service-specific routing, AI lead scoring, conversion funnels, and multi-language support.",
-    cta: { label: "Start free trial", href: "/checkout/growth" },
+    cta: { label: "Start 7-day free trial", href: "/checkout/growth" },
     featured: true,
     accent: "#E2E54B",
     features: [
@@ -124,7 +124,7 @@ const plans: Plan[] = [
     suffix: "billed monthly · save 20% yearly",
     description:
       "For med spa groups that need multi-location routing, a white-label widget with a custom domain, role-based access, dedicated AI model fine-tuning, and 24/7 priority support.",
-    cta: { label: "Start free trial", href: "/checkout/pro" },
+    cta: { label: "Choose Pro", href: "/checkout/pro" },
     accent: "#FF77E9",
     features: [
       "Everything in Growth",
@@ -194,7 +194,7 @@ const faqItems: FaqItem[] = [
   },
   {
     q: "Is there a free trial?",
-    a: "Yes. Every plan starts with a 14-day free trial — no credit card required. You can install the widget, upload your FAQs, and capture real leads before you decide. Cancel anytime in one click.",
+    a: "Yes. The Growth plan starts with a 7-day free trial — no credit card required. You can install the widget, upload your FAQs, and capture real leads before you decide. After the trial you can keep Growth, switch to Starter, upgrade to Pro, or cancel anytime in one click.",
   },
   {
     q: "Can I switch plans later?",
@@ -477,7 +477,7 @@ export default async function PricingPage() {
             <Reveal>
               <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-[#E2E54B]/40 bg-[#E2E54B]/10 px-3.5 py-1.5 text-xs font-semibold text-[#E2E54B]">
                 <Zap className="size-3.5" />
-                Simple, fair pricing · 14-day free trial
+                Simple, fair pricing · 7-day free trial on Growth
               </div>
             </Reveal>
             <Reveal>
@@ -581,7 +581,7 @@ export default async function PricingPage() {
 
           <Reveal>
             <p className="mx-auto mt-10 max-w-3xl text-center text-sm leading-6 text-[#62666D]">
-              All plans include a 14-day free trial, the AI receptionist widget, lead capture, dashboard, and TLS-encrypted data handling. Annual billing saves 20% on Growth and Pro.
+              Growth includes a 7-day free trial &mdash; start using AivaSpa today, pick a paid plan only when you&apos;re ready. Annual billing saves 20% on Growth and Pro.
             </p>
           </Reveal>
         </div>

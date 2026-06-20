@@ -41,7 +41,7 @@ export function TrialPopup({ planName, daysRemaining, endsAtIso }: TrialPopupPro
         year: "numeric",
       });
     } catch {
-      return "in 14 days";
+      return "in 7 days";
     }
   }, [endsAtIso]);
 
@@ -96,7 +96,7 @@ export function TrialPopup({ planName, daysRemaining, endsAtIso }: TrialPopupPro
               <div>
                 <div className="inline-flex items-center gap-2 rounded-full border border-[#E2E54B]/40 bg-[#E2E54B]/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#E2E54B]">
                   <Sparkles className="size-3" />
-                  Professional 14-day trial · live now
+                  Growth 7-day trial · live now
                 </div>
                 <h2
                   id="trial-popup-title"
@@ -152,7 +152,7 @@ export function TrialPopup({ planName, daysRemaining, endsAtIso }: TrialPopupPro
                   Choose a plan to continue after your trial
                 </p>
                 <span className="hidden text-[10px] font-semibold uppercase tracking-wider text-[#4CB782] sm:inline">
-                  14 days free · cancel anytime
+                  7 days free · cancel anytime
                 </span>
               </div>
 

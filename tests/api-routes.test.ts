@@ -271,7 +271,7 @@ describe("GET /api/widget/config", () => {
   it("returns the public widget config (no PII)", async () => {
     const { admin } = installSupabaseMocks()
     const now = new Date()
-    const trialEndsAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)
+    const trialEndsAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
     // checkEmbedAccess: widget_installs + active subscription (admin client)
     admin.setResult("widget_installs", "select", {
       data: {

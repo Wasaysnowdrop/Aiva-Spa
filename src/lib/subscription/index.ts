@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server"
 import {
   PLANS,
   TRIAL_DAYS,
+  TRIAL_PLAN_ID,
   TRIAL_QUOTA,
   getPlan,
   type PlanFeature,
@@ -210,12 +211,13 @@ export async function ensureTrialSubscription(userId: string): Promise<Subscript
 
   const now = new Date()
   const trialEndsAt = newDateAddDays(now, TRIAL_DAYS)
+  const trialPlan = PLANS[TRIAL_PLAN_ID] ?? PLANS.starter
 
   const { data, error } = await supabase
     .from("subscriptions")
     .insert({
       user_id: userId,
-      plan: "starter",
+      plan: trialPlan.id,
       status: "trialing",
       billing_interval: "monthly",
       monthly_quota: TRIAL_QUOTA,

@@ -98,7 +98,7 @@ export function SignupForm() {
     <form onSubmit={onSubmit} noValidate className="space-y-6">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight text-[#F7F8F8]">
-          Start your 14-day free trial
+          Start your 7-day free trial on Growth
         </h1>
         <p className="text-sm leading-6 text-[#8A8F98]">
           No credit card required. Be live on your med spa website in under 10 minutes.

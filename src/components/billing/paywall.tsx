@@ -27,7 +27,7 @@ export function Paywall({ spaName }: PaywallProps) {
           Subscription required
         </div>
         <h1 className="mt-4 text-3xl font-bold tracking-tight md:text-4xl">
-          Your 14-day trial has ended, {spaName ? spaName : "friend"}.
+          Your 7-day trial has ended, {spaName ? spaName : "friend"}.
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-7 text-[#8A8F98]">
           Choose a plan to unlock the full AivaSpa dashboard — leads, conversations,

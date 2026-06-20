@@ -1,29 +1,56 @@
 "use client";
 
-import { Loader2, Lock, ShieldCheck } from "lucide-react";
+import { Loader2, Lock, ShieldCheck, Sparkles } from "lucide-react";
 import { useState, useTransition } from "react";
 
-import { fakeCheckout } from "@/app/actions/subscription";
+import { fakeCheckout, startTrial } from "@/app/actions/subscription";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { PlanId } from "@/lib/subscription/plans";
 
+type CheckoutMode = "trial" | "expired" | "paid";
+
 type CheckoutFormProps = {
   planId: PlanId;
   accent: string;
+  mode: CheckoutMode;
+  trialEndsAtIso: string | null;
 };
 
-export function CheckoutForm({ planId, accent }: CheckoutFormProps) {
+export function CheckoutForm({
+  planId,
+  accent,
+  mode,
+  trialEndsAtIso,
+}: CheckoutFormProps) {
   const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  const isTrial = mode === "trial";
+
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setSuccess(null);
+
+    if (isTrial) {
+      startTransition(async () => {
+        const result = await startTrial();
+        if (!result.ok) {
+          setError(result.error ?? "Could not confirm your trial.");
+          return;
+        }
+        setSuccess("Trial confirmed! Redirecting to your dashboard…");
+        setTimeout(() => {
+          window.location.href = "/dashboard";
+        }, 800);
+      });
+      return;
+    }
+
     const formData = new FormData(event.currentTarget);
     formData.set("plan", planId);
     formData.set("interval", interval);
@@ -39,6 +66,69 @@ export function CheckoutForm({ planId, accent }: CheckoutFormProps) {
         window.location.href = "/dashboard";
       }, 900);
     });
+  }
+
+  if (isTrial) {
+    return (
+      <form onSubmit={onSubmit} className="mt-6 space-y-4">
+        <div className="rounded-2xl border border-[#E2E54B]/40 bg-[#E2E54B]/10 p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-[#E2E54B]">
+            <Sparkles className="size-4" />
+            You&apos;re on the Growth trial
+          </div>
+          <p className="mt-1 text-xs leading-5 text-[#C9CCD2]">
+            Your 7-day free trial is already active &mdash; no card needed, no charge
+            today. Confirm below to keep your access through the end of the
+            trial.
+          </p>
+          {trialEndsAtIso ? (
+            <p className="mt-2 text-[11px] font-medium uppercase tracking-wider text-[#8A8F98]">
+              Trial ends{" "}
+              {new Date(trialEndsAtIso).toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })}
+            </p>
+          ) : null}
+        </div>
+
+        {error ? (
+          <div className="rounded-xl border border-[#EB5757]/40 bg-[#EB5757]/10 px-4 py-3 text-sm text-[#EB5757]">
+            {error}
+          </div>
+        ) : null}
+        {success ? (
+          <div className="rounded-xl border border-[#4CB782]/40 bg-[#4CB782]/10 px-4 py-3 text-sm text-[#4CB782]">
+            {success}
+          </div>
+        ) : null}
+
+        <Button
+          type="submit"
+          disabled={isPending}
+          className="h-12 w-full rounded-xl text-sm font-semibold text-[#08090A] transition hover:opacity-90"
+          style={{ backgroundColor: accent }}
+        >
+          {isPending ? (
+            <>
+              <Loader2 className="size-4 animate-spin" />
+              Confirming trial…
+            </>
+          ) : (
+            <>
+              <Sparkles className="size-4" />
+              Continue trial · $0 today
+            </>
+          )}
+        </Button>
+
+        <p className="flex items-center justify-center gap-1.5 text-[11px] text-[#62666D]">
+          <ShieldCheck className="size-3" />
+          7 days free · cancel anytime · no card needed
+        </p>
+      </form>
+    );
   }
 
   return (

@@ -299,7 +299,7 @@ export default async function LandingPage() {
                   <span className="size-1 rounded-full bg-[#E2E54B]" />
                   <span className="size-1 rounded-full bg-[#FF77E9]" />
                 </span>
-                Free 14-day trial · No credit card · Cancel anytime
+                Free 7-day Growth trial · No credit card · Cancel anytime
               </p>
             </Reveal>
           </div>

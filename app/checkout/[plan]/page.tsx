@@ -6,6 +6,7 @@ import { Logo } from "@/components/logo";
 
 import { CheckoutForm } from "./checkout-form";
 import { PLANS, type PlanId, formatPrice } from "@/lib/subscription/plans";
+import { getCurrentSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
@@ -33,6 +34,29 @@ export default async function CheckoutPage({
   if (!user) {
     redirect(`/login?redirectTo=/checkout/${planId}`);
   }
+
+  const subscription = await getCurrentSubscription();
+  const isTrialing = subscription.isTrialing;
+  const trialEnded =
+    subscription.status === "expired" ||
+    subscription.status === "canceled" ||
+    subscription.status === "none";
+  const trialEndsAtIso = subscription.row?.trialEndsAt ?? null;
+  const trialDaysRemaining = subscription.trialDaysRemaining;
+
+  const trialMode = isTrialing && planId === "growth";
+  const expiredMode = trialEnded;
+
+  const headline = trialMode
+    ? "You're on a Growth trial."
+    : expiredMode
+      ? "Your trial ended — select a subscription to continue."
+      : `You're upgrading to ${plan.name}.`;
+  const subhead = trialMode
+    ? `This is a demo checkout — no real payment is processed. Your ${plan.name} trial is already active. Confirm below to keep access through the end of your trial.`
+    : expiredMode
+      ? `Your 7-day Growth trial has ended. Choose ${plan.name} below to unlock the full AivaSpa dashboard — leads, conversations, widget, analytics, and team tools. Your setup, knowledge base, and leads are safe and waiting for you.`
+      : "This is a demo checkout — no real payment is processed. Enter any test values below to activate the plan on this account.";
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#08090A] text-[#F7F8F8]">
@@ -71,14 +95,17 @@ export default async function CheckoutPage({
             }}
           >
             <Star className="size-3" />
-            Activate {plan.name}
+            {trialMode
+              ? "Trial active"
+              : expiredMode
+                ? "Trial ended"
+                : `Activate ${plan.name}`}
           </div>
           <h1 className="mt-5 text-4xl font-bold tracking-tight md:text-5xl">
-            You&apos;re upgrading to {plan.name}.
+            {headline}
           </h1>
           <p className="mt-4 max-w-xl text-base leading-7 text-[#8A8F98]">
-            This is a demo checkout — no real payment is processed. Enter any test
-            values below to activate the plan on this account.
+            {subhead}
           </p>
 
           <div className="mt-8 rounded-3xl border border-[#23252A] bg-[#121316]/85 p-6">
@@ -92,7 +119,12 @@ export default async function CheckoutPage({
                 </h2>
                 <p className="text-sm text-[#8A8F98]">{plan.tagline}</p>
               </div>
-              <PriceTag planId={planId} />
+              <PriceTag
+                planId={planId}
+                trialMode={trialMode}
+                trialDaysRemaining={trialDaysRemaining}
+                trialEndsAtIso={trialEndsAtIso}
+              />
             </div>
             <ul className="mt-6 space-y-3">
               {plan.features.map((feature) => (
@@ -119,10 +151,12 @@ export default async function CheckoutPage({
             <div className="rounded-2xl border border-[#23252A] bg-[#121316]/85 p-4 text-xs text-[#8A8F98]">
               <div className="flex items-center gap-2 font-semibold text-[#F7F8F8]">
                 <ShieldCheck className="size-4 text-[#4CB782]" />
-                Demo mode
+                {trialMode ? "No card needed" : "Demo mode"}
               </div>
               <p className="mt-1 leading-5">
-                No real card is charged. Use any number, expiry, and CVC.
+                {trialMode
+                  ? "Your trial is already active — no charge today. We'll remind you before billing starts."
+                  : "No real card is charged. Use any number, expiry, and CVC."}
               </p>
             </div>
             <div className="rounded-2xl border border-[#23252A] bg-[#121316]/85 p-4 text-xs text-[#8A8F98]">
@@ -141,16 +175,27 @@ export default async function CheckoutPage({
           <div className="rounded-3xl border border-[#23252A] bg-[#0B0C0E]/90 p-6 shadow-2xl shadow-black/30 md:p-8">
             <div className="flex items-center gap-2 text-sm font-semibold text-[#F7F8F8]">
               <CreditCard className="size-4 text-[#E2E54B]" />
-              Payment details
+              {trialMode ? "Trial details" : expiredMode ? "Pick a subscription" : "Payment details"}
             </div>
             <p className="mt-1 text-xs text-[#8A8F98]">
-              We never store raw card numbers in this demo. Any test values will work.
+              {trialMode
+                ? "Your 7-day Growth trial is already running. Confirm to keep it active."
+                : expiredMode
+                  ? "Your 7-day trial ended. Activate a subscription below to unlock the dashboard again."
+                  : "We never store raw card numbers in this demo. Any test values will work."}
             </p>
-            <CheckoutForm planId={planId} accent={plan.accent} />
+            <CheckoutForm
+              planId={planId}
+              accent={plan.accent}
+              mode={trialMode ? "trial" : expiredMode ? "expired" : "paid"}
+              trialEndsAtIso={trialEndsAtIso}
+            />
             <div className="mt-6 border-t border-[#23252A] pt-5 text-xs text-[#62666D]">
-              By activating you agree to our Terms of Service and Privacy Policy. A
-              14-day free trial is included for new accounts; billing starts after
-              the trial unless you cancel.
+              {trialMode
+                ? "Your trial is active. Billing starts after 7 days unless you cancel — you can keep using the Growth plan features in the meantime."
+                : expiredMode
+                  ? "Your trial ended. Pick a plan above to continue. A 7-day trial is included for the Growth plan only — Starter and Pro start billing immediately."
+                  : "By activating you agree to our Terms of Service and Privacy Policy. A 7-day free trial is included for new accounts on the Growth plan; billing starts after the trial unless you cancel."}
             </div>
           </div>
         </div>
@@ -159,10 +204,49 @@ export default async function CheckoutPage({
   );
 }
 
-function PriceTag({ planId }: { planId: PlanId }) {
+function PriceTag({
+  planId,
+  trialMode,
+  trialDaysRemaining,
+  trialEndsAtIso,
+}: {
+  planId: PlanId;
+  trialMode: boolean;
+  trialDaysRemaining: number;
+  trialEndsAtIso: string | null;
+}) {
   const plan = PLANS[planId];
   const monthly = formatPrice(plan, "monthly");
   const yearly = formatPrice(plan, "yearly");
+
+  if (trialMode) {
+    const endsLabel = trialEndsAtIso
+      ? new Date(trialEndsAtIso).toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })
+      : null;
+    return (
+      <div className="text-right">
+        <p className="inline-flex items-center gap-1.5 rounded-full border border-[#E2E54B]/50 bg-[#E2E54B]/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#E2E54B]">
+          <Sparkles className="size-3" />
+          Trial
+        </p>
+        <p className="mt-2 text-3xl font-bold tracking-tight text-[#F7F8F8]">
+          $0
+          <span className="ml-1 text-sm font-medium text-[#8A8F98]">
+            /today
+          </span>
+        </p>
+        <p className="text-[11px] text-[#62666D]">
+          {trialDaysRemaining} day{trialDaysRemaining === 1 ? "" : "s"} left
+          {endsLabel ? ` · ends ${endsLabel}` : ""}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="text-right">
       <p className="text-3xl font-bold tracking-tight text-[#F7F8F8]">
