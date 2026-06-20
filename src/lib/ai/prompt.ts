@@ -169,7 +169,7 @@ export function buildSystemPrompt(
   options?: { includeDisclaimer?: boolean },
 ): BuiltSystemPrompt {
   const includeDisclaimer = options?.includeDisclaimer !== false
-  const retrieved = retrieve(query, kb, 6)
+  const retrieved = retrieve(query, kb, 3)
   const medical = getMedicalDisclaimer(kb)
 
   const system = `# IDENTITY

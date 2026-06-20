@@ -432,24 +432,59 @@ export function ChatFrame({
       content: trimmed,
       timestamp: new Date().toISOString(),
     }
-    setMessages((prev) => [...prev, userMsg])
+    const aiMsgId = makeId()
+    const aiMsg: UiMessage = {
+      id: aiMsgId,
+      role: "ai",
+      content: "",
+      timestamp: new Date().toISOString(),
+    }
+    setMessages((prev) => [...prev, userMsg, aiMsg])
     setSending(true)
 
+    const history = messages.map((m) => ({
+      role: m.role === "visitor" ? ("user" as const) : ("assistant" as const),
+      content: m.content,
+    }))
+
+    // Try streaming first (much faster TTFT). Fall back to buffered JSON if
+    // the browser/network refuses streaming for any reason.
     try {
-      const history = messages.map((m) => ({
-        role: m.role === "visitor" ? ("user" as const) : ("assistant" as const),
-        content: m.content,
-      }))
-      const res = await fetch("/api/chat", {
+      const streamed = await streamChatReply(aiMsgId, trimmed, history)
+      if (!streamed) await bufferedChatReply(aiMsgId, trimmed, history)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong")
+    } finally {
+      setSending(false)
+      inputRef.current?.focus()
+    }
+  }
+
+  async function streamChatReply(
+    aiMsgId: string,
+    trimmed: string,
+    history: { role: "user" | "assistant"; content: string }[],
+  ): Promise<boolean> {
+    if (typeof fetch === "undefined" || !("ReadableStream" in window)) {
+      return false
+    }
+    let res: Response
+    try {
+      res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          accept: "text/event-stream",
+        },
         body: JSON.stringify({
           spaId,
           sessionId,
           message: trimmed,
           history,
           consentGiven: consent,
-          sourceUrl: parentUrl || (typeof window !== "undefined" ? window.location.href : undefined),
+          sourceUrl:
+            parentUrl ||
+            (typeof window !== "undefined" ? window.location.href : undefined),
           language,
           lead: {
             name: lead.name || undefined,
@@ -460,43 +495,153 @@ export function ChatFrame({
           },
         }),
       })
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as {
-          error?: string
-          reason?: string
-        }
-        throw new Error(
-          (data && (data as { error?: string }).error) ||
-            `Request failed (${res.status})`,
-        )
-      }
-      const data = (await res.json()) as {
-        reply: string
-        disclaimerText?: string
-        disclaimerShown?: boolean
-        leadSaved?: boolean
-        leadId?: string
-        error?: string
-      }
-      const reply = (data.reply ?? "").trim() || "Sorry — could you rephrase that?"
-      if (data.disclaimerShown) {
-        setDisclaimer(data.disclaimerText || DEFAULT_DISCLAIMER)
-      }
-      if (data.leadId && !chatId) setChatId(data.leadId)
-      if (data.leadSaved) setLeadSubmitted(true)
-      const aiMsg: UiMessage = {
-        id: makeId(),
-        role: "ai",
-        content: reply,
-        timestamp: new Date().toISOString(),
-      }
-      setMessages((prev) => [...prev, aiMsg])
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong")
-    } finally {
-      setSending(false)
-      inputRef.current?.focus()
+    } catch {
+      return false
     }
+    if (!res.ok || !res.body) {
+      // Fall back to buffered JSON for any error response so the visitor
+      // still gets a useful reply.
+      return false
+    }
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ""
+    let currentEvent = "message"
+    let fullText = ""
+    let errored = false
+
+    const appendChunk = (text: string) => {
+      if (!text) return
+      fullText += text
+      setMessages((prev) =>
+        prev.map((m) => (m.id === aiMsgId ? { ...m, content: fullText } : m)),
+      )
+    }
+
+    try {
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        let nl: number
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const rawLine = buf.slice(0, nl)
+          buf = buf.slice(nl + 1)
+          // SSE separates events by a blank line; a line starting with ":"
+          // is a comment (heartbeat). Strip the trailing CR if present.
+          const line = rawLine.replace(/\r$/, "")
+          if (line === "") {
+            currentEvent = "message"
+            continue
+          }
+          if (line.startsWith(":")) continue
+          if (line.startsWith("event:")) {
+            currentEvent = line.slice(6).trim()
+            continue
+          }
+          if (!line.startsWith("data:")) continue
+          const dataStr = line.slice(5).trim()
+          if (!dataStr) continue
+          let payload: {
+            text?: string
+            disclaimerText?: string
+            disclaimerShown?: boolean
+            message?: string
+          } = {}
+          try {
+            payload = JSON.parse(dataStr) as typeof payload
+          } catch {
+            continue
+          }
+          if (currentEvent === "chunk" && typeof payload.text === "string") {
+            appendChunk(payload.text)
+          } else if (currentEvent === "meta") {
+            if (payload.disclaimerShown) {
+              setDisclaimer(payload.disclaimerText || DEFAULT_DISCLAIMER)
+            }
+          } else if (currentEvent === "error") {
+            errored = true
+            appendChunk(
+              payload.message ||
+                "I'm having a quick moment — could you rephrase that?",
+            )
+          }
+          // "done" carries the lead info; leadId isn't sent in the streaming
+          // path because it's resolved in the background.
+        }
+      }
+    } catch {
+      // Network blip mid-stream: keep what we already got, surface an error
+      // banner if we got nothing useful.
+      if (!fullText.trim()) {
+        setError("Connection dropped. Please try again.")
+      }
+      return true
+    }
+
+    if (errored && !fullText.trim()) {
+      setError("Something went wrong. Please try again.")
+    }
+    return true
+  }
+
+  async function bufferedChatReply(
+    aiMsgId: string,
+    trimmed: string,
+    history: { role: "user" | "assistant"; content: string }[],
+  ): Promise<void> {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        spaId,
+        sessionId,
+        message: trimmed,
+        history,
+        consentGiven: consent,
+        sourceUrl:
+          parentUrl ||
+          (typeof window !== "undefined" ? window.location.href : undefined),
+        language,
+        lead: {
+          name: lead.name || undefined,
+          email: lead.email || undefined,
+          phone: lead.phone || undefined,
+          service: lead.service || undefined,
+          preferredTime: lead.preferredTime || undefined,
+        },
+      }),
+    })
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string
+        reason?: string
+      }
+      throw new Error(
+        (data && (data as { error?: string }).error) ||
+          `Request failed (${res.status})`,
+      )
+    }
+    const data = (await res.json()) as {
+      reply: string
+      disclaimerText?: string
+      disclaimerShown?: boolean
+      leadSaved?: boolean
+      leadId?: string
+      error?: string
+    }
+    const reply = (data.reply ?? "").trim() || "Sorry — could you rephrase that?"
+    if (data.disclaimerShown) {
+      setDisclaimer(data.disclaimerText || DEFAULT_DISCLAIMER)
+    }
+    if (data.leadId && !chatId) setChatId(data.leadId)
+    if (data.leadSaved) setLeadSubmitted(true)
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === aiMsgId ? { ...m, content: reply } : m,
+      ),
+    )
   }
 
   async function submitLead(e: React.FormEvent) {

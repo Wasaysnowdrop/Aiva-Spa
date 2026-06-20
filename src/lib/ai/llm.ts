@@ -32,8 +32,11 @@ export type LlmProvider = "openai" | "mock"
 const DEFAULT_OPENAI_BASE_URL = "https://api.tokenrouter.com/v1"
 const DEFAULT_OPENAI_MODEL = "MiniMax-M3"
 const DEFAULT_MOCK_MODEL = "aiva-mock-1"
-const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
-const FALLBACK_TIMEOUT_MS = 45_000
+// Tight per-request timeouts: chat UX must feel snappy. The LLM usually
+// finishes in ~1-3s; anything beyond ~12s is treated as a failure and we
+// serve a canned fallback reply rather than make the visitor wait.
+const DEFAULT_REQUEST_TIMEOUT_MS = 12_000
+const FALLBACK_TIMEOUT_MS = 8_000
 // Only one model exposed on the current TokenRouter key, so the "fallback" is
 // the same model — we still retry with a fresh AbortController / shorter
 // timeout to recover from transient gateway failures.
@@ -235,7 +238,6 @@ function callMock(input: LlmChatInput): Promise<LlmChatResult> {
   const last = [...input.messages].reverse().find((m) => m.role === "user")
   const userText = (last?.content || "").toLowerCase().trim()
 
-  // Greetings
   if (
     /^(hi|hey|hello|hola|howdy|yo|good\s+(morning|afternoon|evening|night))[\s.!?]*$/i.test(
       userText,
@@ -272,8 +274,7 @@ function callMock(input: LlmChatInput): Promise<LlmChatResult> {
   }
 
   const isFirstReply = input.messages.filter((m) => m.role === "user").length <= 1
-  let reply =
-    "Happy to help — what would you like to know more about?"
+  let reply = "Happy to help — what would you like to know more about?"
 
   if (/(book|appointment|consult|schedule|avail)/.test(userText)) {
     reply =
@@ -304,4 +305,131 @@ function callMock(input: LlmChatInput): Promise<LlmChatResult> {
     model: DEFAULT_MOCK_MODEL,
     provider: "mock",
   })
+}
+
+// ----------------------------------------------------------------------------
+// Streaming
+// ----------------------------------------------------------------------------
+// `streamLlmChat` mirrors `llmChat` but yields incremental text chunks from the
+// upstream OpenAI-compatible endpoint (server-sent events). The widget renders
+// chunks as they arrive so visitors see the reply start forming within ~1s
+// instead of waiting the full LLM latency.
+
+export type StreamOptions = Omit<LlmOptions, "maxTokens"> & {
+  maxTokens?: number
+}
+
+export type StreamEvent =
+  | { type: "chunk"; text: string }
+  | { type: "done"; model: string; provider: "openai" | "mock" }
+  | { type: "error"; message: string }
+
+export type LlmStreamHandle = AsyncIterable<StreamEvent>
+
+export async function* streamLlmChat(input: LlmChatInput): LlmStreamHandle {
+  const cfg = getOpenAiConfig()
+  const provider = resolveLlmProvider()
+  const modelName = input.options?.model || cfg.model
+  const timeoutMs = input.options?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+
+  if (provider !== "openai" || !cfg.apiKey) {
+    const r = callMock(input)
+    const text = (await r).content
+    yield { type: "chunk", text }
+    yield { type: "done", model: (await r).model, provider: "mock" }
+    return
+  }
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  const signal = input.options?.signal ?? controller.signal
+
+  let res: Response
+  try {
+    res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${cfg.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: modelName,
+        messages: input.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+          ...(m.name ? { name: m.name } : {}),
+        })),
+        temperature: input.options?.temperature ?? 0.4,
+        max_tokens: input.options?.maxTokens ?? 240,
+        stream: true,
+      }),
+      signal,
+    })
+  } catch (err) {
+    clearTimeout(timeout)
+    yield {
+      type: "error",
+      message: err instanceof Error ? err.message : "network error",
+    }
+    return
+  }
+
+  if (!res.ok || !res.body) {
+    clearTimeout(timeout)
+    const errText = await res.text().catch(() => "")
+    yield {
+      type: "error",
+      message: `OpenAI stream failed (${res.status}): ${errText.slice(0, 200)}`,
+    }
+    return
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ""
+  let sawAnyChunk = false
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+
+      let idx: number
+      while ((idx = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, idx).trimEnd()
+        buf = buf.slice(idx + 1)
+        if (!line.startsWith("data:")) continue
+        const data = line.slice(5).trim()
+        if (!data || data === "[DONE]") continue
+        try {
+          const json = JSON.parse(data) as {
+            choices?: { delta?: { content?: string } }[]
+          }
+          const chunk = json.choices?.[0]?.delta?.content
+          if (chunk) {
+            sawAnyChunk = true
+            yield { type: "chunk", text: chunk }
+          }
+        } catch {
+          // ignore malformed SSE lines
+        }
+      }
+    }
+  } catch (err) {
+    clearTimeout(timeout)
+    yield {
+      type: "error",
+      message: err instanceof Error ? err.message : "stream read error",
+    }
+    return
+  } finally {
+    clearTimeout(timeout)
+  }
+
+  if (!sawAnyChunk) {
+    yield { type: "error", message: "empty stream" }
+    return
+  }
+  yield { type: "done", model: modelName, provider: "openai" }
 }
