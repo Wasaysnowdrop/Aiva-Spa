@@ -1,0 +1,154 @@
+"use client";
+
+import { Loader2, Lock, ShieldCheck } from "lucide-react";
+import { useState, useTransition } from "react";
+
+import { fakeCheckout } from "@/app/actions/subscription";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import type { PlanId } from "@/lib/subscription/plans";
+
+type CheckoutFormProps = {
+  planId: PlanId;
+  accent: string;
+};
+
+export function CheckoutForm({ planId, accent }: CheckoutFormProps) {
+  const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function onSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setSuccess(null);
+    const formData = new FormData(event.currentTarget);
+    formData.set("plan", planId);
+    formData.set("interval", interval);
+
+    startTransition(async () => {
+      const result = await fakeCheckout(formData);
+      if (!result.ok) {
+        setError(result.error ?? "Checkout failed. Please try again.");
+        return;
+      }
+      setSuccess("Plan activated! Redirecting to your dashboard…");
+      setTimeout(() => {
+        window.location.href = "/dashboard";
+      }, 900);
+    });
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="mt-6 space-y-4">
+      <div className="grid grid-cols-2 gap-2 rounded-xl border border-[#23252A] bg-[#121316] p-1 text-sm">
+        <button
+          type="button"
+          onClick={() => setInterval("monthly")}
+          className={`rounded-lg px-3 py-2 font-semibold transition ${
+            interval === "monthly"
+              ? "bg-[#1A1B1E] text-[#F7F8F8]"
+              : "text-[#8A8F98] hover:text-[#F7F8F8]"
+          }`}
+        >
+          Monthly
+        </button>
+        <button
+          type="button"
+          onClick={() => setInterval("yearly")}
+          className={`rounded-lg px-3 py-2 font-semibold transition ${
+            interval === "yearly"
+              ? "bg-[#1A1B1E] text-[#F7F8F8]"
+              : "text-[#8A8F98] hover:text-[#F7F8F8]"
+          }`}
+        >
+          Yearly <span className="text-[10px] text-[#4CB782]">save 20%</span>
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="cardName">Name on card</Label>
+        <Input
+          id="cardName"
+          name="cardName"
+          required
+          placeholder="Alex Morgan"
+          className="h-11 border-[#23252A] bg-[#121316] text-[#F7F8F8] placeholder:text-[#62666D] focus-visible:border-[#E2E54B] focus-visible:ring-[#E2E54B]/30"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="cardNumber">Card number</Label>
+        <Input
+          id="cardNumber"
+          name="cardNumber"
+          required
+          inputMode="numeric"
+          placeholder="4242 4242 4242 4242"
+          className="h-11 border-[#23252A] bg-[#121316] font-mono tracking-wider text-[#F7F8F8] placeholder:text-[#62666D] focus-visible:border-[#E2E54B] focus-visible:ring-[#E2E54B]/30"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label htmlFor="cardExpiry">Expiry</Label>
+          <Input
+            id="cardExpiry"
+            name="cardExpiry"
+            required
+            placeholder="MM/YY"
+            className="h-11 border-[#23252A] bg-[#121316] text-[#F7F8F8] placeholder:text-[#62666D] focus-visible:border-[#E2E54B] focus-visible:ring-[#E2E54B]/30"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="cardCvc">CVC</Label>
+          <Input
+            id="cardCvc"
+            name="cardCvc"
+            required
+            inputMode="numeric"
+            placeholder="123"
+            className="h-11 border-[#23252A] bg-[#121316] text-[#F7F8F8] placeholder:text-[#62666D] focus-visible:border-[#E2E54B] focus-visible:ring-[#E2E54B]/30"
+          />
+        </div>
+      </div>
+
+      {error ? (
+        <div className="rounded-xl border border-[#EB5757]/40 bg-[#EB5757]/10 px-4 py-3 text-sm text-[#EB5757]">
+          {error}
+        </div>
+      ) : null}
+      {success ? (
+        <div className="rounded-xl border border-[#4CB782]/40 bg-[#4CB782]/10 px-4 py-3 text-sm text-[#4CB782]">
+          {success}
+        </div>
+      ) : null}
+
+      <Button
+        type="submit"
+        disabled={isPending}
+        className="h-12 w-full rounded-xl text-sm font-semibold text-[#08090A] transition hover:opacity-90"
+        style={{ backgroundColor: accent }}
+      >
+        {isPending ? (
+          <>
+            <Loader2 className="size-4 animate-spin" />
+            Activating plan…
+          </>
+        ) : (
+          <>
+            <Lock className="size-4" />
+            Pay & activate plan
+          </>
+        )}
+      </Button>
+
+      <p className="flex items-center justify-center gap-1.5 text-[11px] text-[#62666D]">
+        <ShieldCheck className="size-3" />
+        Demo checkout · No real card is charged
+      </p>
+    </form>
+  );
+}

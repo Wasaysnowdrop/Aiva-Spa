@@ -1,0 +1,232 @@
+"use server"
+
+import { revalidatePath } from "next/cache"
+import { z } from "zod"
+
+import {
+  createService,
+  updateService,
+  deleteService,
+  createFaq,
+  updateFaq,
+  updateGuardrail,
+} from "@/lib/db/knowledge"
+import { updateWidgetConfig, getWidgetConfig } from "@/lib/db/widget.server"
+import { createAdminClient } from "@/lib/supabase/admin"
+import { recordAudit } from "@/lib/audit"
+import { createClient } from "@/lib/supabase/server"
+import type { FaqCategory, KnowledgeCategory } from "@/lib/supabase/types"
+
+const faqCategoryValues = ["General", "Pricing", "Booking", "Safety", "Hours"] as const
+const knowledgeCategoryValues = ["Injectables", "Skin", "Body", "Laser"] as const
+
+const serviceSchema = z.object({
+  name: z.string().min(1).max(120),
+  category: z.enum(knowledgeCategoryValues),
+  description: z.string().max(2000).optional().default(""),
+  pricingRule: z.string().max(200).optional().default(""),
+  duration: z.string().max(80).optional().default(""),
+  active: z.boolean().optional().default(true),
+})
+
+const faqSchema = z.object({
+  question: z.string().min(1).max(500),
+  answer: z.string().min(1).max(4000),
+  category: z.enum(faqCategoryValues),
+})
+
+export type KnowledgeActionResult = { ok: boolean; error?: string; id?: string }
+
+async function actorName(): Promise<string> {
+  try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return "anonymous"
+    return user.email?.split("@")[0] || user.id
+  } catch {
+    return "anonymous"
+  }
+}
+
+export async function createServiceAction(
+  input: z.infer<typeof serviceSchema>,
+): Promise<KnowledgeActionResult> {
+  const parsed = serviceSchema.safeParse(input)
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" }
+  try {
+    const result = await createService(parsed.data)
+    await recordAudit({
+      userName: await actorName(),
+      action: `kb.service_created ${result.id} (${result.name})`,
+    })
+    revalidatePath("/dashboard/knowledge-base")
+    return { ok: true, id: result.id }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Create failed" }
+  }
+}
+
+export async function updateServiceAction(
+  id: string,
+  input: z.infer<typeof serviceSchema>,
+): Promise<KnowledgeActionResult> {
+  const parsed = serviceSchema.safeParse(input)
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" }
+  try {
+    const result = await updateService({ id, ...parsed.data })
+    await recordAudit({
+      userName: await actorName(),
+      action: `kb.service_updated ${id} (${result.name}, active=${result.active})`,
+    })
+    revalidatePath("/dashboard/knowledge-base")
+    return { ok: true, id: result.id }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Update failed" }
+  }
+}
+
+export async function deleteServiceAction(
+  id: string,
+): Promise<KnowledgeActionResult> {
+  try {
+    await deleteService(id)
+    await recordAudit({
+      userName: await actorName(),
+      action: `kb.service_deleted ${id}`,
+    })
+    revalidatePath("/dashboard/knowledge-base")
+    return { ok: true, id }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Delete failed" }
+  }
+}
+
+export async function toggleServiceActiveAction(
+  id: string,
+  active: boolean,
+): Promise<KnowledgeActionResult> {
+  try {
+    const result = await updateService({ id, active })
+    await recordAudit({
+      userName: await actorName(),
+      action: `kb.service_toggled ${id} -> active=${active}`,
+    })
+    revalidatePath("/dashboard/knowledge-base")
+    return { ok: true, id: result.id }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Toggle failed" }
+  }
+}
+
+export async function createFaqAction(
+  input: z.infer<typeof faqSchema>,
+): Promise<KnowledgeActionResult> {
+  const parsed = faqSchema.safeParse(input)
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" }
+  try {
+    const result = await createFaq(parsed.data)
+    await recordAudit({
+      userName: await actorName(),
+      action: `kb.faq_created ${result.id} (${truncate(result.question, 60)})`,
+    })
+    revalidatePath("/dashboard/knowledge-base")
+    return { ok: true, id: result.id }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Create failed" }
+  }
+}
+
+export async function updateFaqAction(
+  id: string,
+  input: z.infer<typeof faqSchema>,
+): Promise<KnowledgeActionResult> {
+  const parsed = faqSchema.safeParse(input)
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" }
+  try {
+    const result = await updateFaq({ id, ...parsed.data })
+    await recordAudit({
+      userName: await actorName(),
+      action: `kb.faq_updated ${id} (${truncate(result.question, 60)})`,
+    })
+    revalidatePath("/dashboard/knowledge-base")
+    return { ok: true, id: result.id }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Update failed" }
+  }
+}
+
+export async function deleteFaqAction(
+  id: string,
+): Promise<KnowledgeActionResult> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    return { ok: false, error: "Not authenticated" }
+  }
+  try {
+    const admin = createAdminClient()
+    const { error } = await admin.from("knowledge_faqs").delete().eq("id", id)
+    if (error) throw new Error(error.message)
+    await recordAudit({
+      userName: user.email?.split("@")[0] || user.id,
+      action: `kb.faq_deleted ${id}`,
+    })
+    revalidatePath("/dashboard/knowledge-base")
+    return { ok: true, id }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Delete failed" }
+  }
+}
+
+export async function toggleGuardrailAction(
+  id: string,
+  enabled: boolean,
+): Promise<KnowledgeActionResult> {
+  try {
+    const result = await updateGuardrail({ id, enabled })
+    await recordAudit({
+      userName: await actorName(),
+      action: `kb.guardrail_toggled ${id} -> enabled=${enabled} (${truncate(result.title, 60)})`,
+    })
+    revalidatePath("/dashboard/knowledge-base")
+    return { ok: true, id: result.id }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Toggle failed" }
+  }
+}
+
+const consentSchema = z.object({
+  consentText: z.string().min(1).max(2000),
+})
+
+export async function updateConsentTextAction(
+  input: z.infer<typeof consentSchema>,
+): Promise<KnowledgeActionResult> {
+  const parsed = consentSchema.safeParse(input)
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" }
+  try {
+    const existing = await getWidgetConfig()
+    if (!existing) return { ok: false, error: "No widget config found" }
+    await updateWidgetConfig({ consentText: parsed.data.consentText })
+    await recordAudit({
+      userName: await actorName(),
+      action: `widget.consent_text_updated`,
+    })
+    revalidatePath("/dashboard/knowledge-base")
+    revalidatePath("/dashboard/widget")
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Save failed" }
+  }
+}
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n - 1) + "…" : s
+}
+
+export type KnowledgeCategoryForForm = KnowledgeCategory
+export type FaqCategoryForForm = FaqCategory

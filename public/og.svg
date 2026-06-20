@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B0C0E"/>
+      <stop offset="1" stop-color="#161719"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#E2E54B"/>
+      <stop offset="1" stop-color="#A3E635"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.85" cy="0.3" r="0.5">
+      <stop offset="0" stop-color="#E2E54B" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#E2E54B" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <!-- subtle grid -->
+  <g stroke="#23252A" stroke-width="1" opacity="0.35">
+    <line x1="0" y1="105" x2="1200" y2="105"/>
+    <line x1="0" y1="210" x2="1200" y2="210"/>
+    <line x1="0" y1="315" x2="1200" y2="315"/>
+    <line x1="0" y1="420" x2="1200" y2="420"/>
+    <line x1="0" y1="525" x2="1200" y2="525"/>
+    <line x1="240" y1="0" x2="240" y2="630"/>
+    <line x1="480" y1="0" x2="480" y2="630"/>
+    <line x1="720" y1="0" x2="720" y2="630"/>
+    <line x1="960" y1="0" x2="960" y2="630"/>
+  </g>
+
+  <!-- logo mark -->
+  <g transform="translate(96, 96)">
+    <rect x="0" y="0" width="64" height="64" rx="16" fill="#E2E54B"/>
+    <path d="M16 32 L28 44 L48 20" fill="none" stroke="#0B0C0E" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <text x="180" y="138" fill="#F7F8F8" font-family="ui-sans-serif, system-ui, sans-serif" font-size="32" font-weight="700">AivaSpa</text>
+
+  <!-- hero text -->
+  <text x="96" y="320" fill="#F7F8F8" font-family="ui-sans-serif, system-ui, sans-serif" font-size="68" font-weight="800">The 24/7 AI receptionist</text>
+  <text x="96" y="395" fill="#F7F8F8" font-family="ui-sans-serif, system-ui, sans-serif" font-size="68" font-weight="800">for med spas.</text>
+
+  <text x="96" y="455" fill="#A1A1AA" font-family="ui-sans-serif, system-ui, sans-serif" font-size="26" font-weight="500">Answers from your KB. Captures leads. Pages your team.</text>
+
+  <!-- pill tags -->
+  <g transform="translate(96, 500)">
+    <g>
+      <rect x="0" y="0" width="155" height="44" rx="22" fill="#161719" stroke="#2A2C32"/>
+      <text x="78" y="29" text-anchor="middle" fill="#F7F8F8" font-family="ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="600">Lead capture</text>
+    </g>
+    <g transform="translate(170, 0)">
+      <rect x="0" y="0" width="180" height="44" rx="22" fill="#161719" stroke="#2A2C32"/>
+      <text x="90" y="29" text-anchor="middle" fill="#F7F8F8" font-family="ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="600">Calendar booking</text>
+    </g>
+    <g transform="translate(365, 0)">
+      <rect x="0" y="0" width="175" height="44" rx="22" fill="#161719" stroke="#2A2C32"/>
+      <text x="88" y="29" text-anchor="middle" fill="#F7F8F8" font-family="ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="600">Webhooks + API</text>
+    </g>
+  </g>
+
+  <!-- url -->
+  <text x="96" y="585" fill="#71717A" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="500">aivaspa.online</text>
+
+  <!-- accent corner -->
+  <circle cx="1100" cy="540" r="180" fill="none" stroke="url(#accent)" stroke-width="2" opacity="0.5"/>
+  <circle cx="1100" cy="540" r="120" fill="none" stroke="url(#accent)" stroke-width="2" opacity="0.7"/>
+</svg>
