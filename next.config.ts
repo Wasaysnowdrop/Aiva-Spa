@@ -6,10 +6,12 @@ function parseEmbedOrigins(): string[] {
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean)
+  // Default: allow any site to frame the embed so the widget works out of
+  // the box on a customer's own website. Set EMBED_ALLOWED_ORIGINS in Vercel
+  // to a comma-separated list (e.g. "https://myspa.com,https://www.myspa.com")
+  // to lock it down to specific domains. Use "*" to explicitly opt in to all.
   if (parsed.length > 0) return parsed
-  return process.env.NODE_ENV === "production"
-    ? []
-    : ["http://localhost:3000", "http://127.0.0.1:3000"]
+  return ["*"]
 }
 
 const embedOrigins = parseEmbedOrigins()
@@ -17,10 +19,10 @@ const frameAncestorsValue = embedOrigins.includes("*")
   ? "*"
   : embedOrigins.length > 0
     ? embedOrigins.join(" ")
-    : "'none'"
+    : "*"
 
 const embedSecurityHeaders = [
-  { key: "X-Frame-Options", value: frameAncestorsValue === "*" ? "ALLOWALL" : "SAMEORIGIN" },
+  { key: "X-Frame-Options", value: "ALLOWALL" },
   {
     key: "Content-Security-Policy",
     value: `frame-ancestors ${frameAncestorsValue};`,
