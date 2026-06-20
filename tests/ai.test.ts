@@ -12,6 +12,7 @@ import { emptyKnowledgeBase } from "@/lib/ai/setup-assistant-schema"
 import { buildSystemPrompt } from "@/lib/ai/prompt"
 import { isAfterHours } from "@/lib/ai/working-hours"
 import { buildLanguageDirective, isSupportedLanguage } from "@/lib/i18n"
+import { kbAwareFallback, isOffTopicMessage } from "@/lib/ai/fallback"
 
 const baseKb: KnowledgeBundle = {
   services: [
@@ -344,6 +345,13 @@ describe("system prompt", () => {
     expect(system).toMatch(/We're off-hours right now/i)
   })
 
+  it("includes a worked example for an off-topic / medical-advice request that refuses politely and redirects to services", () => {
+    const { system } = buildSystemPrompt(baseKb, "hi")
+    expect(system).toMatch(/recommend a medicine for my back pain/i)
+    expect(system).toMatch(/I'm not able to recommend medicines/i)
+    expect(system).toMatch(/set up a consult/i)
+  })
+
   it("describes all five tone presets in human terms", () => {
     const { system } = buildSystemPrompt(baseKb, "hi")
     expect(system).toMatch(/"warm"/i)
@@ -413,5 +421,67 @@ describe("language directive integration", () => {
   it("is supported by the isSupportedLanguage guard", () => {
     expect(isSupportedLanguage("es")).toBe(true)
     expect(isSupportedLanguage("xx")).toBe(false)
+  })
+})
+
+describe("kb-aware fallback (no LLM available)", () => {
+  it("refuses medical-advice requests with a grounded, on-brand message", () => {
+    const reply = kbAwareFallback(
+      "can you recommend a medicine for belly pain",
+      baseKb,
+    )
+    expect(reply).not.toMatch(/happy to help/i)
+    expect(reply).toMatch(/not able to recommend medicines/i)
+    expect(reply).toMatch(/Glow Med Spa/)
+    // Should still mention a real service from the KB so the visitor has a next step.
+    expect(reply.toLowerCase()).toContain("botox")
+  })
+
+  it("refuses 'what should I take for…' questions politely", () => {
+    const reply = kbAwareFallback("what should i take for headache", baseKb)
+    expect(reply).toMatch(/not able to recommend medicines/i)
+  })
+
+  it("flags obvious off-topic trivia as off-topic", () => {
+    expect(isOffTopicMessage("what's the capital of France")).toBe(true)
+    expect(isOffTopicMessage("recommend me a painkiller")).toBe(true)
+    expect(isOffTopicMessage("Do you offer Botox?")).toBe(false)
+    expect(isOffTopicMessage("How much is a facial?")).toBe(false)
+  })
+
+  it("answers FAQ-style questions verbatim from the KB", () => {
+    const reply = kbAwareFallback("how do I book a consultation", baseKb)
+    expect(reply).toContain("Our team will confirm")
+    expect(reply).toMatch(/1 business hour/i)
+  })
+
+  it("recommends a KB service when the visitor names it", () => {
+    const reply = kbAwareFallback("Do you do HydraFacial?", baseKb)
+    expect(reply).toMatch(/HydraFacial/i)
+  })
+
+  it("falls back to the first active service when nothing matches", () => {
+    const reply = kbAwareFallback(
+      "I have a question about something vague",
+      baseKb,
+    )
+    expect(reply.toLowerCase()).toContain("botox")
+    expect(reply).toMatch(/what's on your mind|happy to help/i)
+  })
+
+  it("handles booking intent with the lead-capture prompt or KB FAQ", () => {
+    const reply = kbAwareFallback("can I book an appointment tomorrow?", baseKb)
+    // Either the KB FAQ ("how do I book") matched, or the generic booking
+    // prompt. Both are acceptable; the contract is that the reply points
+    // the visitor at the lead-capture flow.
+    expect(
+      /share your name, phone.*treatment/i.test(reply) ||
+        /share your name, phone, email.*preferred time/i.test(reply),
+    ).toBe(true)
+  })
+
+  it("handles pricing intent with the provider-deferral line", () => {
+    const reply = kbAwareFallback("how much does it cost?", baseKb)
+    expect(reply).toMatch(/licensed provider confirms/i)
   })
 })

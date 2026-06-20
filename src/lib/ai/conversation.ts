@@ -3,6 +3,7 @@ import { buildSystemPrompt } from "./prompt"
 import { loadKnowledge, invalidateKnowledgeCache } from "./retrieval"
 import { isAfterHours } from "./working-hours"
 import { detectHumanGreeting } from "./greetings"
+import { kbAwareFallback } from "./fallback"
 import type { KnowledgeBundle } from "./retrieval"
 import {
   buildLanguageDirective,
@@ -266,7 +267,7 @@ export async function streamConversationTurn(
     console.warn(
       `[conversation] LLM stream failed (${err instanceof Error ? err.message : "unknown"}), serving canned fallback`,
     )
-    const fb = gracefulCannedReply(messages)
+    const fb = gracefulCannedReply(messages, kb)
     if (streamed && fullText.trim().length > 0) {
       // Mid-stream failure: append fallback as a continuation so the visitor
       // still gets a complete-looking reply.
@@ -296,7 +297,7 @@ export async function streamConversationTurn(
   }
 
   if (!streamed || !fullText.trim()) {
-    const fb = gracefulCannedReply(messages)
+    const fb = gracefulCannedReply(messages, kb)
     const delta = fb.slice(fullText.length)
     if (delta) {
       fullText += delta
@@ -326,12 +327,19 @@ export async function streamConversationTurn(
   }
 }
 
-// Deterministic canned reply used when the LLM is unavailable. Kept local so
-// we don't depend on the (large) `llm.ts` fallback array.
-function gracefulCannedReply(messages: ChatMessage[]): string {
+// Deterministic canned reply used when the LLM is unavailable. KB-aware:
+// looks up the visitor's actual message against the spa's services + FAQs
+// (using the same retrieval the LLM would use), so even when the model is
+// down or `OPENAI_API_KEY` is empty the visitor gets a relevant answer —
+// or a polite, grounded refusal if the question is clearly out of scope.
+// All this runs synchronously against the cached KB (60s TTL), so the reply
+// is delivered instantly with no model latency.
+function gracefulCannedReply(
+  messages: ChatMessage[],
+  kb: KnowledgeBundle,
+): string {
   const last = [...messages].reverse().find((m) => m.role === "user")
-  const userText = (last?.content || "").toLowerCase().trim()
-  const isFirstReply = messages.filter((m) => m.role === "user").length <= 1
+  const userText = (last?.content || "").trim()
 
   if (/^(hi|hey|hello|hola|howdy|yo|good\s+(morning|afternoon|evening|night))[\s.!?]*$/i.test(userText)) {
     return "Hi there! What brings you in today?"
@@ -339,19 +347,10 @@ function gracefulCannedReply(messages: ChatMessage[]): string {
   if (/^(thanks|thank you|thx|ty)\b/i.test(userText)) {
     return "Anytime! Let me know if anything else comes up."
   }
-  if (/(book|appointment|consult|schedule)/.test(userText)) {
-    return "Happy to help you book. Could you share your name, phone, and the treatment you're interested in? Our team will confirm within 1 business hour."
-  }
-  if (/(hour|open|close|when)/.test(userText)) {
-    return "Our typical hours are Tue–Fri 9 AM–7 PM, Sat 9 AM–5 PM, and Sun 11 AM–4 PM (closed Mon). I am here 24/7 and the team will follow up on any leads."
-  }
-  if (/(price|cost|how much)/.test(userText)) {
-    return "Pricing varies by treatment and individual needs — a licensed provider confirms exact pricing during your consultation. Want to book a free consult?"
-  }
-  if (isFirstReply) {
-    return "Hey — what can I help you with today?"
-  }
-  return "Happy to help — what would you like to know more about?"
+
+  // Hand off to the KB-aware fallback so the actual question is always
+  // addressed (not replaced with a generic opener).
+  return kbAwareFallback(userText, kb)
 }
 
 export function buildSummaryForStaff(lead: Lead): string {

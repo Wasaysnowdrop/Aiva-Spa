@@ -1,3 +1,6 @@
+import { kbAwareFallback } from "./fallback"
+import { loadKnowledge } from "./retrieval"
+
 export type ChatRole = "system" | "user" | "assistant" | "tool"
 
 export type ChatMessage = {
@@ -78,13 +81,13 @@ export async function llmChat(input: LlmChatInput): Promise<LlmChatResult> {
   return callMock(input)
 }
 
-function gracefulFallback(input: LlmChatInput): LlmChatResult {
+function gracefulFallback(input: LlmChatInput): Promise<LlmChatResult> {
   const last = [...input.messages].reverse().find((m) => m.role === "user")
-  const userText = (last?.content || "").toLowerCase().trim()
+  const userText = (last?.content || "").trim()
 
-  const isFirstReply = input.messages.filter((m) => m.role === "user").length <= 1
-
-  // Greetings — warm opener, no lead-capture, no treatment push
+  // Greetings — warm opener, no lead-capture, no treatment push.
+  // Short-circuited so we never answer a greeting with a service
+  // recommendation or a refusal.
   if (
     /^(hi|hey|hello|hola|howdy|yo|good\s+(morning|afternoon|evening|night))[\s.!?]*$/i.test(
       userText,
@@ -95,43 +98,37 @@ function gracefulFallback(input: LlmChatInput): LlmChatResult {
       "Hey — glad you stopped by. Anything specific you're thinking about, or just looking around?",
       "Hello! Are you here about a treatment, or just kicking the tires?",
     ]
-    return {
+    return Promise.resolve({
       content: openers[Math.floor(Math.random() * openers.length)] as string,
       model: "aiva-fallback",
       provider: "mock",
-    }
+    })
   }
 
   if (/^(thanks|thank you|thx|ty)\b/i.test(userText)) {
-    return {
+    return Promise.resolve({
       content: "Anytime! Let me know if anything else comes up.",
       model: "aiva-fallback",
       provider: "mock",
-    }
+    })
   }
 
-  // Real content
-  let content =
-    "Happy to help — what would you like to know more about?"
-  if (/(\bhow much\b|\bwhat(?:'s| is) the price\b|\bcost\b|\bprice (for|of)\b)/i.test(userText)) {
-    content =
-      "Pricing depends on the treatment and what's right for you — that's why we confirm exact numbers during a consult. There's no hard number I can quote here, but the team can give you a real quote once they know which treatment and which area. Want to set one up?"
-  } else if (/(book|appointment|consult|schedule)/.test(userText)) {
-    content =
-      "Happy to help you book. Could you share your name, phone, and the treatment you're interested in? Our team will confirm within 1 business hour."
-  } else if (/(price|cost|how much)/.test(userText)) {
-    content =
-      "Pricing varies by treatment and individual needs — a licensed provider confirms exact pricing during your consultation. Want to book a free consult?"
-  } else if (/(hour|open|close|when)/.test(userText)) {
-    content =
-      "Our typical hours are Tue–Fri 9 AM–7 PM, Sat 9 AM–5 PM, and Sun 11 AM–4 PM (closed Mon). I am here 24/7 and the team will follow up on any leads."
-  } else if (/(who are you|are you (a |an )?(bot|ai|human|real)|your name)/i.test(userText)) {
-    content =
-      "I'm AivaSpa — the front-desk person here. I help with treatment questions and booking consults. What brings you in today?"
-  } else if (isFirstReply) {
-    content = "Hey — what can I help you with today?"
-  }
-  return { content, model: "aiva-fallback", provider: "mock" }
+  // Everything else: hand off to the KB-aware fallback so the actual
+  // question is addressed — a relevant KB entry, a polite refusal, or
+  // a service-anchored clarification. Synchronous against the cached KB,
+  // so the reply lands instantly instead of a generic canned opener.
+  // `loadKnowledge` has a 60s in-memory cache so this is cheap.
+  return loadKnowledge()
+    .then((kb) => ({
+      content: kbAwareFallback(userText, kb),
+      model: "aiva-fallback",
+      provider: "mock" as const,
+    }))
+    .catch(() => ({
+      content: "Happy to help — what would you like to know more about?",
+      model: "aiva-fallback",
+      provider: "mock" as const,
+    }))
 }
 
 async function callOpenAiWithFallback(input: LlmChatInput): Promise<LlmChatResult> {
@@ -236,7 +233,7 @@ function stripThinkBlocks(raw: string): string {
 
 function callMock(input: LlmChatInput): Promise<LlmChatResult> {
   const last = [...input.messages].reverse().find((m) => m.role === "user")
-  const userText = (last?.content || "").toLowerCase().trim()
+  const userText = (last?.content || "").trim()
 
   if (
     /^(hi|hey|hello|hola|howdy|yo|good\s+(morning|afternoon|evening|night))[\s.!?]*$/i.test(
@@ -273,38 +270,21 @@ function callMock(input: LlmChatInput): Promise<LlmChatResult> {
     })
   }
 
-  const isFirstReply = input.messages.filter((m) => m.role === "user").length <= 1
-  let reply = "Happy to help — what would you like to know more about?"
-
-  if (/(book|appointment|consult|schedule|avail)/.test(userText)) {
-    reply =
-      "Great, I can help you book a consultation. Could you share your name, phone, email, and the treatment you're interested in? I'll pass it to the team and they'll confirm within 1 business hour."
-  } else if (/(botox|filler|facial|laser|microneedl|coolsculpt|em sculpt|hydra)/.test(userText)) {
-    reply =
-      "Yes, we offer that treatment. Pricing depends on the units or area and is confirmed by a licensed provider during your consultation. Want me to set up a quick chat with our team?"
-  } else if (/(price|cost|how much|expensive|cheap)/.test(userText)) {
-    reply =
-      "Pricing varies by treatment and individual needs — a licensed provider confirms exact pricing during your consultation. Would you like to book a free consult so we can give you an accurate quote?"
-  } else if (/(hour|open|close|when|day)/.test(userText)) {
-    reply =
-      "Our typical hours are Tue–Fri 9 AM–7 PM, Sat 9 AM–5 PM, and Sun 11 AM–4 PM (closed Mon). I'm available 24/7 right here, and our team will follow up on any leads."
-  } else if (isFirstReply) {
-    const openers = [
-      "Hey — what can I help you with today?",
-      "Hi there! What's on your mind?",
-      "Hello! What brings you in?",
-    ]
-    reply = openers[Math.floor(Math.random() * openers.length)] as string
-  } else if (input.messages.length > 8) {
-    reply =
-      "I'd love to get you to the right person. Could I take your name, phone, and a quick note about what you're looking for? Our team will follow up shortly."
-  }
-
-  return Promise.resolve({
-    content: reply,
-    model: DEFAULT_MOCK_MODEL,
-    provider: "mock",
-  })
+  // Everything else: route through the KB-aware fallback. This guarantees
+  // that even when `OPENAI_API_KEY` is empty (so `callMock` is the entire
+  // engine) the visitor gets a relevant answer from the spa's knowledge
+  // base — or a polite, KB-grounded refusal if the question is off-topic.
+  return loadKnowledge()
+    .then((kb) => ({
+      content: kbAwareFallback(userText, kb),
+      model: DEFAULT_MOCK_MODEL,
+      provider: "mock" as const,
+    }))
+    .catch(() => ({
+      content: "Happy to help — what would you like to know more about?",
+      model: DEFAULT_MOCK_MODEL,
+      provider: "mock" as const,
+    }))
 }
 
 // ----------------------------------------------------------------------------
