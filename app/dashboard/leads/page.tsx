@@ -7,7 +7,7 @@ import { DashboardHeader } from "@/components/dashboard/dashboard-header"
 import { LeadsInbox } from "@/components/dashboard/leads-inbox"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { getLeads } from "@/lib/leads"
-import { getNotificationChannels } from "@/lib/db/notifications"
+import { getNotificationChannelsServer } from "@/lib/db/notifications.server"
 
 export const metadata: Metadata = {
   title: "Leads | AivaSpa Dashboard",
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 export default async function LeadsPage() {
   const [leads, channels] = await Promise.all([
     getLeads(),
-    getNotificationChannels().catch(() => []),
+    getNotificationChannelsServer(),
   ])
 
   const emailChannel = channels.find((c) => c.channel === "email")

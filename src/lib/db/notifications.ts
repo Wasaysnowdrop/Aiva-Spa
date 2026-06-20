@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client"
+import { createClient as createBrowserClient } from "@/lib/supabase/client"
 import type {
   NotificationLog,
   NotificationChannel,
@@ -10,18 +10,67 @@ import {
   mapNotificationChannelConfig,
 } from "@/lib/supabase/types"
 
-export async function getNotificationLogs(): Promise<NotificationLog[]> {
-  const supabase = createClient()
-  const { data, error } = await supabase
-    .from("notification_logs")
-    .select("*")
-    .order("sent_at", { ascending: false })
-    .limit(20)
+export async function getNotificationChannelsClient(): Promise<
+  NotificationChannelConfig[]
+> {
+  try {
+    const supabase = createBrowserClient()
+    const { data, error } = await supabase
+      .from("notification_channels")
+      .select("*")
+      .order("channel")
+    if (error) {
+      console.error("[notifications] client getNotificationChannels failed:", error.message)
+      return []
+    }
+    return (data ?? []).map((row: Record<string, unknown>) =>
+      mapNotificationChannelConfig(row),
+    )
+  } catch (e) {
+    console.error("[notifications] client getNotificationChannels threw:", e)
+    return []
+  }
+}
 
-  if (error) throw new Error(error.message)
-  return (data ?? []).map((row) =>
-    mapNotificationLog(row as Record<string, unknown>),
-  )
+export async function updateNotificationChannelClient(
+  id: string,
+  update: { enabled?: boolean; recipients?: string[] },
+): Promise<NotificationChannelConfig | null> {
+  try {
+    const supabase = createBrowserClient()
+    const payload: Record<string, unknown> = {}
+    if ("enabled" in update) payload.enabled = update.enabled
+    if ("recipients" in update) payload.recipients = update.recipients
+    const { data, error } = await supabase
+      .from("notification_channels")
+      .update(payload as never)
+      .eq("id", id)
+      .select()
+      .single()
+    if (error) {
+      console.error("[notifications] client updateNotificationChannel failed:", error.message)
+      return null
+    }
+    return mapNotificationChannelConfig(data as Record<string, unknown>)
+  } catch (e) {
+    console.error("[notifications] client updateNotificationChannel threw:", e)
+    return null
+  }
+}
+
+// Backwards-compatible names. These default to the browser client because
+// that's what the existing client component (`settings-view.tsx`) needs.
+// Server components that want to read channels should call
+// `getNotificationChannelsServer` from `@/lib/db/notifications.server`.
+export async function getNotificationChannels(): Promise<NotificationChannelConfig[]> {
+  return getNotificationChannelsClient()
+}
+
+export async function updateNotificationChannel(
+  id: string,
+  update: { enabled?: boolean; recipients?: string[] },
+): Promise<NotificationChannelConfig | null> {
+  return updateNotificationChannelClient(id, update)
 }
 
 export type NotificationLogInsert = {
@@ -32,57 +81,50 @@ export type NotificationLogInsert = {
   status: NotificationStatus
 }
 
+export async function getNotificationLogs(): Promise<NotificationLog[]> {
+  try {
+    const supabase = createBrowserClient()
+    const { data, error } = await supabase
+      .from("notification_logs")
+      .select("*")
+      .order("sent_at", { ascending: false })
+      .limit(20)
+    if (error) {
+      console.error("[notifications] client getNotificationLogs failed:", error.message)
+      return []
+    }
+    return (data ?? []).map((row: Record<string, unknown>) =>
+      mapNotificationLog(row),
+    )
+  } catch (e) {
+    console.error("[notifications] client getNotificationLogs threw:", e)
+    return []
+  }
+}
+
 export async function createNotificationLog(
   log: NotificationLogInsert,
-): Promise<NotificationLog> {
-  const supabase = createClient()
-  const { data, error } = await supabase
-    .from("notification_logs")
-    .insert({
-      lead_id: log.leadId,
-      lead_name: log.leadName,
-      channel: log.channel,
-      recipient: log.recipient,
-      status: log.status,
-    } as never)
-    .select()
-    .single()
-
-  if (error) throw new Error(error.message)
-  return mapNotificationLog(data as Record<string, unknown>)
-}
-
-export async function getNotificationChannels(): Promise<
-  NotificationChannelConfig[]
-> {
-  const supabase = createClient()
-  const { data, error } = await supabase
-    .from("notification_channels")
-    .select("*")
-    .order("channel")
-
-  if (error) throw new Error(error.message)
-  return (data ?? []).map((row) =>
-    mapNotificationChannelConfig(row as Record<string, unknown>),
-  )
-}
-
-export async function updateNotificationChannel(
-  id: string,
-  update: { enabled?: boolean; recipients?: string[] },
-): Promise<NotificationChannelConfig> {
-  const supabase = createClient()
-  const payload: Record<string, unknown> = {}
-  if ("enabled" in update) payload.enabled = update.enabled
-  if ("recipients" in update) payload.recipients = update.recipients
-
-  const { data, error } = await supabase
-    .from("notification_channels")
-    .update(payload as never)
-    .eq("id", id)
-    .select()
-    .single()
-
-  if (error) throw new Error(error.message)
-  return mapNotificationChannelConfig(data as Record<string, unknown>)
+): Promise<NotificationLog | null> {
+  try {
+    const supabase = createBrowserClient()
+    const { data, error } = await supabase
+      .from("notification_logs")
+      .insert({
+        lead_id: log.leadId,
+        lead_name: log.leadName,
+        channel: log.channel,
+        recipient: log.recipient,
+        status: log.status,
+      } as never)
+      .select()
+      .single()
+    if (error) {
+      console.error("[notifications] client createNotificationLog failed:", error.message)
+      return null
+    }
+    return mapNotificationLog(data as Record<string, unknown>)
+  } catch (e) {
+    console.error("[notifications] client createNotificationLog threw:", e)
+    return null
+  }
 }
