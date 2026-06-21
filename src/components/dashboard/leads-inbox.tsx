@@ -18,6 +18,7 @@ import {
 
 import { LeadStatusBadge } from "@/components/dashboard/lead-status-badge"
 import { Button } from "@/components/ui/button"
+import { AddLeadDialog } from "@/components/dashboard/add-lead-dialog"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -95,6 +96,7 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
   const [mergePrimary, setMergePrimary] = React.useState<Lead | null>(null)
   const [mergeCandidates, setMergeCandidates] = React.useState<Candidate[]>([])
   const [mergeOpen, setMergeOpen] = React.useState(false)
+  const [addOpen, setAddOpen] = React.useState(false)
 
   const services = React.useMemo(
     () => Array.from(new Set(safeLeads.map((l) => l?.service).filter(Boolean) as string[])).sort(),
@@ -223,7 +225,7 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
             <Download className="size-4" />
             Export
           </Button>
-          <Button size="sm" className="bg-[#E2E54B] text-[#08090A] hover:bg-[#E2E54B]/90">
+          <Button size="sm" className="bg-[#E2E54B] text-[#08090A] hover:bg-[#E2E54B]/90" onClick={() => setAddOpen(true)}>
             <Plus className="size-4" />
             Add lead
           </Button>
@@ -432,6 +434,16 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
         candidates={mergeCandidates}
         onMerged={() => {
           void scanDuplicates()
+        }}
+      />
+
+      <AddLeadDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        onCreated={(id) => {
+          if (typeof window !== "undefined") {
+            console.log("[aivaspa] manual lead created:", id)
+          }
         }}
       />
     </div>

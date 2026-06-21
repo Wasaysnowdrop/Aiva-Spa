@@ -1,10 +1,14 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+
 import { createClient } from "@/lib/supabase/server";
 import { invalidateKnowledgeCache } from "@/lib/ai/retrieval";
 import { recordAudit } from "@/lib/audit";
 
-export type WidgetActionResult = { ok: boolean; error?: string };
+export type WidgetActionResult<T = void> =
+  | { ok: true; data?: T }
+  | { ok: false; error?: string };
 
 type WorkingHoursInput = {
   enabled?: boolean;
@@ -81,6 +85,14 @@ export type NotificationChannelUpdate = {
   recipients?: string[];
 };
 
+export type CreateNotificationChannelInput = {
+  channel: "email" | "sms" | "daily_summary";
+  label: string;
+  description?: string;
+  enabled?: boolean;
+  recipients?: string[];
+};
+
 export async function updateNotificationChannel(
   update: NotificationChannelUpdate,
 ): Promise<WidgetActionResult> {
@@ -105,4 +117,73 @@ export async function updateNotificationChannel(
     action: `notifications.channel_updated ${update.id} (enabled=${update.enabled ?? "?"}, recipients=${update.recipients?.length ?? "?"})`,
   });
   return { ok: true };
+}
+
+export async function createNotificationChannelAction(
+  input: CreateNotificationChannelInput,
+): Promise<WidgetActionResult<{ id: string }>> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Not authenticated" };
+
+  const channel = (input.channel ?? "").trim();
+  const label = (input.label ?? "").trim();
+  if (!channel) return { ok: false, error: "Channel type is required" };
+  if (!label) return { ok: false, error: "Channel label is required" };
+
+  const { data: existing } = await supabase
+    .from("notification_channels")
+    .select("id")
+    .eq("channel", channel)
+    .maybeSingle();
+  const existingRow = existing as { id: string } | null;
+
+  if (existingRow?.id) {
+    const recipients = Array.isArray(input.recipients) ? input.recipients : [];
+    const updatePayload: Record<string, unknown> = {
+      enabled: input.enabled ?? true,
+      updated_at: new Date().toISOString(),
+    };
+    if (recipients.length > 0) {
+      updatePayload.label = label;
+      updatePayload.description = input.description ?? updatePayload.description;
+      updatePayload.recipients = recipients;
+    }
+    const { error } = await supabase
+      .from("notification_channels")
+      .update(updatePayload as never)
+      .eq("id", existingRow.id);
+    if (error) return { ok: false, error: error.message };
+    await recordAudit({
+      userName: user.email?.split("@")[0] || user.id,
+      action: `notifications.channel_upserted ${channel} (id=${existingRow.id})`,
+    });
+    revalidatePath("/dashboard/settings");
+    return { ok: true, data: { id: existingRow.id } };
+  }
+
+  const insertPayload = {
+    channel,
+    label,
+    description: input.description ?? "",
+    enabled: input.enabled ?? true,
+    recipients: Array.isArray(input.recipients) ? input.recipients : [],
+  };
+
+  const { data, error } = await supabase
+    .from("notification_channels")
+    .insert(insertPayload as never)
+    .select("id")
+    .single();
+  if (error) return { ok: false, error: error.message };
+  const inserted = data as { id: string } | null;
+
+  await recordAudit({
+    userName: user.email?.split("@")[0] || user.id,
+    action: `notifications.channel_created ${channel} (id=${inserted?.id})`,
+  });
+  revalidatePath("/dashboard/settings");
+  return { ok: true, data: { id: inserted?.id ?? "" } };
 }

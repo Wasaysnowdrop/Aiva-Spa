@@ -13,7 +13,7 @@ import {
   type MergeLeadsOptions,
 } from "@/lib/leads/dedup"
 import { recordAudit } from "@/lib/audit"
-import type { Lead, MergedLeadEntry } from "@/lib/supabase/types"
+import { mapLead, type Lead, type MergedLeadEntry } from "@/lib/supabase/types"
 import { fireEventForAll } from "@/lib/webhooks"
 import { sendEmail, buildLeadNotificationEmail } from "@/lib/notifications/email"
 import { sendSms, buildLeadNotificationSms } from "@/lib/notifications/sms"
@@ -176,6 +176,129 @@ export async function unmergeLeadAction(secondaryLeadId: string): Promise<LeadAc
 }
 
 export type MergeHistoryEntry = MergedLeadEntry
+
+export type CreateLeadInput = {
+  name: string
+  phone: string
+  email?: string
+  service: string
+  preferredTime?: string
+  notes?: string
+  source?: "Website Chat" | "Mobile" | "Direct Link"
+  sourceUrl?: string
+  consentGiven?: boolean
+  status?: "new" | "contacted" | "booked" | "lost"
+}
+
+export async function createLeadAction(
+  input: CreateLeadInput,
+): Promise<LeadActionResult<Lead>> {
+  await requireUser()
+  try {
+    const name = (input.name ?? "").trim()
+    const phone = (input.phone ?? "").trim()
+    const email = (input.email ?? "").trim()
+    const service = (input.service ?? "").trim()
+    const preferredTime = (input.preferredTime ?? "").trim() || "Not specified"
+    if (!name) return { ok: false, error: "Name is required" }
+    if (!phone) return { ok: false, error: "Phone is required" }
+    if (!service) return { ok: false, error: "Service is required" }
+
+    const supabase = await createClient()
+    const digits = phone.replace(/[^\d]/g, "").slice(-10)
+    const emailNormalized = email.toLowerCase()
+
+    let existing: { id: string } | null = null
+    if (digits) {
+      const { data: byPhone } = await supabase
+        .from("leads")
+        .select("id, merged_into_id")
+        .eq("phone_normalized", digits)
+        .is("merged_into_id", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const row = byPhone as { id: string } | null
+      if (row?.id) existing = row
+    }
+    if (!existing && emailNormalized) {
+      const { data: byEmail } = await supabase
+        .from("leads")
+        .select("id, merged_into_id")
+        .eq("email_normalized", emailNormalized)
+        .is("merged_into_id", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const row = byEmail as { id: string } | null
+      if (row?.id) existing = row
+    }
+
+    if (existing?.id) {
+      return {
+        ok: false,
+        error: "A lead with this phone or email already exists. Open the existing lead to update it.",
+      }
+    }
+
+    const payload = {
+      name,
+      phone,
+      email,
+      phone_normalized: digits,
+      email_normalized: emailNormalized,
+      service,
+      preferred_time: preferredTime,
+      source: (input.source ?? "Direct Link") as "Website Chat" | "Mobile" | "Direct Link",
+      source_url: (input.sourceUrl ?? "/").slice(0, 2000),
+      after_hours: false,
+      notes: input.notes?.trim() || null,
+      transcript: [] as unknown[],
+      consent_given: Boolean(input.consentGiven),
+      status: (input.status ?? "new") as "new" | "contacted" | "booked" | "lost",
+    }
+
+    const { data, error } = await supabase
+      .from("leads")
+      .insert(payload as never)
+      .select()
+      .single()
+    if (error) return { ok: false, error: error.message }
+    const lead = mapLead(data as Record<string, unknown>)
+
+    void recordAudit({
+      userName: "dashboard",
+      action: `leads.created manual id=${lead.id}`,
+    })
+
+    try {
+      await fireEventForAll("lead.created", {
+        id: lead.id,
+        name: lead.name,
+        phone: lead.phone,
+        email: lead.email,
+        service: lead.service,
+        preferredTime: lead.preferredTime,
+        source: lead.source,
+        sourceUrl: lead.sourceUrl,
+        afterHours: lead.afterHours,
+        createdAt: lead.createdAt,
+        consentGiven: lead.consentGiven,
+        origin: "dashboard",
+      })
+    } catch (e) {
+      console.error("[leads] webhook fire failed:", e)
+    }
+
+    revalidatePath("/dashboard/leads")
+    return { ok: true, data: lead }
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Failed to create lead",
+    }
+  }
+}
 
 export async function updateLeadNotesAction(
   leadId: string,

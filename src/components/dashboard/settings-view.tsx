@@ -33,7 +33,7 @@ import { useRealtimeSubscription } from "@/lib/hooks/use-realtime"
 import { mapNotificationLog } from "@/lib/supabase/types"
 import { toast } from "sonner"
 import { updateSpaSettings, deleteWorkspaceAction } from "@/app/actions/settings"
-import { updateNotificationChannel } from "@/app/actions/widget"
+import { updateNotificationChannel, createNotificationChannelAction } from "@/app/actions/widget"
 import { getNotificationChannels } from "@/lib/db/notifications"
 import type { NotificationChannelConfig } from "@/lib/supabase/types"
 import { createClient } from "@/lib/supabase/client"
@@ -446,37 +446,45 @@ function NotificationsSection() {
         <div className="divide-y divide-[#23252A]">
           {loading ? (
             <div className="p-5 text-center text-xs text-[#8A8F98]">Loading channels…</div>
-          ) : channels.length === 0 ? (
-            <div className="p-5 text-center text-xs text-[#8A8F98]">
-              No channels configured yet. New leads will still land in your inbox.
-            </div>
           ) : (
-            channels.map((ch) => (
-              <ChannelRowEditor
-                key={ch.id}
-                id={ch.id}
-                label={channelLabel(ch.channel)}
-                description={channelDescription(ch.channel)}
-                on={ch.enabled}
-                recipients={ch.recipients}
-                draft={recipientDrafts[ch.id] ?? ""}
-                draftError={draftErrors[ch.id] ?? ""}
-                onDraftChange={(v) => {
-                  setRecipientDrafts((d) => ({ ...d, [ch.id]: v }))
-                  if (draftErrors[ch.id]) {
-                    const err = validateRecipient(ch.channel, v)
-                    setDraftErrors((d) => ({ ...d, [ch.id]: err ?? "" }))
-                  }
-                }}
-                busy={Boolean(sending[ch.id])}
-                onToggle={(v) => void setEnabled(ch.id, v)}
-                onAdd={() => void addRecipient(ch.id)}
-                onAddValue={(v) => void addRecipient(ch.id, v)}
-                onRemove={(r) => void removeRecipient(ch.id, r)}
-                recipientKind={recipientKind(ch.channel)}
-                accountEmail={accountEmail}
-              />
-            ))
+            <>
+              {!channels.some((c) => c.channel === "email") ? (
+                <FirstEmailChannelGate
+                  accountEmail={accountEmail}
+                  onCreated={async () => {
+                    await refresh()
+                  }}
+                />
+              ) : null}
+              {channels.length === 0 ? null : (
+                channels.map((ch) => (
+                  <ChannelRowEditor
+                    key={ch.id}
+                    id={ch.id}
+                    label={channelLabel(ch.channel)}
+                    description={channelDescription(ch.channel)}
+                    on={ch.enabled}
+                    recipients={ch.recipients}
+                    draft={recipientDrafts[ch.id] ?? ""}
+                    draftError={draftErrors[ch.id] ?? ""}
+                    onDraftChange={(v) => {
+                      setRecipientDrafts((d) => ({ ...d, [ch.id]: v }))
+                      if (draftErrors[ch.id]) {
+                        const err = validateRecipient(ch.channel, v)
+                        setDraftErrors((d) => ({ ...d, [ch.id]: err ?? "" }))
+                      }
+                    }}
+                    busy={Boolean(sending[ch.id])}
+                    onToggle={(v) => void setEnabled(ch.id, v)}
+                    onAdd={() => void addRecipient(ch.id)}
+                    onAddValue={(v) => void addRecipient(ch.id, v)}
+                    onRemove={(r) => void removeRecipient(ch.id, r)}
+                    recipientKind={recipientKind(ch.channel)}
+                    accountEmail={accountEmail}
+                  />
+                ))
+              )}
+            </>
           )}
         </div>
       </div>
@@ -704,6 +712,128 @@ function ChannelRowEditor({
           )}
         />
       </button>
+    </div>
+  )
+}
+
+function FirstEmailChannelGate({
+  accountEmail,
+  onCreated,
+}: {
+  accountEmail: string | null
+  onCreated: () => Promise<void> | void
+}) {
+  const [email, setEmail] = React.useState("")
+  const [submitting, setSubmitting] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  const trimmed = email.trim()
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  const valid = emailRe.test(trimmed)
+
+  const submit = async (value?: string) => {
+    const target = (value ?? trimmed).trim()
+    if (!emailRe.test(target)) {
+      setError("Enter a valid email address")
+      return
+    }
+    setError(null)
+    setSubmitting(true)
+    try {
+      const result = await createNotificationChannelAction({
+        channel: "email",
+        label: "Email",
+        description: "Instant email when a new lead is captured",
+        enabled: true,
+        recipients: [target],
+      })
+      if (!result.ok) {
+        setError(result.error ?? "Failed to save")
+        toast.error(result.error ?? "Failed to save")
+        return
+      }
+      toast.success("Email added — you'll get notified on new leads")
+      setEmail("")
+      await onCreated()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to save"
+      setError(msg)
+      toast.error(msg)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="p-5">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 flex size-9 items-center justify-center rounded-lg border border-[#23252A] bg-[#0B0C0E] text-[#8A8F98]">
+          <Mail className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-[#F7F8F8]">
+            Add an email to receive lead alerts
+          </p>
+          <p className="mt-0.5 text-xs text-[#8A8F98]">
+            Type any address and hit Save — every recipient you list gets
+            pinged the moment a new lead is captured. You can add more later.
+          </p>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Input
+              type="email"
+              inputMode="email"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value)
+                if (error) setError(null)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                  void submit()
+                }
+              }}
+              placeholder="name@yourmedspa.com"
+              aria-invalid={!!error}
+              className={cn(
+                "h-9 w-full sm:w-64 text-xs",
+                error &&
+                  "border-[#EB5757]/60 focus-visible:border-[#EB5757] focus-visible:ring-[#EB5757]/30",
+              )}
+              disabled={submitting}
+            />
+            <Button
+              type="button"
+              size="sm"
+              disabled={submitting || !valid}
+              onClick={() => void submit()}
+              className="h-9 bg-[#E2E54B] text-[#08090A] hover:bg-[#E2E54B]/90"
+            >
+              {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+              Save email
+            </Button>
+            {accountEmail && accountEmail !== trimmed ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={submitting}
+                onClick={() => {
+                  setEmail(accountEmail)
+                  void submit(accountEmail)
+                }}
+                className="h-9 rounded-lg border border-dashed border-[#5E6AD2]/40 text-xs text-[#C9CCD2] hover:bg-[#5E6AD2]/10 hover:text-[#F7F8F8]"
+              >
+                <Mail className="size-3.5" /> Use my email ({accountEmail})
+              </Button>
+            ) : null}
+          </div>
+          {error ? (
+            <p className="mt-1.5 text-[11px] text-[#EB5757]">{error}</p>
+          ) : null}
+        </div>
+      </div>
     </div>
   )
 }
