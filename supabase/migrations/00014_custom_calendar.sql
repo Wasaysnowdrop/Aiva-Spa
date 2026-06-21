@@ -77,10 +77,16 @@ alter table calendar_reminders enable row level security;
 do $$ begin
   drop policy if exists "Authenticated can read calendar_settings" on calendar_settings;
   drop policy if exists "Authenticated can write calendar_settings" on calendar_settings;
+  drop policy if exists "Authenticated can write calendar_settings update" on calendar_settings;
+  drop policy if exists "Authenticated can write calendar_settings delete" on calendar_settings;
   drop policy if exists "Authenticated can read calendar_bookings" on calendar_bookings;
   drop policy if exists "Authenticated can write calendar_bookings" on calendar_bookings;
+  drop policy if exists "Authenticated can write calendar_bookings update" on calendar_bookings;
+  drop policy if exists "Authenticated can write calendar_bookings delete" on calendar_bookings;
   drop policy if exists "Authenticated can read calendar_reminders" on calendar_reminders;
   drop policy if exists "Authenticated can write calendar_reminders" on calendar_reminders;
+  drop policy if exists "Authenticated can write calendar_reminders update" on calendar_reminders;
+  drop policy if exists "Authenticated can write calendar_reminders delete" on calendar_reminders;
 
   create policy "Authenticated can read calendar_settings" on calendar_settings for select to authenticated using (true);
   create policy "Authenticated can write calendar_settings" on calendar_settings for insert to authenticated with check (true);
