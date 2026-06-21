@@ -6,6 +6,14 @@ import { SettingsView } from "@/components/dashboard/settings-view";
 import { createClient } from "@/lib/supabase/server";
 import { getCardLast4, getCurrentSubscription } from "@/lib/subscription";
 import { listApiKeys } from "@/app/actions/api-keys";
+import {
+  getNotificationChannelsServer,
+  getNotificationLogsServer,
+} from "@/lib/db/notifications.server";
+import type {
+  NotificationChannelConfig,
+  NotificationLog,
+} from "@/lib/supabase/types";
 
 export const metadata: Metadata = {
   title: "Settings | AivaSpa Dashboard",
@@ -101,6 +109,23 @@ export default async function SettingsPage() {
     }
   })
 
+  // Pre-load notification channels + recent logs server-side so the
+  // Notifications section renders immediately without a client fetch
+  // flash. Client `refresh()` becomes a background sync for live updates.
+  let initialChannels: NotificationChannelConfig[] = []
+  let initialLogs: NotificationLog[] = []
+  const accountEmail: string | null = user?.email ?? null
+  try {
+    const [channels, logs] = await Promise.all([
+      getNotificationChannelsServer(),
+      getNotificationLogsServer(),
+    ])
+    initialChannels = channels ?? []
+    initialLogs = logs ?? []
+  } catch (e) {
+    console.error("[settings] failed to pre-load notification data:", e)
+  }
+
   return (
     <>
       <DashboardHeader />
@@ -110,6 +135,9 @@ export default async function SettingsPage() {
           description="Account, notifications, integrations, privacy, billing, and developer settings."
         />
         <SettingsView
+          accountEmail={accountEmail}
+          initialChannels={initialChannels}
+          initialLogs={initialLogs}
           billing={{
             planId: subscription.planId,
             planName: subscription.planName,

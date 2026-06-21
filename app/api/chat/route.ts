@@ -423,6 +423,7 @@ async function persistTurn(
             dispatchLeadNotifications({
               lead: created.lead,
               brandName: brandName ?? "AivaSpa",
+              ownerUserId: accessUserId ?? null,
             }).catch((e) => console.error("dispatchLeadNotifications failed", e)),
             accessUserId
               ? incrementConversations(accessUserId, 1).catch((e) =>

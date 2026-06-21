@@ -46,16 +46,21 @@ async function getEnabledChannels(
         userId: (r.user_id as string | null) ?? null,
       }
     }).filter((c) => {
-      // No owner filter => legacy single-tenant behavior (all enabled channels).
-      // Used for pre-signup flows (e.g. welcome email on signup).
+      // No owner filter => legacy single-tenant behavior (all enabled
+      // channels fire). Used for pre-signup flows (e.g. welcome email
+      // on signup).
       if (!ownerUserId) return true
       // Owner-scoped channels only fire for their owning user.
       if (c.userId) return c.userId === ownerUserId
-      // Legacy rows (no user_id assigned yet) are treated as global defaults.
-      // This preserves backward-compatibility with deployments that existed
-      // before this column was introduced. New rows should always carry a
-      // user_id so this branch becomes unreachable over time.
-      return true
+      // Legacy rows (no user_id assigned yet) are intentionally NOT
+      // fired when an owner filter is provided — this prevents cross-
+      // tenant leakage during the migration window. After migration
+      // 00018 runs, every newly written channel carries a user_id, so
+      // this branch should be unreachable in steady state. If a legacy
+      // NULL-user_id row is still around and unclaimed, the dashboard
+      // will surface it as a global default only when no owner filter
+      // is in play (i.e. system flows like the welcome email).
+      return false
     })
   } catch {
     return []

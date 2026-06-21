@@ -139,6 +139,7 @@ export async function POST(request: NextRequest) {
     const dispatch = await dispatchLeadNotifications({
       lead,
       brandName: kb.widget.brandName,
+      ownerUserId: access.userId ?? null,
       transcriptExcerpt: transcript
         .map((m) => `${m.role === "ai" ? "Aiva" : "Visitor"}: ${m.content}`)
         .join("\n"),

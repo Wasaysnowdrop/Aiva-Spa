@@ -15,10 +15,20 @@ export async function getNotificationChannelsClient(): Promise<
 > {
   try {
     const supabase = createBrowserClient()
-    const { data, error } = await supabase
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    // RLS already scopes to auth.uid() = user_id; the explicit filter
+    // is belt-and-braces in case RLS is ever loosened in a future
+    // migration.
+    let query = supabase
       .from("notification_channels")
       .select("*")
       .order("channel")
+    query = user
+      ? query.eq("user_id", user.id)
+      : query.eq("user_id", "00000000-0000-0000-0000-000000000000")
+    const { data, error } = await query
     if (error) {
       console.error("[notifications] client getNotificationChannels failed:", error.message)
       return []
@@ -38,6 +48,10 @@ export async function updateNotificationChannelClient(
 ): Promise<NotificationChannelConfig | null> {
   try {
     const supabase = createBrowserClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return null
     const payload: Record<string, unknown> = {}
     if ("enabled" in update) payload.enabled = update.enabled
     if ("recipients" in update) payload.recipients = update.recipients
@@ -45,6 +59,7 @@ export async function updateNotificationChannelClient(
       .from("notification_channels")
       .update(payload as never)
       .eq("id", id)
+      .eq("user_id", user.id)
       .select()
       .single()
     if (error) {

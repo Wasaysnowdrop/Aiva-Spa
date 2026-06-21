@@ -119,6 +119,7 @@ export async function POST(request: NextRequest) {
     const dispatch = await dispatchLeadNotifications({
       lead,
       brandName: kb.widget.brandName,
+      ownerUserId: auth.userId,
       transcriptExcerpt: `Lead created via REST API`,
     })
 

@@ -11,10 +11,17 @@ export async function getNotificationChannelsServer(): Promise<
   try {
     const { createClient } = await import("@/lib/supabase/server")
     const supabase = await createClient()
-    const { data, error } = await supabase
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    // RLS already filters to auth.uid() = user_id, but the explicit
+    // filter is belt-and-braces and survives RLS misconfiguration.
+    let query = supabase
       .from("notification_channels")
       .select("*")
       .order("channel")
+    query = user ? query.eq("user_id", user.id) : query.eq("user_id", "00000000-0000-0000-0000-000000000000")
+    const { data, error } = await query
     if (error) {
       console.error("[notifications] server getNotificationChannels failed:", error.message)
       return []

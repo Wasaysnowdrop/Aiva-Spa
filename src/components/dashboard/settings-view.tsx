@@ -33,14 +33,29 @@ import { useRealtimeSubscription } from "@/lib/hooks/use-realtime"
 import { mapNotificationLog } from "@/lib/supabase/types"
 import { toast } from "sonner"
 import { updateSpaSettings, deleteWorkspaceAction } from "@/app/actions/settings"
-import { updateNotificationChannel, createNotificationChannelAction } from "@/app/actions/widget"
+import {
+  updateNotificationChannel,
+  createNotificationChannelAction,
+  sendTestNotificationAction,
+} from "@/app/actions/widget"
 import { getNotificationChannels } from "@/lib/db/notifications"
 import type { NotificationChannelConfig } from "@/lib/supabase/types"
-import { createClient } from "@/lib/supabase/client"
 
 type Section = "account" | "notifications" | "privacy" | "billing" | "api"
 
-export function SettingsView({ billing, api }: { billing: BillingViewProps; api: ApiSectionProps }) {
+export function SettingsView({
+  billing,
+  api,
+  accountEmail,
+  initialChannels,
+  initialLogs,
+}: {
+  billing: BillingViewProps
+  api: ApiSectionProps
+  accountEmail?: string | null
+  initialChannels?: NotificationChannelConfig[]
+  initialLogs?: NotificationLog[]
+}) {
   const [section, setSection] = React.useState<Section>(() => {
     if (typeof window === "undefined") return "account"
     const params = new URLSearchParams(window.location.search)
@@ -96,7 +111,13 @@ export function SettingsView({ billing, api }: { billing: BillingViewProps; api:
 
       <section className="flex flex-col gap-5">
         {section === "account" && <AccountSection />}
-        {section === "notifications" && <NotificationsSection />}
+        {section === "notifications" && (
+          <NotificationsSection
+            accountEmail={accountEmail ?? null}
+            initialChannels={initialChannels ?? []}
+            initialLogs={initialLogs ?? []}
+          />
+        )}
         {section === "privacy" && <PrivacySection />}
         {section === "billing" && <BillingSection billing={billing} />}
         {section === "api" && <ApiSection {...api} />}
@@ -284,36 +305,38 @@ function AccountSection() {
   )
 }
 
-function NotificationsSection() {
-  const [channels, setChannels] = React.useState<NotificationChannelConfig[]>([])
-  const [loading, setLoading] = React.useState(true)
-  const [recipientDrafts, setRecipientDrafts] = React.useState<Record<string, string>>({})
+function NotificationsSection({
+  accountEmail,
+  initialChannels,
+  initialLogs,
+}: {
+  accountEmail: string | null
+  initialChannels: NotificationChannelConfig[]
+  initialLogs: NotificationLog[]
+}) {
+  const [channels, setChannels] = React.useState<NotificationChannelConfig[]>(initialChannels)
+  const [recipientDrafts, setRecipientDrafts] = React.useState<Record<string, string>>(() => {
+    const drafts: Record<string, string> = {}
+    for (const c of initialChannels) drafts[c.id] = ""
+    return drafts
+  })
   const [draftErrors, setDraftErrors] = React.useState<Record<string, string>>({})
   const [sending, setSending] = React.useState<Record<string, boolean>>({})
-  const [accountEmail, setAccountEmail] = React.useState<string | null>(null)
-
-  React.useEffect(() => {
-    const supabase = createClient()
-    void supabase.auth.getUser().then(({ data }) => {
-      setAccountEmail(data.user?.email ?? null)
-    })
-  }, [])
+  const [testing, setTesting] = React.useState(false)
 
   const refresh = React.useCallback(async () => {
     try {
       const rows = await getNotificationChannels()
       setChannels(rows)
-      const drafts: Record<string, string> = {}
-      for (const c of rows) drafts[c.id] = ""
-      setRecipientDrafts(drafts)
-    } finally {
-      setLoading(false)
+      setRecipientDrafts((prev) => {
+        const next: Record<string, string> = {}
+        for (const c of rows) next[c.id] = prev[c.id] ?? ""
+        return next
+      })
+    } catch (e) {
+      console.error("[notifications] refresh failed:", e)
     }
   }, [])
-
-  React.useEffect(() => {
-    void refresh()
-  }, [refresh])
 
   const setEnabled = async (id: string, enabled: boolean) => {
     setSending((s) => ({ ...s, [id]: true }))
@@ -394,6 +417,33 @@ function NotificationsSection() {
     }
   }
 
+  const sendTest = async () => {
+    const email = channels.find((c) => c.channel === "email" && c.enabled)
+    if (!email || email.recipients.length === 0) {
+      toast.error("Add at least one recipient to the Email channel first")
+      return
+    }
+    setTesting(true)
+    try {
+      const result = await sendTestNotificationAction({
+        recipient: email.recipients[0],
+      })
+      if (result.ok) {
+        toast.success(
+          result.provider === "resend"
+            ? "Test email sent — check your inbox"
+            : "Test recorded (Resend key not set — check the server log)",
+        )
+      } else {
+        toast.error(result.error ?? "Test failed")
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Test failed")
+    } finally {
+      setTesting(false)
+    }
+  }
+
   const channelLabel = (channel: string) => {
     if (channel === "email") return "Email"
     if (channel === "sms") return "SMS"
@@ -416,7 +466,7 @@ function NotificationsSection() {
 
   const { data: notifications } = useRealtimeSubscription<NotificationLog>({
     table: "notification_logs",
-    initialData: [],
+    initialData: initialLogs,
     mapRow: (row) => mapNotificationLog(row),
     getId: (item) => item.id,
   })
@@ -444,48 +494,47 @@ function NotificationsSection() {
           </div>
         </div>
         <div className="divide-y divide-[#23252A]">
-          {loading ? (
-            <div className="p-5 text-center text-xs text-[#8A8F98]">Loading channels…</div>
-          ) : (
-            <>
-              {!channels.some((c) => c.channel === "email") ? (
-                <FirstEmailChannelGate
-                  accountEmail={accountEmail}
-                  onCreated={async () => {
-                    await refresh()
-                  }}
-                />
-              ) : null}
-              {channels.length === 0 ? null : (
-                channels.map((ch) => (
-                  <ChannelRowEditor
-                    key={ch.id}
-                    id={ch.id}
-                    label={channelLabel(ch.channel)}
-                    description={channelDescription(ch.channel)}
-                    on={ch.enabled}
-                    recipients={ch.recipients}
-                    draft={recipientDrafts[ch.id] ?? ""}
-                    draftError={draftErrors[ch.id] ?? ""}
-                    onDraftChange={(v) => {
-                      setRecipientDrafts((d) => ({ ...d, [ch.id]: v }))
-                      if (draftErrors[ch.id]) {
-                        const err = validateRecipient(ch.channel, v)
-                        setDraftErrors((d) => ({ ...d, [ch.id]: err ?? "" }))
-                      }
-                    }}
-                    busy={Boolean(sending[ch.id])}
-                    onToggle={(v) => void setEnabled(ch.id, v)}
-                    onAdd={() => void addRecipient(ch.id)}
-                    onAddValue={(v) => void addRecipient(ch.id, v)}
-                    onRemove={(r) => void removeRecipient(ch.id, r)}
-                    recipientKind={recipientKind(ch.channel)}
-                    accountEmail={accountEmail}
-                  />
-                ))
-              )}
-            </>
+          {!channels.some((c) => c.channel === "email") ? (
+            <FirstEmailChannelGate
+              accountEmail={accountEmail}
+              onCreated={async () => {
+                await refresh()
+              }}
+            />
+          ) : null}
+          {channels.length === 0 ? null : (
+            channels.map((ch) => (
+              <ChannelRowEditor
+                key={ch.id}
+                id={ch.id}
+                label={channelLabel(ch.channel)}
+                description={channelDescription(ch.channel)}
+                on={ch.enabled}
+                recipients={ch.recipients}
+                draft={recipientDrafts[ch.id] ?? ""}
+                draftError={draftErrors[ch.id] ?? ""}
+                onDraftChange={(v) => {
+                  setRecipientDrafts((d) => ({ ...d, [ch.id]: v }))
+                  if (draftErrors[ch.id]) {
+                    const err = validateRecipient(ch.channel, v)
+                    setDraftErrors((d) => ({ ...d, [ch.id]: err ?? "" }))
+                  }
+                }}
+                busy={Boolean(sending[ch.id])}
+                onToggle={(v) => void setEnabled(ch.id, v)}
+                onAdd={() => void addRecipient(ch.id)}
+                onAddValue={(v) => void addRecipient(ch.id, v)}
+                onRemove={(r) => void removeRecipient(ch.id, r)}
+                recipientKind={recipientKind(ch.channel)}
+                accountEmail={accountEmail}
+              />
+            ))
           )}
+          {channels.length === 0 ? (
+            <div className="p-5 text-xs text-[#8A8F98]">
+              No channels yet. Add an email above to start receiving lead alerts.
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -498,10 +547,12 @@ function NotificationsSection() {
           <Button
             variant="outline"
             size="sm"
-            disabled
-            title="Test sends are wired into the onboarding assistant. Add a real lead to verify channels."
+            disabled={testing || !channels.some((c) => c.channel === "email" && c.enabled && c.recipients.length > 0)}
+            onClick={() => void sendTest()}
+            title="Send a test email to the first recipient on the enabled Email channel"
           >
-            <Send className="size-4" /> Send test
+            {testing ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+            Send test
           </Button>
         </div>
         <ul className="divide-y divide-[#23252A]">
