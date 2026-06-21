@@ -11,11 +11,10 @@ const exploreLinks = [
 ] as const;
 
 const legalLinks = [
-    ["Privacy Policy", "#privacy-policy"],
-    ["Terms of Service", "#terms-of-service"],
-    ["HIPAA Notice", "#hipaa-notice"],
-    ["Disclaimer", "#disclaimer"],
-    ["Cookie Policy", "#cookie-policy"],
+    ["Privacy Policy", "/legal/privacy"],
+    ["Terms of Service", "/legal/terms"],
+    ["HIPAA Notice", "/legal/hipaa"],
+    ["System Status", "/status"],
 ] as const;
 
 const stats = [

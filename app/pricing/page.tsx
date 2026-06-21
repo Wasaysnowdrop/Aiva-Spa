@@ -708,10 +708,10 @@ export default async function PricingPage() {
           <div className="mt-14 flex flex-col items-start justify-between gap-4 border-t border-[#23252A]/60 pt-6 text-xs text-[#62666D] md:flex-row md:items-center">
             <p>© 2026 AivaSpa, Inc. All rights reserved.</p>
             <div className="flex items-center gap-5">
-              <a href="#privacy" className="hover:text-[#F7F8F8]">Privacy</a>
-              <a href="#terms" className="hover:text-[#F7F8F8]">Terms</a>
-              <a href="#hipaa" className="hover:text-[#F7F8F8]">HIPAA Notice</a>
-              <a href="#status" className="hover:text-[#F7F8F8]">Status</a>
+              <Link href="/legal/privacy" className="hover:text-[#F7F8F8]">Privacy</Link>
+              <Link href="/legal/terms" className="hover:text-[#F7F8F8]">Terms</Link>
+              <Link href="/legal/hipaa" className="hover:text-[#F7F8F8]">HIPAA Notice</Link>
+              <Link href="/status" className="hover:text-[#F7F8F8]">Status</Link>
             </div>
           </div>
           <p className="mt-4 text-xs text-[#62666D]">
