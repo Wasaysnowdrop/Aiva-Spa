@@ -11,8 +11,6 @@ import {
   type LanguageCode,
 } from "@/lib/i18n"
 import type {
-  Lead,
-  TranscriptMessage,
   WorkingHours,
 } from "@/lib/supabase/types"
 
@@ -99,23 +97,6 @@ export async function runConversationTurn(
   }
 }
 
-export function appendTurnToTranscript(
-  transcript: TranscriptMessage[],
-  role: "visitor" | "ai",
-  content: string,
-): TranscriptMessage[] {
-  const id = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
-  return [
-    ...transcript,
-    {
-      id,
-      role,
-      content,
-      timestamp: new Date().toISOString(),
-    },
-  ]
-}
-
 // ----------------------------------------------------------------------------
 // Streaming variant
 // ----------------------------------------------------------------------------
@@ -132,6 +113,19 @@ export function appendTurnToTranscript(
 export type StreamConversationInput = ConversationTurnInput & {
   onChunk: (visibleText: string) => void
 }
+
+// ----------------------------------------------------------------------------
+// Streaming variant
+// ----------------------------------------------------------------------------
+// Yields the LLM reply in real time via `onChunk` while still returning the
+// same `ConversationTurnResult` shape that the JSON path uses. Internally:
+//   - loads KB once (cached for 60s),
+//   - resolves greetings deterministically (no LLM hit),
+//   - streams chunks from the OpenAI-compatible endpoint while stripping
+//     `think` blocks incrementally so visitors never see the model's
+//     chain-of-thought.
+// If the stream errors mid-flight we still emit a graceful canned fallback so
+// the visitor always gets a usable reply.
 
 function applyThinkStrippingIncremental(
   pending: string,
@@ -342,19 +336,6 @@ function gracefulCannedReply(
   // Hand off to the KB-aware fallback so the actual question is always
   // addressed (not replaced with a generic opener).
   return kbAwareFallback(userText, kb)
-}
-
-export function buildSummaryForStaff(lead: Lead): string {
-  const lines: string[] = [
-    `New consultation request from ${lead.name}.`,
-    `Service interest: ${lead.service}.`,
-    `Preferred time: ${lead.preferredTime}.`,
-  ]
-  if (lead.phone) lines.push(`Phone: ${lead.phone}`)
-  if (lead.email) lines.push(`Email: ${lead.email}`)
-  if (lead.sourceUrl) lines.push(`Source: ${lead.sourceUrl}`)
-  if (lead.afterHours) lines.push("Captured after hours.")
-  return lines.join("\n")
 }
 
 export { invalidateKnowledgeCache, loadKnowledge }

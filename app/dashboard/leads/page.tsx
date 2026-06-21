@@ -18,27 +18,17 @@ export const metadata: Metadata = {
 export default async function LeadsPage() {
   let leads: Awaited<ReturnType<typeof getLeads>> = []
   let emailConfigured = false
-  let userId: string | null = null
-  let userEmail: string | null = null
 
   try {
+    // Make sure the user is authed before reading leads; this also
+    // refreshes the session cookie as a side effect.
     const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    userId = user?.id ?? null
-    userEmail = user?.email ?? null
-    console.log("[aivaspa] /dashboard/leads current user:", { userId, userEmail })
-
+    await supabase.auth.getUser()
     const [fetchedLeads, channels] = await Promise.all([
       getLeads(),
       getNotificationChannelsServer(),
     ])
     leads = Array.isArray(fetchedLeads) ? fetchedLeads : []
-    console.log("[aivaspa] /dashboard/leads supabase leads response:", {
-      count: leads.length,
-      sample: leads.slice(0, 2).map((l) => ({ id: l?.id, name: l?.name })),
-    })
 
     const emailChannel = Array.isArray(channels)
       ? channels.find((c) => c?.channel === "email")
@@ -47,6 +37,7 @@ export default async function LeadsPage() {
       !!emailChannel?.enabled && (emailChannel.recipients?.length ?? 0) > 0
   } catch (e) {
     console.error("[aivaspa] /dashboard/leads render failed:", e)
+    leads = []
   }
 
   return (

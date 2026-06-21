@@ -13,7 +13,11 @@ describe("email (mocked Resend)", () => {
     delete process.env.RESEND_API_KEY
   })
 
-  it("logs when not configured and returns provider=log", async () => {
+  it("logs when not configured and reports ok=false so dispatch records 'failed'", async () => {
+    // Unconfigured Resend must not look like a successful send — otherwise
+    // the dispatcher writes notification_logs.status = "delivered" and
+    // operators lose leads silently. See sendEmailLogOnly in
+    // src/lib/notifications/email.ts.
     const logSpy = vi.spyOn(console, "info").mockImplementation(() => {})
     expect(isEmailConfigured()).toBe(false)
     const res = await sendEmail({
@@ -21,8 +25,9 @@ describe("email (mocked Resend)", () => {
       subject: "Hi",
       text: "body",
     })
-    expect(res.ok).toBe(true)
+    expect(res.ok).toBe(false)
     expect(res.provider).toBe("log")
+    expect(res.error).toMatch(/not configured/i)
     expect(logSpy).toHaveBeenCalled()
   })
 

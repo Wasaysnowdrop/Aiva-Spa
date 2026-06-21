@@ -40,6 +40,89 @@ This file is the source of truth for any AI/agent working in this repo. Read it 
 ## 2. Repo map (what lives where)
 
 ```
+app/                          Next.js App Router (NOT src/app)
+  page.tsx                    Marketing landing
+  pricing/, signup/, login/, forgot-password/, reset-password/, check-email/
+  onboarding/                 AI-driven setup assistant for first-time users
+  dashboard/                  Authed dashboard (layout.tsx enforces auth via proxy.ts)
+    page.tsx                  Overview + KPIs + live visitors
+    leads/                    Inbox + [id] detail
+    conversations/            Live transcript explorer
+    knowledge-base/           FAQs + services + guardrails editor
+    analytics/, settings/, team/, widget/, guide/
+    calendar/                 Custom calendar UI
+  embed/[spaId]/              The chat widget (server-rendered iframe target)
+  embed-demo/                 A demo med-spa site with the widget pre-installed
+  admin/                      Internal admin panel (is_admin gated)
+    layout.tsx                Enforces is_admin via requireAdmin()
+    page.tsx                  Overview, KPIs, integrations, row counts
+    leads/                    Cross-tenant lead view
+    conversations/            Cross-tenant chat view
+    webhooks/, api-keys/      System webhook & API key logs
+    notifications/            System notification_logs
+    audit/                    admin_audit_log + workspace events
+    spas/                     All widget_installs
+    database/                 Row counts across all tables
+    settings/                 admin_settings (kill switches, feature flags, llm_caps)
+    live/                     Realtime event feed
+    llm/                      LLM KPIs + activity histogram
+  api/
+    chat/                     POST  → AI turn + optional lead save (widget-facing)
+    leads/                    POST  → direct lead save (public, no API key)
+    v1/leads/                 POST  → API-key-authed lead save (server-to-server)
+    widget/                   config, verify, resolve-host
+    google-calendar/          OAuth + slots + book + status + disconnect
+    dashboard/live            GET   → live counters (active sessions, today's leads)
+    onboarding/setup-assistant  POST → guided KB interview
+    health                    GET/HEAD → DB health (no-cache, mirrors verdict on HEAD)
+    admin/                    Admin-only endpoints (system-health, logout)
+    calendar/                 Public calendar slots + bookings + reminders
+    cron/                     Scheduled jobs (daily-summary placeholder)
+    white-label/              Custom-domain management
+
+  actions/                    Server Actions (form handlers)
+    auth, settings, knowledge, leads, subscription, widget,
+    widget-installs, api-keys, webhooks, setup-assistant, team
+
+src/
+  components/
+    ui/                       shadcn-style primitives
+    auth/, billing/, dashboard/, embed/, landing/, onboarding/, admin/
+  lib/
+    supabase/                 client.ts | server.ts | admin.ts | types.ts
+    ai/                       conversation, llm, prompt, retrieval, validation,
+                              working-hours, setup-assistant(-prompt|-schema)
+    admin/                    auth, queries (system health, recent leads/chats/etc.)
+    leads/                    server (createPublicLead, auto-book), dedup
+    chat-sessions/server.ts   Live transcript persistence
+    db/                       Per-table server-side helpers
+    notifications/            email, sms, dispatch
+    google/calendar.ts        Google OAuth + token refresh
+    subscription/             Plan + quota logic
+    webhooks/                 HMAC-signed outbound webhooks
+    widget/                   access, installs, domains
+    api/keys.ts               API key generation + hashing (aiva_live_…)
+    hooks/                    useRealtime
+    calendar/, i18n/, kb/, security/
+
+supabase/
+  migrations/                 00001..00017 — schema + chat_sessions + subscriptions
+                              + widget_installs + api/webhooks + lead_dedup +
+                              extended_kb + active_session_expiry +
+                              bubble_logo + audit_user_id + admin_panel +
+                              custom_calendar + custom_domains +
+                              ensure_calendar_tables +
+                              notification_owner_scope
+
+tests/                        Vitest suites (ai, api, leads-dedup,
+                              notifications, setup-assistant, webhooks)
+
+proxy.ts                      Auth gate (Next.js middleware — note: filename is
+                              `proxy.ts`, not `middleware.ts`, in Next 16)
+next.config.ts                CORS for /api/*, frame-ancestors * for /embed/*
+.env.example                  All env vars (Supabase, OpenAI, Resend, Twilio,
+                              Google OAuth)
+```
 src/
   app/                      Next.js App Router
     page.tsx                Marketing landing

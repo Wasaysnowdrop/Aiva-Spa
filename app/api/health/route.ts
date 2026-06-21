@@ -1,11 +1,20 @@
 import { NextResponse } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
+import { buildCorsHeaders } from "@/lib/security/cors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const startedAt = Date.now();
+
+function cors(request: Request) {
+  return buildCorsHeaders(request)
+}
+
+export function OPTIONS(request: Request) {
+  return new Response(null, { status: 204, headers: cors(request) })
+}
 
 async function checkSupabase(): Promise<{ ok: boolean; latencyMs: number | null; error?: string }> {
   const t0 = Date.now();
@@ -19,7 +28,7 @@ async function checkSupabase(): Promise<{ ok: boolean; latencyMs: number | null;
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const db = await checkSupabase();
   const healthy = db.ok;
   const body = {
@@ -37,10 +46,17 @@ export async function GET() {
     status: healthy ? 200 : 503,
     headers: {
       "Cache-Control": "no-store, max-age=0",
+      ...cors(request),
     },
   });
 }
 
-export function HEAD() {
-  return new Response(null, { status: 200 });
+export async function HEAD() {
+  // Mirror GET's verdict so monitoring tools that probe with HEAD first
+  // see the real database health (503 when down) instead of a lying 200.
+  const db = await checkSupabase()
+  return new Response(null, {
+    status: db.ok ? 200 : 503,
+    headers: { "Cache-Control": "no-store, max-age=0" },
+  })
 }

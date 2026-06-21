@@ -164,10 +164,7 @@ export async function POST(request: NextRequest) {
       { status: created.merged ? 200 : 201, headers: cors(request) },
     )
   } catch (err) {
-    return jsonError(
-      err instanceof Error ? err.message : "Failed to save lead",
-      500,
-      request,
-    )
+    console.error("[api/v1/leads] save failed", err)
+    return jsonError("Failed to save lead", 500, request)
   }
 }

@@ -63,6 +63,7 @@ export async function POST(request: NextRequest) {
   }
   const body = parsed.data
 
+  let spaOwnerId: string | null = null
   if (body.spaId) {
     const access = await checkEmbedAccess(body.spaId)
     if (!access.ok) {
@@ -71,6 +72,7 @@ export async function POST(request: NextRequest) {
         { status: 403, headers: cors(request) },
       )
     }
+    spaOwnerId = access.userId
   }
 
   try {
@@ -130,19 +132,22 @@ export async function POST(request: NextRequest) {
         : `leads.captured ${lead.id} (${lead.service})`,
     })
 
-    // Fire webhooks (fire-and-forget; failures are logged in webhook_deliveries)
-    void fireEventForAll(result.merged ? "lead.updated" : "lead.created", {
-      id: lead.id,
-      name: lead.name,
-      phone: lead.phone,
-      email: lead.email,
-      service: lead.service,
-      preferredTime: lead.preferredTime,
-      source: lead.source,
-      sourceUrl: lead.sourceUrl,
-      afterHours: lead.afterHours,
-      createdAt: lead.createdAt,
-    })
+    // Fire webhooks (fire-and-forget; failures are logged in webhook_deliveries).
+    // Scope to the spa's owner so we never fan out to other tenants.
+    if (spaOwnerId) {
+      void fireEventForAll(spaOwnerId, result.merged ? "lead.updated" : "lead.created", {
+        id: lead.id,
+        name: lead.name,
+        phone: lead.phone,
+        email: lead.email,
+        service: lead.service,
+        preferredTime: lead.preferredTime,
+        source: lead.source,
+        sourceUrl: lead.sourceUrl,
+        afterHours: lead.afterHours,
+        createdAt: lead.createdAt,
+      })
+    }
 
     return Response.json(
       {
@@ -156,7 +161,7 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     console.error("leads api error", err)
     return Response.json(
-      { error: err instanceof Error ? err.message : "Failed to save lead" },
+      { error: "Failed to save lead" },
       { status: 500, headers: cors(request) },
     )
   }

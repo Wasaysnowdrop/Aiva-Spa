@@ -159,6 +159,7 @@ export async function fireEvent(
 }
 
 export async function fireEventForAll(
+  userId: string,
   event: WebhookEvent,
   payload: Record<string, unknown>,
 ) {
@@ -167,6 +168,7 @@ export async function fireEventForAll(
     .from("webhooks")
     .select("id, user_id, url, secret, events, active, description, created_at, updated_at")
     .eq("active", true)
+    .eq("user_id", userId)
   if (error || !data) return
   const hooks = (data as RawWebhook[])
     .map(mapWebhook)

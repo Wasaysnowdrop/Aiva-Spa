@@ -70,11 +70,13 @@ export type DuplicateGroup = {
 export async function getDuplicateGroups(limit = 200): Promise<DuplicateGroup[]> {
   const admin = createAdminClient()
 
+  // PostgREST `.or()` with bare `column.neq.` filters on NOT NULL columns
+  // collapses to "not equal empty string", which is almost every row.
+  // Instead, select candidates with a real filter and bucket them in JS.
   const { data, error } = await admin
     .from("leads")
     .select("id, phone_normalized, email_normalized, name, created_at")
     .is("merged_into_id", null)
-    .or("phone_normalized.neq.,email_normalized.neq.")
     .order("created_at", { ascending: false })
     .limit(limit * 4)
 
@@ -114,12 +116,19 @@ export async function getDuplicateGroups(limit = 200): Promise<DuplicateGroup[]>
     const key = `phone:${value}`
     if (groupIds.has(key)) continue
     groupIds.add(key)
-    groups.push({
-      matchKey: key,
-      matchType: "phone",
-      value,
-      leads: ids.map((id) => idToRow.get(id)!).filter(Boolean) as never,
-    })
+    const leads: Lead[] = []
+    for (const id of ids) {
+      const r = idToRow.get(id)
+      if (r) leads.push(mapLead(r))
+    }
+    if (leads.length >= 2) {
+      groups.push({
+        matchKey: key,
+        matchType: "phone",
+        value,
+        leads,
+      })
+    }
   }
 
   for (const [value, ids] of emailMap) {
@@ -127,12 +136,19 @@ export async function getDuplicateGroups(limit = 200): Promise<DuplicateGroup[]>
     const key = `email:${value}`
     if (groupIds.has(key)) continue
     groupIds.add(key)
-    groups.push({
-      matchKey: key,
-      matchType: "email",
-      value,
-      leads: ids.map((id) => idToRow.get(id)!).filter(Boolean) as never,
-    })
+    const leads: Lead[] = []
+    for (const id of ids) {
+      const r = idToRow.get(id)
+      if (r) leads.push(mapLead(r))
+    }
+    if (leads.length >= 2) {
+      groups.push({
+        matchKey: key,
+        matchType: "email",
+        value,
+        leads,
+      })
+    }
   }
 
   return groups.slice(0, limit)

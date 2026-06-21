@@ -36,7 +36,6 @@ async function requireUser() {
   if (!user) redirect("/login?redirectTo=/dashboard/leads")
   return user
 }
-
 export type FindDuplicateResult = {
   duplicate: Lead | null
   matchType: "phone" | "email" | "none"
@@ -112,7 +111,7 @@ export async function mergeLeadsAction(input: {
   notesAppend?: string
   transcriptMerge?: "append" | "keep-primary"
 }): Promise<LeadActionResult<{ primary: Lead; merged: Lead[] }>> {
-  await requireUser()
+  const user = await requireUser()
   if (!input.primaryLeadId || input.secondaryLeadIds.length === 0) {
     return { ok: false, error: "Pick a primary and at least one duplicate to merge." }
   }
@@ -129,7 +128,7 @@ export async function mergeLeadsAction(input: {
         .join(",")} (added ${result.transcriptMessagesAdded} transcript messages)`,
     })
 
-    void fireEventForAll("lead.merged", {
+    void fireEventForAll(user.id, "lead.merged", {
       primary: {
         id: result.primary.id,
         name: result.primary.name,
@@ -175,6 +174,50 @@ export async function unmergeLeadAction(secondaryLeadId: string): Promise<LeadAc
   }
 }
 
+export async function updateLeadStatusAction(
+  leadId: string,
+  next: "new" | "contacted" | "booked" | "lost",
+): Promise<LeadActionResult<Lead>> {
+  await requireUser()
+  if (!leadId) return { ok: false, error: "Missing lead id" }
+  if (!["new", "contacted", "booked", "lost"].includes(next)) {
+    return { ok: false, error: "Invalid status" }
+  }
+  try {
+    const supabase = await createClient()
+    const { data, error } = await supabase
+      .from("leads")
+      .update({
+        status: next,
+        last_activity_at: new Date().toISOString(),
+      } as never)
+      .eq("id", leadId)
+      .select()
+      .maybeSingle()
+    if (error) return { ok: false, error: error.message }
+    if (!data) return { ok: false, error: "Lead not found" }
+    void recordAudit({
+      userName: "dashboard",
+      action: `leads.status_updated ${leadId} → ${next}`,
+    })
+    const { data: { user: owner } } = await supabase.auth.getUser()
+    if (owner) {
+      void fireEventForAll(owner.id, "lead.updated", {
+        id: leadId,
+        status: next,
+      })
+    }
+    revalidatePath("/dashboard/leads")
+    revalidatePath(`/dashboard/leads/${leadId}`)
+    return { ok: true, data: mapLead(data as Record<string, unknown>) }
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Failed to update status",
+    }
+  }
+}
+
 export type MergeHistoryEntry = MergedLeadEntry
 
 export type CreateLeadInput = {
@@ -193,7 +236,7 @@ export type CreateLeadInput = {
 export async function createLeadAction(
   input: CreateLeadInput,
 ): Promise<LeadActionResult<Lead>> {
-  await requireUser()
+  const user = await requireUser()
   try {
     const name = (input.name ?? "").trim()
     const phone = (input.phone ?? "").trim()
@@ -272,7 +315,7 @@ export async function createLeadAction(
     })
 
     try {
-      await fireEventForAll("lead.created", {
+      await fireEventForAll(user.id, "lead.created", {
         id: lead.id,
         name: lead.name,
         phone: lead.phone,
@@ -304,7 +347,7 @@ export async function updateLeadNotesAction(
   leadId: string,
   notes: string,
 ): Promise<LeadActionResult<{ notes: string }>> {
-  await requireUser()
+  const user = await requireUser()
   if (!leadId) return { ok: false, error: "Missing lead id" }
   try {
     const supabase = await createClient()
@@ -320,7 +363,7 @@ export async function updateLeadNotesAction(
       userName: "dashboard",
       action: `leads.notes_updated ${leadId} (${notes.length} chars)`,
     })
-    void fireEventForAll("lead.updated", {
+    void fireEventForAll(user.id, "lead.updated", {
       id: leadId,
       notes,
     })

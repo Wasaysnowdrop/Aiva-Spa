@@ -36,7 +36,11 @@ export async function sendSms(msg: SmsMessage): Promise<SmsSendResult> {
   }
   if (!isSmsConfigured()) {
     console.info(`[sms:log-only] to=${normalized} body=${JSON.stringify(msg.body)}`)
-    return { ok: true, provider: "log" }
+    return {
+      ok: false,
+      provider: "log",
+      error: "sms provider not configured (set TWILIO_* env vars)",
+    }
   }
 
   const sid = process.env.TWILIO_ACCOUNT_SID!

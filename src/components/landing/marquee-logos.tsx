@@ -37,6 +37,12 @@ export function MarqueeLogos() {
           </div>
         ))}
       </motion.div>
+      <p
+        aria-hidden="true"
+        className="mt-3 text-center text-[10px] uppercase tracking-widest text-[#5A626C]"
+      >
+        Sample brand names shown for layout
+      </p>
     </div>
   );
 }

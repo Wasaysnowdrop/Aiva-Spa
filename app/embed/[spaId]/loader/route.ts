@@ -331,19 +331,19 @@ const SCRIPT = `(function () {
 `
 
 export async function GET() {
-  const h = await headers()
-  const proto = h.get("x-forwarded-proto") ?? "https"
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000"
-  const origin = `${proto}://${host}`
-  const script = SCRIPT.replaceAll("__AIVA_ORIGIN__", origin)
+  // The SCRIPT template derives the script's origin at runtime via
+  // `currentScript.src` (see SCRIPT body), so the static template does
+  // not need a placeholder.
+  void headers
 
-  return new Response(script, {
+  return new Response(SCRIPT, {
     status: 200,
     headers: {
       "content-type": "application/javascript; charset=utf-8",
       "cache-control": "public, max-age=60, s-maxage=300",
       "access-control-allow-origin": "*",
       "x-robots-tag": "none",
+      "x-content-type-options": "nosniff",
     },
   })
 }

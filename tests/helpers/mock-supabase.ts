@@ -56,10 +56,20 @@ function buildThenable(data: unknown, error: OpResult["error"], count?: number) 
   }
 }
 
-export function makeSupabaseClient(): MockSupabase {
-  const results = new Map<string, OpResult>()
+export type MockSupabaseFactory = {
+  server: MockSupabase & { results: Map<string, OpResult> }
+  browser: MockSupabase & { results: Map<string, OpResult> }
+  admin: MockSupabase & { results: Map<string, OpResult> }
+}
+
+function buildClientWithSharedResults(
+  sharedResults: Map<string, OpResult>,
+): MockSupabase & { results: Map<string, OpResult> } {
   const calls: Call[] = []
   const authRef: { current: AuthUser } = { current: null }
+  // All closure lookups use the shared map, so server/admin/browser all
+  // read the same configured results.
+  const results = sharedResults
 
   function buildQuery(table: string, sourceOp: string, inInsertSelect = false): any {
     const query: any = {}
@@ -205,33 +215,52 @@ export function makeSupabaseClient(): MockSupabase {
 
   const client = { from, auth, rpc: (...args: unknown[]) => from(args[0] as string).rpc() }
 
-  return {
+  const self = {
     client,
-    setAuthUser: (u) => {
+    results,
+    setAuthUser: (u: AuthUser) => {
       authRef.current = u
     },
-    setResult: (table, op, result) => {
+    setResult: (table: string, op: string, result: OpResult) => {
       results.set(keyOf(table, op), result)
     },
     getCalls: () => calls,
-    callsFor: (table, op) =>
+    callsFor: (table: string, op?: string) =>
       calls.filter((c) => c.table === table && (op ? c.op === op : true)),
     reset: () => {
-      results.clear()
+      // Note: do NOT clear the shared results map here — that would wipe
+      // results configured by other mocks. Only clear the per-client
+      // call log and auth ref.
       calls.length = 0
       authRef.current = null
     },
-  }
+  } as unknown as MockSupabase & { results: Map<string, OpResult> }
+  return self
+}
+
+export function makeSupabaseClient(): MockSupabase & { results: Map<string, OpResult> } {
+  return buildClientWithSharedResults(new Map<string, OpResult>())
 }
 
 /**
  * Install the Supabase mock onto @/lib/supabase/server, client, and admin.
  * Returns the mock objects so individual tests can configure per-table results.
+ *
+ * All three mocked clients share their result map, so a single
+ * `setResult("api_keys", "select", ...)` works regardless of which client
+ * the production code happens to use (anon, server, or admin) for that
+ * call. The call log is per-client so you can still tell which client
+ * actually issued the request.
  */
 export function installSupabaseMocks() {
-  const server = makeSupabaseClient()
-  const browser = makeSupabaseClient()
-  const admin = makeSupabaseClient()
+  // All three mocked clients share a single result-config map so a
+  // `setResult("api_keys", "select", ...)` call applies regardless of
+  // which client (anon, server, or admin) the production code happens
+  // to use. This makes tests robust to refactors that switch clients.
+  const sharedResults = new Map<string, OpResult>()
+  const server = buildClientWithSharedResults(sharedResults)
+  const browser = buildClientWithSharedResults(sharedResults)
+  const admin = buildClientWithSharedResults(sharedResults)
 
   vi.doMock("@/lib/supabase/server", () => ({
     createClient: () => Promise.resolve(server.client),

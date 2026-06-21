@@ -262,7 +262,7 @@ export default async function LandingPage() {
             <Reveal>
               <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-[#23252A] bg-[#121316] px-3.5 py-1.5 text-xs font-medium text-[#8A8F98]">
                 <span className="size-1.5 rounded-full bg-[#34D399]" />
-                <span>Now live in beta · 12 med spas onboarded</span>
+                <span>Now live in beta · private preview</span>
               </div>
             </Reveal>
             <Reveal>
@@ -559,7 +559,7 @@ export default async function LandingPage() {
                   </span>
                   Sample conversation
                 </div>
-                <span className="text-[10px] text-[#62666D]">From PRD §5.3</span>
+                <span className="text-[10px] text-[#62666D]">Example transcript</span>
               </div>
               <div className="mt-6 space-y-3">
                 {[
@@ -671,10 +671,10 @@ export default async function LandingPage() {
           <div className="mt-14 flex flex-col items-start justify-between gap-4 border-t border-[#23252A]/60 pt-6 text-xs text-[#62666D] md:flex-row md:items-center">
             <p>© 2026 AivaSpa, Inc. All rights reserved.</p>
             <div className="flex items-center gap-5">
-              <a href="#privacy" className="hover:text-[#F7F8F8]">Privacy</a>
-              <a href="#terms" className="hover:text-[#F7F8F8]">Terms</a>
-              <a href="#hipaa" className="hover:text-[#F7F8F8]">HIPAA Notice</a>
-              <a href="#status" className="hover:text-[#F7F8F8]">Status</a>
+              <a href="/legal/privacy" className="hover:text-[#F7F8F8]">Privacy</a>
+              <a href="/legal/terms" className="hover:text-[#F7F8F8]">Terms</a>
+              <a href="/legal/hipaa" className="hover:text-[#F7F8F8]">HIPAA Notice</a>
+              <a href="/status" className="hover:text-[#F7F8F8]">Status</a>
             </div>
           </div>
           <p className="mt-4 text-xs text-[#62666D]">

@@ -25,25 +25,30 @@ export default async function SettingsPage() {
   const periodEnd = subscription.row?.periodEnd ?? new Date().toISOString();
   const trialStartedAt = subscription.row?.trialStartedAt ?? null;
 
-  // API section data
+  // API section data — scope everything to the signed-in user.
   const apiKeys = await listApiKeys().catch(() => [])
+  const userId = user?.id ?? null
   let rawWebhooks: unknown[] = []
   try {
-    const { data } = await supabase
+    const query = supabase
       .from("webhooks")
-      .select("*")
+      .select("id, url, secret, events, active, description, created_at")
       .order("created_at", { ascending: false })
+    const scoped = userId ? query.eq("user_id", userId) : query.eq("user_id", "00000000-0000-0000-0000-000000000000")
+    const { data } = await scoped
     rawWebhooks = (data ?? []) as unknown[]
   } catch {
     rawWebhooks = []
   }
   let rawDeliveries: unknown[] = []
   try {
-    const { data } = await supabase
+    const query = supabase
       .from("webhook_deliveries")
       .select("id, webhook_id, event, response_status, success, attempt, duration_ms, delivered_at, created_at, error")
       .order("created_at", { ascending: false })
       .limit(25)
+    const scoped = userId ? query.eq("user_id", userId) : query.eq("user_id", "00000000-0000-0000-0000-000000000000")
+    const { data } = await scoped
     rawDeliveries = (data ?? []) as unknown[]
   } catch {
     rawDeliveries = []

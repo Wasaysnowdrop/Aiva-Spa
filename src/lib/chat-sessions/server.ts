@@ -60,6 +60,10 @@ export async function upsertChatSessionTurn(
     lead_id: input.leadId ?? null,
     consent_given: Boolean(input.consentGiven),
     status: input.status ?? (input.leadCaptured ? "captured" : "active"),
+    // Set updated_at explicitly so dashboards that read it on the first
+    // paint don't see NULL. The before-update trigger handles subsequent
+    // updates; this covers the insert path.
+    updated_at: now,
   }
 
   if (existing) {

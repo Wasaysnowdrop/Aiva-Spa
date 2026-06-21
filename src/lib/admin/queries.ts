@@ -79,11 +79,27 @@ export async function getSystemHealth(): Promise<SystemHealth> {
         return 0
       }
     }
+    const countAllUsers = async (): Promise<number> => {
+      try {
+        let total = 0
+        let page = 1
+        const perPage = 200
+        // Paginate through all users; the admin API caps each response.
+        while (true) {
+          const { data } = await admin.auth.admin.listUsers({ page, perPage })
+          const users = data?.users ?? []
+          total += users.length
+          if (users.length < perPage) break
+          page += 1
+          if (page > 1000) break // safety stop
+        }
+        return total
+      } catch {
+        return 0
+      }
+    }
     const [users, leads, sessions, apiKeys, webhooks, subs] = await Promise.all([
-      admin.auth.admin
-        .listUsers({ perPage: 1 })
-        .then((r) => r.data?.users?.length ?? 0)
-        .catch(() => 0),
+      countAllUsers(),
       safeCount("leads"),
       safeCount("chat_sessions"),
       safeCount("api_keys"),
@@ -136,8 +152,9 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     /* ignore */
   }
 
-  // LLM latency / token usage / error rate proxies from notification logs + chat_sessions
-  // (we don't yet store LLM usage rows, so derive from chat_sessions.last_message_at + count)
+  // LLM activity proxies from chat_sessions:
+  //   messageIntervals — number of chats whose (updated_at - last_message_at) fell into each 5-second bucket
+  //   tokenUsage       — same series scaled by a per-message estimate (250 tokens/turn), shown for context
   try {
     const last60 = new Date(Date.now() - 60 * 60 * 1000).toISOString()
     const { data } = await admin
@@ -146,7 +163,6 @@ export async function getSystemHealth(): Promise<SystemHealth> {
       .gte("last_message_at", last60)
       .limit(2000)
     if (Array.isArray(data)) {
-      // Approximate latency as distribution of message intervals
       const intervals: number[] = []
       for (let i = 0; i < 30; i++) intervals.push(0)
       for (const row of data as { updated_at?: string; last_message_at?: string }[]) {
@@ -157,7 +173,6 @@ export async function getSystemHealth(): Promise<SystemHealth> {
         intervals[29 - idx] = (intervals[29 - idx] ?? 0) + 1
       }
       trends.llmLatencyMs = intervals
-      // Token usage proxy = total messages in last 60m (more chats = more tokens)
       trends.tokenUsage = intervals.map((v) => v * 250)
     }
   } catch {
@@ -200,7 +215,11 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     twilioConfigured: Boolean(
       process.env.TWILIO_ACCOUNT_SID?.trim() && process.env.TWILIO_AUTH_TOKEN?.trim() && process.env.TWILIO_FROM_NUMBER?.trim(),
     ),
-    customCalendarConfigured: true,
+    customCalendarConfigured: Boolean(
+      process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() &&
+        process.env.GOOGLE_OAUTH_CLIENT_SECRET?.trim() &&
+        process.env.GOOGLE_OAUTH_REDIRECT_URI?.trim(),
+    ),
     totals,
     trends,
     lastUpdated: new Date().toISOString(),
@@ -212,7 +231,7 @@ export async function getRecentLeads(limit = 50) {
   const { data } = await admin
     .from("leads")
     .select(
-      "id, name, phone, email, service, status, source, source_url, after_hours, created_at, last_activity_at, spa_id",
+      "id, name, phone, email, service, status, source, source_url, after_hours, created_at, last_activity_at",
     )
     .order("created_at", { ascending: false })
     .limit(limit)
@@ -243,7 +262,7 @@ export async function getRecentNotificationLogs(limit = 50) {
   const admin = createAdminClient()
   const { data } = await admin
     .from("notification_logs")
-    .select("id, lead_id, channel, status, recipient, error, sent_at, retry_count")
+    .select("id, lead_id, lead_name, channel, recipient, status, sent_at")
     .order("sent_at", { ascending: false })
     .limit(limit)
   return (data ?? []) as Record<string, unknown>[]

@@ -7,6 +7,13 @@ export type DispatchInput = {
   lead: Lead
   brandName: string
   transcriptExcerpt?: string
+  /**
+   * Optional owner filter. When provided, only channels whose `user_id`
+   * matches (or, for legacy rows predating the column, fall back to the
+   * default global channel) are dispatched. This prevents cross-tenant
+   * fanout where one spa's lead notifies every other spa's owners.
+   */
+  ownerUserId?: string | null
 }
 
 type ChannelConfig = {
@@ -14,14 +21,17 @@ type ChannelConfig = {
   channel: string
   enabled: boolean
   recipients: string[]
+  userId: string | null
 }
 
-async function getEnabledChannels(): Promise<ChannelConfig[]> {
+async function getEnabledChannels(
+  ownerUserId?: string | null,
+): Promise<ChannelConfig[]> {
   try {
     const admin = createAdminClient()
     const { data, error } = await admin
       .from("notification_channels")
-      .select("id, channel, enabled, recipients")
+      .select("id, channel, enabled, recipients, user_id")
     if (error) return []
     return (data ?? []).map((row) => {
       const r = row as Record<string, unknown>
@@ -33,7 +43,19 @@ async function getEnabledChannels(): Promise<ChannelConfig[]> {
         channel: String(r.channel),
         enabled: Boolean(r.enabled),
         recipients,
+        userId: (r.user_id as string | null) ?? null,
       }
+    }).filter((c) => {
+      // No owner filter => legacy single-tenant behavior (all enabled channels).
+      // Used for pre-signup flows (e.g. welcome email on signup).
+      if (!ownerUserId) return true
+      // Owner-scoped channels only fire for their owning user.
+      if (c.userId) return c.userId === ownerUserId
+      // Legacy rows (no user_id assigned yet) are treated as global defaults.
+      // This preserves backward-compatibility with deployments that existed
+      // before this column was introduced. New rows should always carry a
+      // user_id so this branch becomes unreachable over time.
+      return true
     })
   } catch {
     return []
@@ -60,10 +82,11 @@ async function logNotification(
   channel: "Email" | "SMS",
   recipient: string,
   status: "delivered" | "pending" | "failed",
+  error?: string,
 ): Promise<NotificationLog | null> {
   try {
     const admin = createAdminClient()
-    const { data, error } = await admin
+    const { data, error: dbErr } = await admin
       .from("notification_logs")
       .insert({
         lead_id: lead.id,
@@ -71,10 +94,13 @@ async function logNotification(
         channel,
         recipient,
         status,
+        // Surface the underlying provider error in the audit trail even
+        // though the table has no dedicated `error` column.
+        ...(error ? { detail: { error } } : {}),
       } as never)
       .select()
       .single()
-    if (error) return null
+    if (dbErr) return null
     return data as NotificationLog
   } catch {
     return null
@@ -84,8 +110,8 @@ async function logNotification(
 export async function dispatchLeadNotifications(
   input: DispatchInput,
 ): Promise<{ email: number; sms: number; failed: number }> {
-  const { lead, brandName, transcriptExcerpt } = input
-  const channels = await getEnabledChannels()
+  const { lead, brandName, transcriptExcerpt, ownerUserId } = input
+  const channels = await getEnabledChannels(ownerUserId ?? null)
   let emailCount = 0
   let smsCount = 0
   let failed = 0
@@ -119,6 +145,7 @@ export async function dispatchLeadNotifications(
           "Email",
           recipient,
           result.ok ? "delivered" : "failed",
+          result.ok ? undefined : result.error,
         )
         if (result.ok) emailCount++
         else failed++
@@ -139,6 +166,7 @@ export async function dispatchLeadNotifications(
           "SMS",
           recipient,
           result.ok ? "delivered" : "failed",
+          result.ok ? undefined : result.error,
         )
         if (result.ok) smsCount++
         else failed++

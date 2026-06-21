@@ -64,7 +64,15 @@ async function sendEmailLogOnly(msg: EmailMessage): Promise<EmailSendResult> {
   console.info(
     `[email:log-only] to=${recipients} subject=${JSON.stringify(msg.subject)}`,
   )
-  return { ok: true, provider: "log" }
+  // Log-only mode means the operator hasn't configured Resend yet. Surface
+  // that as a non-delivered result so dispatch.ts records `failed` (not
+  // `delivered`) in notification_logs — otherwise owners will think emails
+  // are being sent when they aren't.
+  return {
+    ok: false,
+    provider: "log",
+    error: "email provider not configured (set RESEND_API_KEY)",
+  }
 }
 
 export function buildLeadNotificationEmail(input: {

@@ -121,11 +121,14 @@ export async function deleteWorkspaceAction(): Promise<{
       await admin
         .from("widget_config")
         .update({
-          brand_name: "Glow Med Spa",
-          logo_initial: "G",
-          welcome_message: "Hi! Are you looking to book a consultation or ask about a treatment?",
-          proactive_message: "Still browsing? I can answer questions or set up a consultation in seconds.",
-          consent_text: "By chatting, you agree to our privacy policy. We'll only contact you about your inquiry.",
+          // Neutral placeholder so the widget renders something coherent
+          // after a delete. Owners will see an empty-looking welcome
+          // message and can rebuild it via onboarding.
+          brand_name: "Your med spa",
+          logo_initial: "A",
+          welcome_message: "",
+          proactive_message: "",
+          consent_text: "",
           updated_at: new Date().toISOString(),
         } as never)
         .neq("id", "00000000-0000-0000-0000-000000000000")

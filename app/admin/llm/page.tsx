@@ -47,18 +47,20 @@ export default async function AdminLlmPage() {
 
         <section className="grid gap-5 lg:grid-cols-2">
           <div className="rounded-2xl border border-[#23252A] bg-[#0B0C0E] p-5">
-            <h2 className="text-sm font-semibold text-[#F7F8F8]">Message intervals · 60m</h2>
+            <h2 className="text-sm font-semibold text-[#F7F8F8]">Message activity · 60m</h2>
             <p className="mt-1 text-[10px] text-[#62666D]">
-              Each bucket = 2-second window of last-message lag
+              Each bucket = a 5-second bucket of (updated_at − last_message_at).
+              Bar height = number of chats whose delta fell in that bucket.
             </p>
             <div className="mt-4">
               <LatencyHistogram data={health.trends.llmLatencyMs} width={520} height={140} />
             </div>
           </div>
           <div className="rounded-2xl border border-[#23252A] bg-[#0B0C0E] p-5">
-            <h2 className="text-sm font-semibold text-[#F7F8F8]">Token usage · 60m</h2>
+            <h2 className="text-sm font-semibold text-[#F7F8F8]">Token estimate · 60m</h2>
             <p className="mt-1 text-[10px] text-[#62666D]">
-              Estimated (250 tokens per message — tune in admin settings)
+              Estimated at 250 tokens per message — same series as the
+              histogram scaled, not a measured value.
             </p>
             <div className="mt-4">
               <Sparkline

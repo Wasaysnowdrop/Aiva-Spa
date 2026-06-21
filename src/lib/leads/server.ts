@@ -9,6 +9,7 @@ import {
   normalizeContact,
 } from "@/lib/leads/dedup"
 import { createBooking } from "@/lib/calendar"
+import { checkEmbedAccess } from "@/lib/widget/access"
 
 export type CreatePublicLeadInput = {
   name: string
@@ -108,6 +109,12 @@ export async function createPublicLead(
  * belongs to, automatically create a calendar booking so it shows up on the
  * dashboard's calendar. Failures are logged but never bubble up — lead
  * capture must not be blocked by the calendar feature.
+ *
+ * Important: the spaId comes from the public request body. We must verify the
+ * install is still active and entitled before we write anything to that spa's
+ * calendar. checkEmbedAccess returns the owner + subscription snapshot; we
+ * use that as a cheap authorization gate so unauthenticated callers can't
+ * inject bookings into arbitrary spas.
  */
 async function maybeAutoBookFromLead(args: {
   spaId?: string
@@ -116,6 +123,22 @@ async function maybeAutoBookFromLead(args: {
   service: string
 }): Promise<void> {
   if (!args.spaId) return
+  // Authorization: confirm the spa is active and entitled.
+  let access
+  try {
+    access = await checkEmbedAccess(args.spaId)
+  } catch (e) {
+    console.error("auto-book authorization check failed", e)
+    return
+  }
+  if (!access.ok) {
+    console.warn(
+      `auto-book skipped: spa ${args.spaId} not accessible (${access.reason})`,
+    )
+    return
+  }
+  // Consent: never auto-book a lead the visitor refused to share.
+  if (!args.lead.consentGiven) return
   const iso = parsePreferredTimeToIso(args.preferredTime)
   if (!iso) return
   try {

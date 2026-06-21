@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   ALL_SCOPES,
   API_KEY_PREFIX,
@@ -135,8 +136,10 @@ export async function authenticateApiKey(
     return { ok: false, status: 401, error: "Missing or malformed API key." };
   }
   const hash = hashApiKey(providedKey);
-  const supabase = await createClient();
-  const { data, error } = await supabase
+  // Use the admin client so we can look up the key regardless of RLS
+  // (the request carries no Supabase auth context — just an API key).
+  const admin = createAdminClient();
+  const { data, error } = await admin
     .from("api_keys")
     .select("id, user_id, scopes, revoked_at, expires_at")
     .eq("key_hash", hash)
@@ -158,7 +161,7 @@ export async function authenticateApiKey(
     return { ok: false, status: 401, error: "API key has expired." };
   }
   // Fire-and-forget last_used update
-  void supabase
+  void admin
     .from("api_keys")
     .update({ last_used_at: new Date().toISOString() } as never)
     .eq("id", row.id);

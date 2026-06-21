@@ -11,7 +11,6 @@ import {
 import { ensureTrialSubscription } from "@/lib/subscription"
 import { recordAuditForUser } from "@/lib/audit"
 import { invalidateKnowledgeCache } from "@/lib/ai/retrieval"
-import { mapWidgetConfig } from "@/lib/supabase/types"
 import type { KnowledgeCategory, FaqCategory, WidgetConfig } from "@/lib/supabase/types"
 
 export type FinalizeSetupResult = {
@@ -175,7 +174,6 @@ export async function finalizeSetupAssistant(
       if (!error) widgetUpdated = true
       else console.warn("widget_config insert failed", error.message)
     }
-    void mapWidgetConfig
   } catch (e) {
     console.warn("widget_config persist failed", e)
   }
@@ -280,10 +278,24 @@ export async function finalizeSetupAssistant(
   }
 
   invalidateKnowledgeCache()
-  void recordAuditForUser(user, `onboarding.finalized services=${servicesInserted} faqs=${faqsInserted}`)
+  recordAuditForUser(user, `onboarding.finalized services=${servicesInserted} faqs=${faqsInserted}`)
 
   try {
     await ensureTrialSubscription(user.id)
+  } catch {
+    // Non-fatal
+  }
+
+  // Make sure subsequent reads see the new KB / widget config instead of
+  // stale caches.
+  try {
+    const { revalidatePath } = await import("next/cache")
+    revalidatePath("/dashboard")
+    revalidatePath("/dashboard/widget")
+    revalidatePath("/dashboard/knowledge-base")
+    revalidatePath("/dashboard/analytics")
+    revalidatePath("/embed-demo")
+    revalidatePath("/", "layout")
   } catch {
     // Non-fatal
   }

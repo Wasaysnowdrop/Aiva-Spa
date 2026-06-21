@@ -178,7 +178,7 @@ async function handleStreamingChat(
         })
 
         if (isFirstTurn) {
-          void fireEventForAll("conversation.started", {
+          void fireEventForAll(accessUserId ?? "__anon__", "conversation.started", {
             sessionId: body.sessionId,
             spaId: body.spaId ?? null,
             sourceUrl: body.sourceUrl ?? null,
@@ -254,7 +254,7 @@ async function handleBufferedChat(
     try {
       const exists = await chatSessionExists(body.sessionId)
       if (!exists) {
-        void fireEventForAll("conversation.started", {
+        void fireEventForAll(accessUserId ?? "__anon__", "conversation.started", {
           sessionId: body.sessionId,
           spaId: body.spaId ?? null,
           sourceUrl: body.sourceUrl ?? null,
@@ -303,9 +303,7 @@ async function handleBufferedChat(
         error:
           process.env.NODE_ENV === "production"
             ? undefined
-            : err instanceof Error
-              ? err.message
-              : "chat engine error",
+            : "chat engine error",
       },
       { status: 200, headers: cors(request) },
     )
@@ -415,7 +413,7 @@ async function persistTurn(
         preferredTime: lead.preferredTime || "Not specified",
         sourceUrl: body.sourceUrl,
         transcript,
-        consentGiven: true,
+        consentGiven: Boolean(body.consentGiven),
         afterHours: result.afterHours,
         spaId: body.spaId ?? undefined,
       })
@@ -442,7 +440,7 @@ async function persistTurn(
                   console.error("incrementConversations failed", e),
                 )
               : Promise.resolve(),
-            fireEventForAll("conversation.completed", {
+            fireEventForAll(accessUserId ?? "__anon__", "conversation.completed", {
               sessionId: body.sessionId,
               spaId: body.spaId ?? null,
               leadId: created.lead.id,

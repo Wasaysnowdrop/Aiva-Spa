@@ -1,10 +1,12 @@
 "use server";
+import { randomBytes } from "node:crypto";
 
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { recordAudit } from "@/lib/audit";
+import { sendEmail } from "@/lib/notifications/email";
 import type { TeamRole } from "@/lib/supabase/types";
 
 export type TeamActionResult<T = void> =
@@ -21,11 +23,7 @@ async function requireUser() {
 }
 
 function buildInviteToken() {
-  return (
-    "invite_" +
-    Math.random().toString(36).slice(2, 10) +
-    Math.random().toString(36).slice(2, 10)
-  );
+  return "invite_" + randomBytes(24).toString("hex");
 }
 
 export async function inviteTeamMemberAction(input: {
@@ -100,6 +98,21 @@ export async function inviteTeamMemberAction(input: {
 
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
     const inviteUrl = `${siteUrl}/invite/${inviteToken}`;
+
+    // Best-effort invite email. Failure to send doesn't fail the action —
+    // the dashboard still gets the invite URL to copy/share manually.
+    try {
+      const result = await sendEmail({
+        to: email,
+        subject: `${user.email?.split("@")[0] || "A teammate"} invited you to AivaSpa`,
+        text: `You've been invited to join ${user.email ?? "an AivaSpa workspace"} as ${input.role}.\n\nAccept the invite: ${inviteUrl}\n\nIf you weren't expecting this, you can ignore the email.`,
+      })
+      if (!result.ok) {
+        console.warn("[team] invite email not sent:", result.error)
+      }
+    } catch (e) {
+      console.warn("[team] invite email send threw:", e)
+    }
 
     void recordAudit({
       userName: user.email?.split("@")[0] || user.id,

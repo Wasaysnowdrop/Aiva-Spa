@@ -74,18 +74,12 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
     [leads],
   )
 
-  if (typeof window !== "undefined") {
-    console.log("[aivaspa] LeadsInbox data:", {
-      count: safeLeads.length,
-      sample: safeLeads.slice(0, 3).map((l) => ({ id: l?.id, name: l?.name })),
-    })
-  }
-
   const [query, setQuery] = React.useState("")
   const [status, setStatus] = React.useState<string>("all")
   const [service, setService] = React.useState<string>("all")
   const [range, setRange] = React.useState("30d")
   const [selected, setSelected] = React.useState<string[]>([])
+  const [bulkPending, setBulkPending] = React.useState(false)
   const [dupes, setDupes] = React.useState<Array<{
     matchKey: string
     matchType: "phone" | "email"
@@ -103,11 +97,24 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
     [safeLeads],
   )
 
+  const rangeCutoff = React.useMemo(() => {
+    if (range === "all") return null
+    const days = range === "today" ? 0 : range === "7d" ? 7 : 30
+    const cutoff = new Date()
+    if (days === 0) cutoff.setHours(0, 0, 0, 0)
+    else cutoff.setDate(cutoff.getDate() - days)
+    return cutoff.getTime()
+  }, [range])
+
   const filtered = React.useMemo(() => {
     return safeLeads.filter((lead) => {
       if (!lead?.id) return false
       if (status !== "all" && lead.status !== status) return false
       if (service !== "all" && lead.service !== service) return false
+      if (rangeCutoff !== null) {
+        const ts = new Date(lead.createdAt ?? 0).getTime()
+        if (!Number.isFinite(ts) || ts < rangeCutoff) return false
+      }
       if (query) {
         const q = query.toLowerCase()
         const name = (lead.name ?? "").toLowerCase()
@@ -119,18 +126,23 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
       }
       return true
     })
-  }, [safeLeads, query, status, service])
+  }, [safeLeads, query, status, service, rangeCutoff])
 
-  const counts = React.useMemo(
-    () => ({
-      all: safeLeads.length,
-      new: safeLeads.filter((l) => l?.status === "new").length,
-      contacted: safeLeads.filter((l) => l?.status === "contacted").length,
-      booked: safeLeads.filter((l) => l?.status === "booked").length,
-      lost: safeLeads.filter((l) => l?.status === "lost").length,
-    }),
-    [safeLeads],
-  )
+  const counts = React.useMemo(() => {
+    const inRange = rangeCutoff
+      ? safeLeads.filter((l) => {
+          const ts = new Date(l?.createdAt ?? 0).getTime()
+          return Number.isFinite(ts) && ts >= rangeCutoff
+        })
+      : safeLeads
+    return {
+      all: inRange.length,
+      new: inRange.filter((l) => l?.status === "new").length,
+      contacted: inRange.filter((l) => l?.status === "contacted").length,
+      booked: inRange.filter((l) => l?.status === "booked").length,
+      lost: inRange.filter((l) => l?.status === "lost").length,
+    }
+  }, [safeLeads, rangeCutoff])
 
   const toggleAll = () => {
     if (selected.length === filtered.length) setSelected([])
@@ -142,6 +154,73 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
       prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
     )
   }
+
+  const exportCsv = React.useCallback(() => {
+    if (filtered.length === 0) return
+    const headers = [
+      "name",
+      "phone",
+      "email",
+      "service",
+      "status",
+      "preferred_time",
+      "source",
+      "source_url",
+      "created_at",
+    ]
+    const escape = (val: unknown) => {
+      const s = val == null ? "" : String(val)
+      if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
+      return s
+    }
+    const rows = filtered.map((l) =>
+      [
+        l.name,
+        l.phone,
+        l.email,
+        l.service,
+        l.status,
+        l.preferredTime,
+        l.source,
+        l.sourceUrl,
+        l.createdAt,
+      ]
+        .map(escape)
+        .join(","),
+    )
+    const csv = [headers.join(","), ...rows].join("\n")
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    toast.success(`Exported ${filtered.length} lead${filtered.length === 1 ? "" : "s"} to CSV`)
+  }, [filtered])
+
+  const bulkUpdateStatus = React.useCallback(
+    async (next: "contacted" | "booked") => {
+      if (selected.length === 0) return
+      setBulkPending(true)
+      try {
+        const { updateLeadStatusAction } = await import("@/app/actions/leads")
+        const results = await Promise.allSettled(
+          selected.map((id) => updateLeadStatusAction(id, next)),
+        )
+        const ok = results.filter((r) => r.status === "fulfilled" && r.value?.ok).length
+        const failed = results.length - ok
+        if (ok > 0) toast.success(`Marked ${ok} lead${ok === 1 ? "" : "s"} as ${next}`)
+        if (failed > 0) toast.error(`Failed to update ${failed} lead${failed === 1 ? "" : "s"}`)
+        setSelected([])
+      } finally {
+        setBulkPending(false)
+      }
+    },
+    [selected],
+  )
 
   const scanDuplicates = React.useCallback(async () => {
     setScanning(true)
@@ -221,7 +300,13 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
             )}
             Find duplicates
           </Button>
-          <Button variant="outline" size="sm">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={exportCsv}
+            disabled={filtered.length === 0}
+            aria-label="Export filtered leads as CSV"
+          >
             <Download className="size-4" />
             Export
           </Button>
@@ -346,10 +431,21 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
           <CheckCircle2 className="size-3.5 text-[#E2E54B]" />
           <span className="text-[#F7F8F8]">{selected.length} selected</span>
           <div className="ml-auto flex items-center gap-2">
-            <Button size="xs" variant="outline">
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={bulkPending}
+              onClick={() => bulkUpdateStatus("contacted")}
+            >
+              {bulkPending ? <Loader2 className="size-3 animate-spin" /> : null}
               Mark contacted
             </Button>
-            <Button size="xs" variant="outline">
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={bulkPending}
+              onClick={() => bulkUpdateStatus("booked")}
+            >
               Mark booked
             </Button>
             <Button size="xs" variant="ghost" onClick={() => setSelected([])}>
@@ -410,15 +506,9 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
         <p>
           Showing {filtered.length} of {safeLeads.length} leads
         </p>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled>
-            Previous
-          </Button>
-          <span className="font-mono">1 / 1</span>
-          <Button variant="outline" size="sm" disabled>
-            Next
-          </Button>
-        </div>
+        <p className="text-[10px] text-[#62666D]">
+          Realtime · auto-refresh
+        </p>
       </div>
 
       <MergeDuplicatesDialog
@@ -440,10 +530,8 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
       <AddLeadDialog
         open={addOpen}
         onOpenChange={setAddOpen}
-        onCreated={(id) => {
-          if (typeof window !== "undefined") {
-            console.log("[aivaspa] manual lead created:", id)
-          }
+        onCreated={() => {
+          // Realtime subscription will refresh the row in place.
         }}
       />
     </div>

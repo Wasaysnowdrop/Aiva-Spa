@@ -30,9 +30,11 @@ function normalizeUrl(input: string) {
 function isPrivateHost(hostname: string) {
   const h = hostname.toLowerCase()
   if (h === "localhost" || h === "127.0.0.1" || h === "0.0.0.0") return true
+  if (h === "::1" || h === "::" || h.startsWith("fe80:") || h.startsWith("fc") || h.startsWith("fd")) return true
   if (/^10\./.test(h)) return true
   if (/^192\.168\./.test(h)) return true
   if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(h)) return true
+  if (/^169\.254\./.test(h)) return true
   if (h.endsWith(".local") || h.endsWith(".internal")) return true
   return false
 }

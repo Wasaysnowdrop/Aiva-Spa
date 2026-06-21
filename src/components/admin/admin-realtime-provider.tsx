@@ -117,7 +117,7 @@ const TABLE_TO_EVENT = {
   api_keys: {
     INSERT: (row: Record<string, unknown>): AdminEvent => ({
       id: `apikey-${row.id}`,
-      source: "user.signed_up",
+      source: "api_key.used",
       severity: "info",
       title: `API key created · ${String(row.name ?? "—")}`,
       detail: Array.isArray(row.scopes) ? (row.scopes as unknown[]).map(String).join(", ") : "",

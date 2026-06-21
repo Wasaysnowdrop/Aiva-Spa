@@ -147,7 +147,10 @@ export default async function AdminOverviewPage() {
               </li>
               <li className="flex items-center justify-between">
                 <span className="text-[#8A8F98]">Realtime</span>
-                <StatusPill status="ok" label="ok" />
+                <StatusPill
+                  status={health.database === "ok" ? "ok" : "warn"}
+                  label={health.database === "ok" ? "ok" : "degraded"}
+                />
               </li>
               <li className="flex items-center justify-between">
                 <span className="text-[#8A8F98]">LLM provider</span>

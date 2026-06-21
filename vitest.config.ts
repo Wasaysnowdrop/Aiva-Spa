@@ -7,8 +7,11 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
   },
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "src"),
-    },
+    alias: [
+      // Mirror tsconfig's `paths` map so tests can import via the same
+      // `@/...` and `@/app/...` aliases the app source uses.
+      { find: /^@\/(?!app\/)(.*)$/, replacement: path.resolve(__dirname, "src/$1") },
+      { find: /^@\/app\/(.*)$/, replacement: path.resolve(__dirname, "app/$1") },
+    ],
   },
 })
