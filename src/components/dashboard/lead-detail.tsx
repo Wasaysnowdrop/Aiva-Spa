@@ -89,18 +89,29 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
   })
 
   if (typeof window !== "undefined") {
-    console.log("Selected Lead:", safeInitialLead)
+    console.log("[aivaspa] Selected Lead:", safeInitialLead)
   }
 
-  const safeLiveLeads = (liveLeads ?? []).filter((l): l is Lead => Boolean(l?.id))
-  const safeTeamMembers = (teamMembers ?? []).filter((m): m is TeamMember => Boolean(m?.id))
-  const safeEvents = (events ?? []).filter((e): e is CalendarEventRow => Boolean(e?.id))
+  const safeLiveLeads = (Array.isArray(liveLeads) ? liveLeads : [])
+    .filter((l): l is Lead => Boolean(l?.id))
+    .map((l) => ({ ...l }))
+  const safeTeamMembers = (Array.isArray(teamMembers) ? teamMembers : [])
+    .filter((m): m is TeamMember => Boolean(m?.id))
+    .map((m) => ({ ...m }))
+  const safeEvents = (Array.isArray(events) ? events : [])
+    .filter((e): e is CalendarEventRow => Boolean(e?.id))
+    .map((e) => ({ ...e }))
 
-  const calendarEvent = safeEvents.find((e) => e.lead_id === safeInitialLead.id)
+  const calendarEvent = safeInitialLead?.id
+    ? safeEvents.find((e) => e.lead_id === safeInitialLead.id)
+    : undefined
 
-  const lead = safeLiveLeads.find((l) => l?.id === safeInitialLead.id) ?? safeInitialLead
-  const [status, setStatus] = React.useState(() => lead?.status ?? "new")
-  const [note, setNote] = React.useState(() => lead?.notes ?? "")
+  const lead: Lead = (safeInitialLead?.id
+    ? safeLiveLeads.find((l) => l?.id === safeInitialLead.id) ?? safeInitialLead
+    : safeLiveLeads[0] ?? safeInitialLead) || ({} as Lead)
+  const safeLead: Lead = lead?.id ? lead : ({} as Lead)
+  const [status, setStatus] = React.useState(() => safeLead?.status ?? "new")
+  const [note, setNote] = React.useState(() => safeLead?.notes ?? "")
   const [updating, setUpdating] = React.useState(false)
   const [candidates, setCandidates] = React.useState<Candidate[] | null>(null)
   const [loadingDupes, setLoadingDupes] = React.useState(false)
@@ -111,8 +122,11 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
   const [sendingMessage, setSendingMessage] = React.useState(false)
 
   React.useEffect(() => {
-    if (!lead?.id) return
-    if (!lead.phoneNormalized && !lead.emailNormalized) {
+    if (!safeLead?.id) {
+      Promise.resolve().then(() => setCandidates([]))
+      return
+    }
+    if (!safeLead.phoneNormalized && !safeLead.emailNormalized) {
       Promise.resolve().then(() => setCandidates([]))
       return
     }
@@ -123,23 +137,23 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
     void (async () => {
       const out: Candidate[] = []
       try {
-        if (lead.phoneNormalized) {
+        if (safeLead.phoneNormalized) {
           const phoneRes = await findDuplicateAction({
-            phone: lead.phone ?? "",
-            excludeLeadId: lead.id,
+            phone: safeLead.phone ?? "",
+            excludeLeadId: safeLead.id,
           })
-          if (phoneRes.ok && phoneRes.data.duplicate && phoneRes.data.matchType === "phone") {
+          if (phoneRes.ok && phoneRes.data.duplicate?.id && phoneRes.data.matchType === "phone") {
             out.push({ lead: phoneRes.data.duplicate, matchType: "phone" })
           }
         }
-        if (lead.emailNormalized) {
+        if (safeLead.emailNormalized) {
           const emailRes = await findDuplicateAction({
-            email: lead.email ?? "",
-            excludeLeadId: lead.id,
+            email: safeLead.email ?? "",
+            excludeLeadId: safeLead.id,
           })
           if (
             emailRes.ok &&
-            emailRes.data.duplicate &&
+            emailRes.data.duplicate?.id &&
             emailRes.data.matchType === "email"
           ) {
             const dup = emailRes.data.duplicate
@@ -158,17 +172,17 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
     return () => {
       cancelled = true
     }
-  }, [lead?.id, lead?.phone, lead?.email, lead?.phoneNormalized, lead?.emailNormalized])
+  }, [safeLead?.id, safeLead?.phone, safeLead?.email, safeLead?.phoneNormalized, safeLead?.emailNormalized])
 
   const handleStatusChange = async (newStatus: typeof status) => {
-    if (!lead?.id) return
+    if (!safeLead?.id) return
     setStatus(newStatus)
     setUpdating(true)
     try {
-      await updateLeadStatus(lead.id, newStatus)
+      await updateLeadStatus(safeLead.id, newStatus)
       toast.success("Status updated")
     } catch {
-      setStatus(lead?.status ?? "new")
+      setStatus(safeLead?.status ?? "new")
       toast.error("Failed to update status")
     } finally {
       setUpdating(false)
@@ -176,10 +190,13 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
   }
 
   const handleSaveNote = async () => {
-    if (!lead?.id) return
+    if (!safeLead?.id) {
+      toast.error("Lead is not loaded yet")
+      return
+    }
     setSavingNote(true)
     try {
-      const result = await updateLeadNotesAction(lead.id, note)
+      const result = await updateLeadNotesAction(safeLead.id, note)
       if (result.ok) {
         toast.success("Note saved")
       } else {
@@ -191,7 +208,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
   }
 
   const handleSendMessage = async () => {
-    if (!lead?.id) {
+    if (!safeLead?.id) {
       toast.error("Lead is not loaded yet")
       return
     }
@@ -202,7 +219,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
     setSendingMessage(true)
     try {
       const result = await sendLeadMessageAction({
-        leadId: lead.id,
+        leadId: safeLead.id,
         channel: messageChannel,
         body: messageBody,
       })
@@ -219,9 +236,19 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
     }
   }
 
-  const assignee = lead?.assignedTo
-    ? safeTeamMembers.find((m) => m?.id === lead.assignedTo)
+  const assignee = safeLead?.assignedTo
+    ? safeTeamMembers.find((m) => m?.id === safeLead.assignedTo)
     : undefined
+  const safeAssignee: TeamMember | null = assignee?.id ? assignee : null
+
+  const leadName = safeLead?.name ?? "Unknown lead"
+  const leadInitials =
+    leadName
+      .split(" ")
+      .map((n) => n?.[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join("") || "?"
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -232,29 +259,25 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
               className="flex size-12 shrink-0 items-center justify-center rounded-xl text-sm font-semibold text-[#08090A]"
               style={{
                 background: `linear-gradient(135deg, ${
-                  lead.service === "Botox"
+                  safeLead?.service === "Botox"
                     ? "#E2E54B"
-                    : lead.service === "Fillers"
+                    : safeLead?.service === "Fillers"
                       ? "#5E6AD2"
-                      : lead.service === "Laser"
+                      : safeLead?.service === "Laser"
                         ? "#22D3EE"
-                        : lead.service === "Facials"
+                        : safeLead?.service === "Facials"
                           ? "#34D399"
-                          : lead.service === "Microneedling"
+                          : safeLead?.service === "Microneedling"
                             ? "#FF77E9"
                             : "#8A8F98"
                 }, #1A1B1E)`,
               }}
             >
-              {lead.name
-                .split(" ")
-                .map((n) => n[0])
-                .slice(0, 2)
-                .join("")}
+              {leadInitials}
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-xl font-semibold text-[#F7F8F8]">{lead?.name ?? "Unknown lead"}</h2>
+                <h2 className="text-xl font-semibold text-[#F7F8F8]">{leadName}</h2>
                 <LeadStatusBadge status={status} />
                 {lead?.afterHours ? (
                   <span className="rounded-md border border-[#22D3EE]/30 bg-[#22D3EE]/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#22D3EE]">
@@ -325,10 +348,10 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
 
           <div className="grid grid-cols-2 gap-px border-b border-[#23252A] bg-[#23252A] sm:grid-cols-4">
             {[
-              { label: "Source", value: lead?.source ?? "—" },
-              { label: "Created", value: lead?.createdAt ? formatDateTime(lead.createdAt) : "—" },
-              { label: "Last activity", value: lead?.lastActivityAt ? formatRelativeTime(lead.lastActivityAt) : "—" },
-              { label: "Consent", value: lead?.consentGiven ? "Captured" : "Not recorded" },
+              { label: "Source", value: safeLead?.source ?? "—" },
+              { label: "Created", value: safeLead?.createdAt ? formatDateTime(safeLead.createdAt) : "—" },
+              { label: "Last activity", value: safeLead?.lastActivityAt ? formatRelativeTime(safeLead.lastActivityAt) : "—" },
+              { label: "Consent", value: safeLead?.consentGiven ? "Captured" : "Not recorded" },
             ].map((stat) => (
               <div key={stat.label} className="bg-[#121316] p-4">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-[#62666D]">
@@ -354,7 +377,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
             </div>
 
             <ol className="space-y-4">
-              {(lead?.transcript ?? []).map((msg, idx) => (
+              {(safeLead?.transcript ?? []).map((msg, idx) => (
                 <li
                   key={msg?.id ?? `transcript-${idx}`}
                   className={cn(
@@ -403,7 +426,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
                         msg?.role === "visitor" ? "text-[#08090A]/60" : "text-[#62666D]",
                       )}
                     >
-                      {msg?.role === "ai" ? "AivaSpa" : msg?.role === "staff" ? "Staff" : (lead?.name ?? "Visitor")}{" "}
+                      {msg?.role === "ai" ? "AivaSpa" : msg?.role === "staff" ? "Staff" : leadName}{" "}
                       · {msg?.timestamp ?? ""}
                     </p>
                   </div>
@@ -445,7 +468,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
                     SMS
                   </button>
                   <span className="text-[10px] text-[#62666D]">
-                    {messageChannel === "email" ? (lead?.email ?? "no email") : (lead?.phone ?? "no phone")}
+                    {messageChannel === "email" ? (safeLead?.email ?? "no email") : (safeLead?.phone ?? "no phone")}
                   </span>
                 </div>
               </div>
@@ -484,7 +507,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
               variant="ghost"
               size="xs"
               onClick={handleSaveNote}
-              disabled={savingNote || note === (lead?.notes ?? "")}
+              disabled={savingNote || note === (safeLead?.notes ?? "")}
             >
               {savingNote ? (
                 <><Loader2 className="size-3 animate-spin" /> Saving…</>
@@ -511,27 +534,29 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
           ) : null}
           {candidates && candidates.length > 0 ? (
             <>
-              <ul className="mt-3 space-y-2">
-                {candidates.map((c) => (
-                  <li
-                    key={c.lead.id}
-                    className="rounded-lg border border-[#23252A] bg-[#0B0C0E] p-2.5 text-xs"
-                  >
-                    <p className="truncate font-semibold text-[#F7F8F8]">{c.lead.name}</p>
-                    <p className="truncate text-[10px] text-[#8A8F98]">
-                      {c.lead.email || "no email"} · {c.lead.phone || "no phone"}
-                    </p>
-                    <div className="mt-1.5 flex items-center gap-1.5">
-                      <span className="rounded-md border border-[#5E6AD2]/30 bg-[#5E6AD2]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#5E6AD2]">
-                        {c.matchType}
-                      </span>
-                      <span className="text-[10px] text-[#62666D]">
-                        {c.lead.source} · {formatRelativeTime(c.lead.createdAt)}
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+          <ul className="mt-3 space-y-2">
+            {candidates
+              ?.filter((c) => Boolean(c?.lead?.id))
+              .map((c) => (
+                <li
+                  key={c.lead.id}
+                  className="rounded-lg border border-[#23252A] bg-[#0B0C0E] p-2.5 text-xs"
+                >
+                  <p className="truncate font-semibold text-[#F7F8F8]">{c.lead.name}</p>
+                  <p className="truncate text-[10px] text-[#8A8F98]">
+                    {c.lead.email || "no email"} · {c.lead.phone || "no phone"}
+                  </p>
+                  <div className="mt-1.5 flex items-center gap-1.5">
+                    <span className="rounded-md border border-[#5E6AD2]/30 bg-[#5E6AD2]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#5E6AD2]">
+                      {c.matchType}
+                    </span>
+                    <span className="text-[10px] text-[#62666D]">
+                      {c.lead.source} · {formatRelativeTime(c.lead.createdAt)}
+                    </span>
+                  </div>
+                </li>
+              ))}
+          </ul>
               <Button
                 size="sm"
                 className="mt-3 w-full bg-[#E2E54B] text-[#08090A] hover:bg-[#E2E54B]/90"
@@ -543,12 +568,12 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
             </>
           ) : null}
 
-          {lead?.mergedFrom && lead.mergedFrom.length > 0 ? (
+          {safeLead?.mergedFrom && safeLead.mergedFrom.length > 0 ? (
             <div className="mt-4 border-t border-[#23252A] pt-3">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8A8F98]">
                 Merged into this lead
               </p>
-              <MergedHistoryList entries={lead.mergedFrom} />
+              <MergedHistoryList entries={safeLead.mergedFrom} />
             </div>
           ) : null}
         </div>
@@ -632,33 +657,35 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
 
         <div className="rounded-2xl border border-[#23252A] bg-[#121316] p-5">
           <h3 className="text-sm font-semibold text-[#F7F8F8]">Assignment</h3>
-          <Select defaultValue={lead?.assignedTo ?? undefined}>
+          <Select defaultValue={safeLead?.assignedTo ?? undefined}>
             <SelectTrigger className="mt-3 w-full">
               <SelectValue placeholder="Unassigned" />
             </SelectTrigger>
             <SelectContent>
-              {safeTeamMembers.map((m) => (
-                <SelectItem key={m.id} value={m.id}>
-                  {m.name} — {m.role}
+              {safeTeamMembers.map((m, i) => (
+                <SelectItem key={m?.id ?? `member-${i}`} value={m?.id ?? ""}>
+                  {m?.name ?? "Unknown"} — {m?.role ?? "Staff"}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          {assignee ? (
+          {safeAssignee ? (
             <div className="mt-3 flex items-center gap-3 rounded-lg border border-[#23252A] bg-[#0B0C0E] p-2.5">
               <span
                 className="flex size-8 items-center justify-center rounded-full text-xs font-semibold text-[#08090A]"
-                style={{ background: assignee.avatarColor }}
+                style={{ background: safeAssignee.avatarColor ?? "#8A8F98" }}
               >
-                {assignee.name
+                {(safeAssignee.name ?? "??")
                   .split(" ")
-                  .map((n) => n[0])
+                  .map((n) => n?.[0])
+                  .filter(Boolean)
+                  .slice(0, 2)
                   .join("")}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-semibold text-[#F7F8F8]">{assignee.name}</p>
+                <p className="truncate text-xs font-semibold text-[#F7F8F8]">{safeAssignee.name ?? "Unknown"}</p>
                 <p className="text-[10px] text-[#62666D]">
-                  {assignee.role} · {assignee.lastActiveAt ?? "—"}
+                  {safeAssignee.role ?? "Staff"} · {safeAssignee.lastActiveAt ?? "—"}
                 </p>
               </div>
             </div>
@@ -701,7 +728,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
               <CheckCircle2
                 className={cn(
                   "size-3.5",
-                  lead?.consentGiven ? "text-[#4CB782]" : "text-[#EB5757]",
+                  safeLead?.consentGiven ? "text-[#4CB782]" : "text-[#EB5757]",
                 )}
               />
               Consent captured
@@ -737,7 +764,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
       <MergeDuplicatesDialog
         open={mergeOpen}
         onOpenChange={setMergeOpen}
-        primary={lead}
+        primary={safeLead?.id ? safeLead : null}
         candidates={candidates ?? []}
         onMerged={() => {
           toast.success("Leads merged")

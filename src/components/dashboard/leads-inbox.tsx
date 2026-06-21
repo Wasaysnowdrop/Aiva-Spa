@@ -51,7 +51,10 @@ const dateRanges = [
 
 export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
   const safeInitial = React.useMemo(
-    () => (initialLeads ?? []).filter((l): l is Lead => Boolean(l?.id)),
+    () =>
+      (Array.isArray(initialLeads) ? initialLeads : [])
+        .filter((l): l is Lead => Boolean(l?.id))
+        .map((l) => ({ ...l })),
     [initialLeads],
   )
 
@@ -59,16 +62,22 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
     table: "leads",
     initialData: safeInitial,
     mapRow: (row) => mapLead(row),
-    getId: (item) => item.id,
+    getId: (item) => item?.id ?? "",
   })
 
   const safeLeads = React.useMemo(
-    () => (leads ?? []).filter((l): l is Lead => Boolean(l?.id)),
+    () =>
+      (Array.isArray(leads) ? leads : [])
+        .filter((l): l is Lead => Boolean(l?.id))
+        .map((l) => ({ ...l })),
     [leads],
   )
 
   if (typeof window !== "undefined") {
-    console.log("Leads Data:", safeLeads)
+    console.log("[aivaspa] LeadsInbox data:", {
+      count: safeLeads.length,
+      sample: safeLeads.slice(0, 3).map((l) => ({ id: l?.id, name: l?.name })),
+    })
   }
 
   const [query, setQuery] = React.useState("")
@@ -419,7 +428,7 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
             setMergeCandidates([])
           }
         }}
-        primary={mergePrimary ?? safeLeads[0] ?? null}
+        primary={mergePrimary?.id ? mergePrimary : (safeLeads[0]?.id ? safeLeads[0] : null)}
         candidates={mergeCandidates}
         onMerged={() => {
           void scanDuplicates()

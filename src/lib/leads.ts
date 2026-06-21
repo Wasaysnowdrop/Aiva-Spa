@@ -20,17 +20,34 @@ export async function getLeads(options: GetLeadsOptions = {}): Promise<Lead[]> {
     const { data, error } = await query
 
     if (error) {
-      console.error("[leads] getLeads query failed:", error.message)
+      console.error("[leads] supabase error in getLeads:", {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+      })
       return []
     }
-    return (data ?? []).map((row) => {
-      try {
-        return mapLead(row as Record<string, unknown>)
-      } catch (e) {
-        console.error("[leads] mapLead failed for row:", (row as { id?: string })?.id, e)
-        return null
-      }
-    }).filter((l): l is Lead => l !== null)
+    if (!data) {
+      console.warn("[leads] supabase returned no data (null) in getLeads")
+      return []
+    }
+    console.log("[leads] supabase leads response:", {
+      count: Array.isArray(data) ? data.length : 0,
+      sample: Array.isArray(data)
+        ? data.slice(0, 2).map((r: Record<string, unknown>) => ({ id: r?.id, name: r?.name }))
+        : null,
+    })
+    return (data ?? [])
+      .map((row) => {
+        try {
+          return mapLead(row as Record<string, unknown>)
+        } catch (e) {
+          console.error("[leads] mapLead failed for row:", (row as { id?: string })?.id, e)
+          return null
+        }
+      })
+      .filter((l): l is Lead => l !== null && Boolean(l?.id))
   } catch (e) {
     console.error("[leads] getLeads threw:", e)
     return []

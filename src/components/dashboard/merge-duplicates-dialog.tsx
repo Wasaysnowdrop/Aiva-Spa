@@ -83,20 +83,46 @@ export function MergeDuplicatesDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  primary: Lead
+  primary: Lead | null
   candidates: Candidate[]
   onMerged?: (result: { primary: Lead; merged: Lead[] }) => void
 }) {
+  const safePrimary: Lead | null = primary?.id ? primary : null
+
+  if (!safePrimary) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Combine className="size-4 text-[#E2E54B]" />
+              Merge duplicates
+            </DialogTitle>
+            <DialogDescription>
+              No leads are available to merge yet. Capture a lead first, then
+              come back here to combine duplicates.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )
+  }
+
   // The `key` forces a remount of the body whenever the primary changes or
   // the dialog reopens, so internal form state resets without an effect.
-  const bodyKey = `${primary.id}:${open ? "1" : "0"}`
+  const bodyKey = `${safePrimary.id}:${open ? "1" : "0"}`
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogBody
           key={bodyKey}
-          primary={primary}
+          primary={safePrimary}
           candidates={candidates}
           onOpenChange={onOpenChange}
           onMerged={onMerged}
@@ -117,33 +143,41 @@ function DialogBody({
   onOpenChange: (open: boolean) => void
   onMerged?: (result: { primary: Lead; merged: Lead[] }) => void
 }) {
+  const safePrimary: Lead = React.useMemo(
+    () => (primary?.id ? primary : ({} as Lead)),
+    [primary],
+  )
   const allLeads = React.useMemo(
-    () => [primary, ...candidates.map((c) => c.lead)],
-    [primary, candidates],
+    () => [safePrimary, ...candidates.map((c) => c?.lead).filter((l): l is Lead => Boolean(l?.id))],
+    [safePrimary, candidates],
   )
 
   const [selected, setSelected] = React.useState<Record<string, boolean>>({})
   const [choices, setChoices] = React.useState<Record<MergeField, string>>(() =>
-    buildInitialChoices(primary, candidates.map((c) => c.lead)),
+    buildInitialChoices(safePrimary, candidates.map((c) => c?.lead).filter((l): l is Lead => Boolean(l?.id))),
   )
   const [notesAppend, setNotesAppend] = React.useState("")
   const [transcriptMerge, setTranscriptMerge] = React.useState<"append" | "keep-primary">("append")
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
-  const selectedSecondaries = candidates.filter((c) => selected[c.lead.id])
-  const canSubmit = selectedSecondaries.length > 0 && !submitting
+  const selectedSecondaries = candidates.filter((c) => Boolean(c?.lead?.id) && selected[c.lead.id])
+  const canSubmit = selectedSecondaries.length > 0 && !submitting && Boolean(safePrimary?.id)
 
   const handleSubmit = async () => {
+    if (!safePrimary?.id) {
+      setError("No primary lead selected")
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
       const fieldChoices: MergeFieldChoice[] = MERGE_FIELDS.filter(
-        (f) => choices[f.key] && choices[f.key] !== primary.id,
+        (f) => choices[f.key] && choices[f.key] !== safePrimary.id,
       ).map((f) => ({ field: f.key, pickFromLeadId: choices[f.key] }))
 
       const result = await mergeLeadsAction({
-        primaryLeadId: primary.id,
+        primaryLeadId: safePrimary.id,
         secondaryLeadIds: selectedSecondaries.map((c) => c.lead.id),
         fieldChoices,
         notesAppend: notesAppend.trim() || undefined,
@@ -183,7 +217,7 @@ function DialogBody({
           <p className="text-[10px] font-semibold uppercase tracking-wider text-[#E2E54B]">
             Will be kept (primary)
           </p>
-          <LeadSummary lead={primary} highlight />
+          <LeadSummary lead={safePrimary} highlight />
         </div>
 
         <div className="space-y-2">
@@ -197,6 +231,7 @@ function DialogBody({
           ) : (
             <ul className="space-y-2">
               {candidates.map((c) => {
+                if (!c?.lead?.id) return null
                 const checked = !!selected[c.lead.id]
                 return (
                   <li
@@ -261,20 +296,20 @@ function DialogBody({
                   </span>
                   <span className="truncate text-[#F7F8F8]">
                     {valueFor(
-                      allLeads.find((l) => l.id === choices[f.key]) ?? primary,
+                      allLeads.find((l) => l.id === choices[f.key]) ?? safePrimary,
                       f.key,
                     ) || <em className="text-[#62666D]">empty</em>}
                   </span>
                   <select
-                    value={choices[f.key] ?? primary.id}
+                    value={choices[f.key] ?? safePrimary.id}
                     onChange={(e) =>
                       setChoices((prev) => ({ ...prev, [f.key]: e.target.value }))
                     }
                     className="h-7 rounded-md border border-[#23252A] bg-[#121316] px-2 text-xs text-[#F7F8F8] outline-none focus:border-[#3A3D44]"
                   >
-                    {allLeads.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name}
+                    {allLeads.map((l, i) => (
+                      <option key={l?.id ?? `lead-${i}`} value={l?.id ?? ""}>
+                        {l?.name ?? "Unknown"}
                       </option>
                     ))}
                   </select>
@@ -336,7 +371,7 @@ function DialogBody({
           ) : (
             <>
               <CheckCircle2 className="size-4" />
-              Merge {selectedSecondaries.length || ""} into {primary.name.split(" ")[0]}
+              Merge {selectedSecondaries.length || ""} into {(safePrimary?.name ?? "lead").split(" ")[0]}
             </>
           )}
         </Button>
@@ -346,21 +381,22 @@ function DialogBody({
 }
 
 function LeadSummary({ lead, highlight }: { lead: Lead; highlight?: boolean }) {
+  const safeLead: Lead = lead?.id ? lead : ({} as Lead)
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2">
       <Link
-        href={`/dashboard/leads/${lead.id}`}
+        href={safeLead?.id ? `/dashboard/leads/${safeLead.id}` : "/dashboard/leads"}
         className="truncate text-sm font-semibold text-[#F7F8F8] hover:underline"
       >
-        {lead.name}
+        {safeLead?.name ?? "Unknown lead"}
       </Link>
-      <LeadStatusBadge status={lead.status} />
+      <LeadStatusBadge status={safeLead?.status ?? "new"} />
       <span className="text-[10px] text-[#8A8F98]">
-        {lead.source} · created {formatDateTime(lead.createdAt)}
+        {safeLead?.source ?? "Website Chat"} · created {formatDateTime(safeLead?.createdAt ?? "")}
       </span>
-      {lead.mergedFrom && lead.mergedFrom.length > 0 ? (
+      {safeLead?.mergedFrom && safeLead.mergedFrom.length > 0 ? (
         <span className="rounded-md border border-[#22D3EE]/30 bg-[#22D3EE]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#22D3EE]">
-          Already merged: {lead.mergedFrom.length}
+          Already merged: {safeLead.mergedFrom.length}
         </span>
       ) : null}
       {highlight ? (

@@ -8,6 +8,7 @@ import { LeadsInbox } from "@/components/dashboard/leads-inbox"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { getLeads } from "@/lib/leads"
 import { getNotificationChannelsServer } from "@/lib/db/notifications.server"
+import { createClient } from "@/lib/supabase/server"
 
 export const metadata: Metadata = {
   title: "Leads | AivaSpa Dashboard",
@@ -17,14 +18,31 @@ export const metadata: Metadata = {
 export default async function LeadsPage() {
   let leads: Awaited<ReturnType<typeof getLeads>> = []
   let emailConfigured = false
+  let userId: string | null = null
+  let userEmail: string | null = null
 
   try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    userId = user?.id ?? null
+    userEmail = user?.email ?? null
+    console.log("[aivaspa] /dashboard/leads current user:", { userId, userEmail })
+
     const [fetchedLeads, channels] = await Promise.all([
       getLeads(),
       getNotificationChannelsServer(),
     ])
-    leads = fetchedLeads ?? []
-    const emailChannel = channels.find((c) => c.channel === "email")
+    leads = Array.isArray(fetchedLeads) ? fetchedLeads : []
+    console.log("[aivaspa] /dashboard/leads supabase leads response:", {
+      count: leads.length,
+      sample: leads.slice(0, 2).map((l) => ({ id: l?.id, name: l?.name })),
+    })
+
+    const emailChannel = Array.isArray(channels)
+      ? channels.find((c) => c?.channel === "email")
+      : undefined
     emailConfigured =
       !!emailChannel?.enabled && (emailChannel.recipients?.length ?? 0) > 0
   } catch (e) {
