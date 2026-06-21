@@ -267,12 +267,12 @@ export default async function LandingPage() {
             </Reveal>
             <Reveal>
               <h1 className="mt-7 text-5xl font-bold leading-[1.05] tracking-tight text-[#F7F8F8] md:text-6xl lg:text-7xl">
-                The 24/7 AI receptionist for med spas.
+                Stop Losing Med Spa Leads After Hours
               </h1>
             </Reveal>
             <Reveal>
               <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-[#8A8F98]">
-                AivaSpa greets every website visitor, answers treatment questions from your approved knowledge base, captures consultation leads, and pings your staff instantly — by email or SMS.
+                Your AI Receptionist answers questions, captures leads, and books consultations 24/7.
               </p>
             </Reveal>
             <Reveal>
@@ -281,14 +281,14 @@ export default async function LandingPage() {
                   href="/signup"
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#E2E54B] px-6 py-3.5 text-sm font-semibold text-[#08090A] transition hover:bg-[#E2E54B]/90 sm:w-auto"
                 >
-                  Get started free
+                  Get More Consultations
                   <ArrowRight className="size-4" />
                 </a>
                 <a
                   href="#how-it-works"
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#23252A] bg-[#121316] px-6 py-3.5 text-sm font-semibold text-[#F7F8F8] transition hover:bg-[#1A1B1E] sm:w-auto"
                 >
-                  See how it works
+                  Watch Demo
                 </a>
               </div>
             </Reveal>
