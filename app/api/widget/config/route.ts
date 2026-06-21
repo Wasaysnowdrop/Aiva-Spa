@@ -3,6 +3,9 @@ import { headers } from "next/headers"
 import { loadKnowledge } from "@/lib/ai/conversation"
 import { checkEmbedAccess } from "@/lib/widget/access"
 import { buildCorsHeaders } from "@/lib/security/cors"
+import { consumePublicRateLimit } from "@/lib/security/public-rate-limit"
+import { LIMITS } from "@/lib/security/limits"
+import { tooManyRequests } from "@/lib/security/limiter"
 import {
   SUPPORTED_LANGUAGES,
   isSupportedLanguage,
@@ -21,6 +24,9 @@ export function OPTIONS(request: Request) {
 }
 
 export async function GET(request: Request) {
+  const rl = consumePublicRateLimit(request, LIMITS.widgetConfig)
+  if (rl.limited) return tooManyRequests(rl, cors(request))
+
   const url = new URL(request.url)
   const querySpaId = url.searchParams.get("spaId")
 

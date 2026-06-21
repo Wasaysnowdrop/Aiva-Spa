@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@supabase/ssr"
 
 import { resolveCustomDomain } from "@/lib/widget/domains"
+import { consume, getRequestIp } from "@/lib/security/limiter"
+import { LIMITS } from "@/lib/security/limits"
 
 const PROTECTED_PREFIXES = ["/dashboard", "/onboarding", "/admin"]
 const AUTH_ROUTES = [
@@ -10,6 +12,18 @@ const AUTH_ROUTES = [
   "/forgot-password",
   "/check-email",
 ]
+
+// Paths that the global per-IP safety net should skip. Each of these
+// already has its own per-route rate limit, so layering a global one
+// on top would double-count against users.
+function skipGlobalRateLimit(pathname: string): boolean {
+  if (pathname.startsWith("/_next/")) return true
+  if (pathname === "/favicon.ico") return true
+  if (pathname.startsWith("/embed/")) return true // script + iframe
+  if (pathname === "/api/health") return true // uptime monitors
+  if (pathname === "/api/cron/daily-summary") return true // cron secret-gated
+  return false
+}
 
 function isAdminHost(host: string | null): boolean {
   if (!host) return false
@@ -70,6 +84,31 @@ export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl
   const isProtected = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p))
   const isAuthRoute = AUTH_ROUTES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+
+  // Global per-IP safety net. Anything not covered by a per-route
+  // limit falls under this. Cheap O(1) check, runs on every request.
+  if (!skipGlobalRateLimit(pathname)) {
+    const rl = consume(LIMITS.globalPerIp, { ip: getRequestIp(request) })
+    if (rl.limited) {
+      const retryAfter = Math.max(1, Math.ceil(rl.retryAfterMs / 1000))
+      return new NextResponse(
+        JSON.stringify({
+          ok: false,
+          error: "Too many requests. Please slow down.",
+          retryAfterSeconds: retryAfter,
+        }),
+        {
+          status: 429,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "retry-after": String(retryAfter),
+            "x-ratelimit-limit": String(rl.limit),
+            "x-ratelimit-remaining": "0",
+          },
+        },
+      )
+    }
+  }
 
   if (isProtected && !user) {
     const redirectUrl = request.nextUrl.clone()

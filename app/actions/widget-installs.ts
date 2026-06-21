@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 import { createWidgetInstall, deleteWidgetInstall } from "@/lib/widget/installs";
+import { checkActionLimit } from "@/lib/security/check-action-limit";
+import { LIMITS } from "@/lib/security/limits";
 
 export type WidgetInstallActionResult = {
   ok: boolean;
@@ -20,6 +22,9 @@ function readString(formData: FormData, key: string) {
 export async function addWidgetInstallAction(
   formData: FormData,
 ): Promise<WidgetInstallActionResult> {
+  const limit = await checkActionLimit(LIMITS.actionWidgetInstalls)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -40,6 +45,9 @@ export async function addWidgetInstallAction(
 export async function removeWidgetInstallAction(
   installId: string,
 ): Promise<{ ok: boolean; error?: string }> {
+  const limit = await checkActionLimit(LIMITS.actionWidgetInstalls)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient();
   const {
     data: { user },

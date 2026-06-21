@@ -2,13 +2,20 @@ import { NextResponse } from "next/server"
 
 import { createClient } from "@/lib/supabase/server"
 import { getDashboardKpis } from "@/lib/db/analytics"
+import { buildCorsHeaders } from "@/lib/security/cors"
+import { consume, getRequestIp, tooManyRequests } from "@/lib/security/limiter"
+import { LIMITS } from "@/lib/security/limits"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 
 const ACTIVE_WINDOW_MINUTES = 5
 
-export async function GET() {
+function cors(request: Request) {
+  return buildCorsHeaders(request)
+}
+
+export async function GET(request?: Request) {
   const supabase = await createClient()
   const {
     data: { user },
@@ -16,6 +23,14 @@ export async function GET() {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+
+  // Per-user rate limit so a single owner can't blow up Postgres
+  // (this route runs an RPC + 2 count queries on every poll).
+  const rl = consume(LIMITS.dashboardLive, {
+    ip: getRequestIp(request),
+    identity: user.id,
+  })
+  if (rl.limited && request) return tooManyRequests(rl, cors(request))
 
   const cutoff = new Date(
     Date.now() - ACTIVE_WINDOW_MINUTES * 60 * 1000,

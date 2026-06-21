@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { recordAudit } from "@/lib/audit";
 import { sendEmail } from "@/lib/notifications/email";
+import { checkActionLimit } from "@/lib/security/check-action-limit";
+import { LIMITS } from "@/lib/security/limits";
 import type { TeamRole } from "@/lib/supabase/types";
 
 export type TeamActionResult<T = void> =
@@ -32,6 +34,9 @@ export async function inviteTeamMemberAction(input: {
   role: TeamRole;
   phone?: string;
 }): Promise<TeamActionResult<{ id: string; inviteUrl: string }>> {
+  const limit = await checkActionLimit(LIMITS.actionTeam)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const user = await requireUser();
   const email = input.email.trim().toLowerCase();
   if (!email || !email.includes("@")) {

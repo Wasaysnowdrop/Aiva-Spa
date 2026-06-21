@@ -2,9 +2,18 @@ import { NextResponse } from "next/server"
 
 import { createClient } from "@/lib/supabase/server"
 import { cancelBooking, listBookings } from "@/lib/calendar"
+import { buildCorsHeaders } from "@/lib/security/cors"
+import { consume } from "@/lib/security/limiter"
+import { LIMITS } from "@/lib/security/limits"
+import { getRequestIp } from "@/lib/security/limiter"
+import { tooManyRequests } from "@/lib/security/limiter"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+
+function cors(request: Request) {
+  return buildCorsHeaders(request)
+}
 
 async function resolveSpaIdForUser(userId: string): Promise<string | null> {
   const supabase = await createClient()
@@ -21,7 +30,14 @@ async function resolveSpaIdForUser(userId: string): Promise<string | null> {
   return null
 }
 
+export function OPTIONS(request: Request) {
+  return new Response(null, { status: 204, headers: cors(request) })
+}
+
 export async function GET(request: Request) {
+  const rl = consume(LIMITS.calendarBookings, { ip: getRequestIp(request) })
+  if (rl.limited) return tooManyRequests(rl, cors(request))
+
   const supabase = await createClient()
   const {
     data: { user },
@@ -37,6 +53,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const rl = consume(LIMITS.calendarBookings, { ip: getRequestIp(request) })
+  if (rl.limited) return tooManyRequests(rl, cors(request))
+
   const supabase = await createClient()
   const {
     data: { user },

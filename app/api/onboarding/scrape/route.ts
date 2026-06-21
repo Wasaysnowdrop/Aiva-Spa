@@ -3,16 +3,12 @@ import type { NextRequest } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { scrapeKnowledgeFromUrl } from "@/lib/kb/scraper"
 import { buildCorsHeaders } from "@/lib/security/cors"
-import { consumePublicRateLimit } from "@/lib/security/public-rate-limit"
+import { consume, getRequestIp, tooManyRequests } from "@/lib/security/limiter"
+import { LIMITS } from "@/lib/security/limits"
 import { recordAudit } from "@/lib/audit"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-
-const SCRAPE_LIMIT = {
-  bucket: "kb-scrape",
-  options: { maxRequests: 10, windowMs: 60_000 },
-}
 
 function cors(request: Request) {
   return buildCorsHeaders(request)
@@ -23,14 +19,6 @@ export function OPTIONS(request: Request) {
 }
 
 export async function POST(request: NextRequest) {
-  const rl = consumePublicRateLimit(request, SCRAPE_LIMIT)
-  if (rl.limited) {
-    return Response.json(
-      { ok: false, error: "Too many requests" },
-      { status: 429, headers: { ...cors(request), "retry-after": String(Math.ceil(rl.retryAfterMs / 1000)) } },
-    )
-  }
-
   const supabase = await createClient()
   const {
     data: { user },
@@ -38,6 +26,12 @@ export async function POST(request: NextRequest) {
   if (!user) {
     return Response.json({ ok: false, error: "Not authenticated" }, { status: 401, headers: cors(request) })
   }
+
+  const rl = consume(LIMITS.onboardingScrape, {
+    ip: getRequestIp(request),
+    identity: user.id,
+  })
+  if (rl.limited) return tooManyRequests(rl, cors(request))
 
   let raw: unknown
   try {

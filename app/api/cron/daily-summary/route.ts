@@ -2,9 +2,16 @@ import type { NextRequest } from "next/server"
 
 import { runDailySummary } from "@/lib/notifications/daily-summary"
 import { recordAudit } from "@/lib/audit"
+import { buildCorsHeaders } from "@/lib/security/cors"
+import { consume, getRequestIp, tooManyRequests } from "@/lib/security/limiter"
+import { LIMITS } from "@/lib/security/limits"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+
+function cors(request: Request) {
+  return buildCorsHeaders(request)
+}
 
 function isAuthorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET
@@ -31,6 +38,10 @@ export async function GET(request: NextRequest) {
   if (!isAuthorized(request)) {
     return Response.json({ error: "Unauthorized" }, { status: 401 })
   }
+  // The cron secret is the primary gate; an additional soft limit caps
+  // accidental loops (e.g. a misconfigured scheduler).
+  const rl = consume(LIMITS.cronDailySummary, { ip: getRequestIp(request) })
+  if (rl.limited) return tooManyRequests(rl, cors(request))
 
   try {
     const result = await runDailySummary()

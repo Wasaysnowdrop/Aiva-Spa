@@ -8,9 +8,16 @@ import {
 } from "@/lib/widget/domains"
 import { recordAudit } from "@/lib/audit"
 import { listWidgetInstalls } from "@/lib/widget/installs"
+import { buildCorsHeaders } from "@/lib/security/cors"
+import { consume, getRequestIp, tooManyRequests } from "@/lib/security/limiter"
+import { LIMITS } from "@/lib/security/limits"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+
+function cors(request: Request) {
+  return buildCorsHeaders(request)
+}
 
 async function requireUser() {
   const supabase = await createClient()
@@ -21,9 +28,18 @@ async function requireUser() {
   return user
 }
 
-export async function GET() {
+function gateLimit(request: Request, userId: string) {
+  return consume(LIMITS.whiteLabelDomains, {
+    ip: getRequestIp(request),
+    identity: userId,
+  })
+}
+
+export async function GET(request: Request) {
   const user = await requireUser()
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+  const rl = gateLimit(request, user.id)
+  if (rl.limited) return tooManyRequests(rl, cors(request))
   const domains = await listCustomDomains(user.id)
   return NextResponse.json({ ok: true, domains })
 }
@@ -31,6 +47,8 @@ export async function GET() {
 export async function POST(request: Request) {
   const user = await requireUser()
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+  const rl = gateLimit(request, user.id)
+  if (rl.limited) return tooManyRequests(rl, cors(request))
 
   let raw: unknown
   try {
@@ -82,6 +100,8 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const user = await requireUser()
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+  const rl = gateLimit(request, user.id)
+  if (rl.limited) return tooManyRequests(rl, cors(request))
   const url = new URL(request.url)
   const id = url.searchParams.get("id")
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 })

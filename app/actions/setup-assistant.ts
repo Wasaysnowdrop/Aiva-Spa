@@ -1,5 +1,4 @@
 "use server"
-
 import { redirect } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/server"
@@ -11,6 +10,8 @@ import {
 import { ensureTrialSubscription } from "@/lib/subscription"
 import { recordAuditForUser } from "@/lib/audit"
 import { invalidateKnowledgeCache } from "@/lib/ai/retrieval"
+import { checkActionLimit } from "@/lib/security/check-action-limit"
+import { LIMITS } from "@/lib/security/limits"
 import type { KnowledgeCategory, FaqCategory, WidgetConfig } from "@/lib/supabase/types"
 
 export type FinalizeSetupResult = {
@@ -98,6 +99,9 @@ function buildLogoInitial(brand: string): string {
 export async function finalizeSetupAssistant(
   draftInput: unknown,
 ): Promise<FinalizeSetupResult> {
+  const limit = await checkActionLimit(LIMITS.actionSetupAssistant)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient()
   const {
     data: { user },

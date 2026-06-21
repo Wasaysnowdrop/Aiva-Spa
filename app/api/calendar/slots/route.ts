@@ -4,14 +4,13 @@ import { generateSlots } from "@/lib/calendar"
 import { checkEmbedAccess } from "@/lib/widget/access"
 import { buildCorsHeaders } from "@/lib/security/cors"
 import { consumePublicRateLimit } from "@/lib/security/public-rate-limit"
+import { LIMITS } from "@/lib/security/limits"
+import { tooManyRequests } from "@/lib/security/limiter"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const SLOTS_LIMIT = {
-  bucket: "calendar-slots",
-  options: { maxRequests: 60, windowMs: 60_000 },
-}
+const SLOTS_LIMIT = LIMITS.calendarSlots
 
 function cors(request: Request) {
   return buildCorsHeaders(request)
@@ -23,12 +22,7 @@ export function OPTIONS(request: Request) {
 
 export async function GET(request: NextRequest) {
   const rl = consumePublicRateLimit(request, SLOTS_LIMIT)
-  if (rl.limited) {
-    return Response.json(
-      { ok: false, error: "Too many requests" },
-      { status: 429, headers: { ...cors(request), "retry-after": String(Math.ceil(rl.retryAfterMs / 1000)) } },
-    )
-  }
+  if (rl.limited) return tooManyRequests(rl, cors(request))
   const { searchParams } = new URL(request.url)
   const spaId = searchParams.get("spaId")
   if (!spaId) {

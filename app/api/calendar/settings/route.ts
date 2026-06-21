@@ -8,9 +8,16 @@ import {
   type DaySchedule,
 } from "@/lib/calendar"
 import { planHasCalendar } from "@/lib/calendar"
+import { buildCorsHeaders } from "@/lib/security/cors"
+import { consume, getRequestIp, tooManyRequests } from "@/lib/security/limiter"
+import { LIMITS } from "@/lib/security/limits"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+
+function cors(request: Request) {
+  return buildCorsHeaders(request)
+}
 
 type Body = {
   bookingDurationMinutes?: number
@@ -46,7 +53,10 @@ async function resolveSpaIdForUser(userId: string): Promise<string | null> {
   return null
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const rl = consume(LIMITS.calendarSettings, { ip: getRequestIp(request) })
+  if (rl.limited) return tooManyRequests(rl, cors(request))
+
   const supabase = await createClient()
   const {
     data: { user },
@@ -70,6 +80,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const rl = consume(LIMITS.calendarSettings, { ip: getRequestIp(request) })
+  if (rl.limited) return tooManyRequests(rl, cors(request))
+
   const supabase = await createClient()
   const {
     data: { user },

@@ -1,11 +1,12 @@
 "use server";
-
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { recordAudit } from "@/lib/audit";
+import { checkActionLimit } from "@/lib/security/check-action-limit";
+import { LIMITS } from "@/lib/security/limits";
 
 export type SettingsActionResult = {
   ok: boolean;
@@ -19,6 +20,9 @@ export async function updateSpaSettings(updates: {
   ownerEmail?: string;
   address?: string;
 }): Promise<SettingsActionResult> {
+  const limit = await checkActionLimit(LIMITS.actionSettings)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient();
 
   const {
@@ -81,6 +85,9 @@ export async function deleteWorkspaceAction(): Promise<{
   ok: boolean;
   error?: string;
 }> {
+  const limit = await checkActionLimit(LIMITS.actionSettings)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient();
   const {
     data: { user },

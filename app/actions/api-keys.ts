@@ -1,5 +1,4 @@
 "use server";
-
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -12,6 +11,8 @@ import {
   hashApiKey,
   type ApiKeyScope,
 } from "@/lib/api/keys";
+import { checkActionLimit } from "@/lib/security/check-action-limit";
+import { LIMITS } from "@/lib/security/limits";
 
 export type ApiKeyRecord = {
   id: string;
@@ -72,6 +73,9 @@ export type CreateApiKeyResult =
 export async function createApiKeyAction(
   formData: FormData,
 ): Promise<CreateApiKeyResult> {
+  const limit = await checkActionLimit(LIMITS.actionApiKeys)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -109,6 +113,9 @@ export async function createApiKeyAction(
 }
 
 export async function revokeApiKeyAction(id: string): Promise<{ ok: boolean; error?: string }> {
+  const limit = await checkActionLimit(LIMITS.actionApiKeys)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient();
   const {
     data: { user },

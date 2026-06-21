@@ -3,6 +3,9 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
+import { checkActionLimit } from "@/lib/security/check-action-limit"
+import { LIMITS } from "@/lib/security/limits"
+
 import {
   createService,
   updateService,
@@ -53,6 +56,8 @@ async function actorName(): Promise<string> {
 export async function createServiceAction(
   input: z.infer<typeof serviceSchema>,
 ): Promise<KnowledgeActionResult> {
+  const limit = await checkActionLimit(LIMITS.actionKnowledge)
+  if (!limit.ok) return { ok: false, error: limit.error }
   const parsed = serviceSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" }
   try {
@@ -72,6 +77,8 @@ export async function updateServiceAction(
   id: string,
   input: z.infer<typeof serviceSchema>,
 ): Promise<KnowledgeActionResult> {
+  const limit = await checkActionLimit(LIMITS.actionKnowledge)
+  if (!limit.ok) return { ok: false, error: limit.error }
   const parsed = serviceSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" }
   try {
@@ -90,6 +97,8 @@ export async function updateServiceAction(
 export async function deleteServiceAction(
   id: string,
 ): Promise<KnowledgeActionResult> {
+  const limit = await checkActionLimit(LIMITS.actionKnowledge)
+  if (!limit.ok) return { ok: false, error: limit.error }
   try {
     await deleteService(id)
     await recordAudit({
@@ -107,6 +116,8 @@ export async function toggleServiceActiveAction(
   id: string,
   active: boolean,
 ): Promise<KnowledgeActionResult> {
+  const limit = await checkActionLimit(LIMITS.actionKnowledge)
+  if (!limit.ok) return { ok: false, error: limit.error }
   try {
     const result = await updateService({ id, active })
     await recordAudit({
@@ -123,6 +134,8 @@ export async function toggleServiceActiveAction(
 export async function createFaqAction(
   input: z.infer<typeof faqSchema>,
 ): Promise<KnowledgeActionResult> {
+  const limit = await checkActionLimit(LIMITS.actionKnowledge)
+  if (!limit.ok) return { ok: false, error: limit.error }
   const parsed = faqSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" }
   try {
@@ -142,6 +155,8 @@ export async function updateFaqAction(
   id: string,
   input: z.infer<typeof faqSchema>,
 ): Promise<KnowledgeActionResult> {
+  const limit = await checkActionLimit(LIMITS.actionKnowledge)
+  if (!limit.ok) return { ok: false, error: limit.error }
   const parsed = faqSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" }
   try {
@@ -160,6 +175,8 @@ export async function updateFaqAction(
 export async function deleteFaqAction(
   id: string,
 ): Promise<KnowledgeActionResult> {
+  const limit = await checkActionLimit(LIMITS.actionKnowledge)
+  if (!limit.ok) return { ok: false, error: limit.error }
   const supabase = await createClient()
   const {
     data: { user },
@@ -186,6 +203,8 @@ export async function toggleGuardrailAction(
   id: string,
   enabled: boolean,
 ): Promise<KnowledgeActionResult> {
+  const limit = await checkActionLimit(LIMITS.actionKnowledge)
+  if (!limit.ok) return { ok: false, error: limit.error }
   try {
     const result = await updateGuardrail({ id, enabled })
     await recordAudit({
@@ -206,6 +225,8 @@ const consentSchema = z.object({
 export async function updateConsentTextAction(
   input: z.infer<typeof consentSchema>,
 ): Promise<KnowledgeActionResult> {
+  const limit = await checkActionLimit(LIMITS.actionKnowledge)
+  if (!limit.ok) return { ok: false, error: limit.error }
   const parsed = consentSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" }
   try {

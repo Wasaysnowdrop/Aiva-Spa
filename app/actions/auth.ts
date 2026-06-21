@@ -5,7 +5,10 @@ import { headers } from "next/headers";
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isRateLimited, recordRequest } from "@/lib/rate-limit";
+import { consume, getRequestIpAsync } from "@/lib/security/limiter"
+import { consumeRateLimit, peekRateLimit } from "@/lib/security/rate-limit"
+import { clearRateLimit, hashRateLimitKey } from "@/lib/security/rate-limit"
+import { LIMITS } from "@/lib/security/limits";
 import { ensureTrialSubscription } from "@/lib/subscription";
 import { buildWelcomeEmail, sendEmail } from "@/lib/notifications/email";
 
@@ -16,27 +19,6 @@ export type AuthResult = {
   url?: string;
   redirectTo?: string;
 };
-
-const RESET_COOLDOWN_MS = 60_000;
-const RESEND_COOLDOWN_MS = 5 * 60_000;
-const MAX_RESET_PER_HOUR = 10;
-const HOUR_MS = 60 * 60 * 1000;
-
-const hourlyCounters = new Map<string, { count: number; resetAt: number }>();
-
-function checkHourlyLimit(key: string, max: number): { allowed: boolean; retryAfterMs: number } {
-  const now = Date.now();
-  const bucket = hourlyCounters.get(key);
-  if (!bucket || bucket.resetAt <= now) {
-    hourlyCounters.set(key, { count: 1, resetAt: now + HOUR_MS });
-    return { allowed: true, retryAfterMs: 0 };
-  }
-  if (bucket.count >= max) {
-    return { allowed: false, retryAfterMs: bucket.resetAt - now };
-  }
-  bucket.count += 1;
-  return { allowed: true, retryAfterMs: 0 };
-}
 
 function getSiteUrl() {
   return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
@@ -50,11 +32,56 @@ function getOrigin(headersList: Awaited<ReturnType<typeof headers>>): string {
   return getSiteUrl();
 }
 
+/**
+ * Brute-force protection for sign-in. We check BOTH a per-IP bucket and
+ * a per-email bucket. The per-email bucket is what stops an attacker
+ * with a botnet from hammering one account; the per-IP bucket stops
+ * an attacker from probing many accounts from one machine.
+ */
+async function signinRateLimited(email: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const ip = await getRequestIpAsync()
+  const normalized = email.trim().toLowerCase()
+  const emailKey = hashRateLimitKey([LIMITS.auth.signinEmail.bucket, `e=${normalized}`])
+  const ipKey = hashRateLimitKey([LIMITS.auth.signin.bucket, `ip=${ip}`])
+  const emailDecision = peekRateLimit(emailKey, LIMITS.auth.signinEmail.options)
+  if (emailDecision.limited) {
+    const s = Math.max(1, Math.ceil(emailDecision.retryAfterMs / 1000))
+    return { ok: false, error: `Too many sign-in attempts for this account. Try again in ${s} seconds.` }
+  }
+  const ipDecision = consumeRateLimit(ipKey, LIMITS.auth.signin.options)
+  if (ipDecision.limited) {
+    const s = Math.max(1, Math.ceil(ipDecision.retryAfterMs / 1000))
+    return { ok: false, error: `Too many sign-in attempts. Try again in ${s} seconds.` }
+  }
+  // Only count the email bucket when the per-IP check passes, so a
+  // legit user behind a shared NAT (coffee shop, mobile carrier) does
+  // not lock themselves out of their own account.
+  consumeRateLimit(emailKey, LIMITS.auth.signinEmail.options)
+  return { ok: true }
+}
+
+function noteFailedSignin(email: string) {
+  // On failure, do not clear — instead, leave the counters as-is. The
+  // counters decrement on their own once the window elapses, and the
+  // legitimate user can still sign in once they slow down.
+  void email
+}
+
+function clearSigninOnSuccess(email: string) {
+  const normalized = email.trim().toLowerCase()
+  clearRateLimit(
+    hashRateLimitKey([LIMITS.auth.signinEmail.bucket, `e=${normalized}`]),
+  )
+}
+
 export async function signInWithPassword(
   email: string,
   password: string,
   redirectTo?: string,
 ): Promise<AuthResult> {
+  const gate = await signinRateLimited(email)
+  if (!gate.ok) return { ok: false, error: gate.error }
+
   const supabase = await createClient();
   let error: { message: string } | null = null;
   try {
@@ -63,6 +90,7 @@ export async function signInWithPassword(
   } catch (e) {
     const err = e as Error & { cause?: { code?: string; message?: string } };
     console.error("[signInWithPassword] thrown:", err.message, "cause:", err.cause?.code, err.cause?.message);
+    noteFailedSignin(email);
     return {
       ok: false,
       error:
@@ -73,8 +101,13 @@ export async function signInWithPassword(
   }
 
   if (error) {
+    noteFailedSignin(email);
     return { ok: false, error: error.message };
   }
+
+  // Successful sign-in — wipe the per-email bucket so the user is not
+  // permanently locked out by a slow trickle of bad attempts.
+  clearSigninOnSuccess(email);
 
   // Resolve the post-login destination. Prefer the explicit redirectTo from
   // the login form (e.g. /admin), otherwise infer from the user's role:
@@ -115,12 +148,32 @@ export async function signUpWithPassword(
     return { ok: false, error: "Please enter your full name." }
   }
 
+  const ip = await getRequestIpAsync()
+  const normalized = email.trim().toLowerCase()
+  const emailKey = hashRateLimitKey([LIMITS.auth.signup.bucket, `e=${normalized}`])
+  const ipKey = hashRateLimitKey([LIMITS.auth.signupIp.bucket, `ip=${ip}`])
+
+  const emailDecision = peekRateLimit(emailKey, LIMITS.auth.signup.options)
+  if (emailDecision.limited) {
+    const m = Math.max(1, Math.ceil(emailDecision.retryAfterMs / 60_000))
+    return {
+      ok: false,
+      error: `This email has been used to sign up too many times recently. Try again in about ${m} minute${m === 1 ? "" : "s"}.`,
+    }
+  }
+  const ipDecision = consumeRateLimit(ipKey, LIMITS.auth.signupIp.options)
+  if (ipDecision.limited) {
+    const s = Math.max(1, Math.ceil(ipDecision.retryAfterMs / 1000))
+    return { ok: false, error: `Too many sign-up attempts from this network. Try again in ${s} seconds.` }
+  }
+  consumeRateLimit(emailKey, LIMITS.auth.signup.options)
+
   const supabase = await createClient();
   const headerList = await headers();
   const origin = getOrigin(headerList);
 
   const { data, error } = await supabase.auth.signUp({
-    email: email.trim().toLowerCase(),
+    email: normalized,
     password,
     options: {
       emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent("/onboarding")}`,
@@ -162,7 +215,7 @@ export async function signUpWithPassword(
         loginUrl: `${origin}/login`,
       })
       void sendEmail({
-        to: data.user.email ?? email.trim().toLowerCase(),
+        to: data.user.email ?? normalized,
         subject,
         text,
         html,
@@ -177,7 +230,7 @@ export async function signUpWithPassword(
   }
 
   redirect(
-    `/check-email?email=${encodeURIComponent(email)}`,
+    `/check-email?email=${encodeURIComponent(normalized)}`,
   );
 }
 
@@ -185,6 +238,13 @@ export async function signInWithOAuth(
   provider: "google",
   redirectTo?: string,
 ): Promise<AuthResult> {
+  const ip = await getRequestIpAsync()
+  const decision = consume(LIMITS.auth.oauth, { ip })
+  if (decision.limited) {
+    const s = Math.max(1, Math.ceil(decision.retryAfterMs / 1000))
+    return { ok: false, error: `Too many OAuth start attempts. Try again in ${s} seconds.` }
+  }
+
   const supabase = await createClient();
   const headerList = await headers();
   const origin = getOrigin(headerList);
@@ -219,16 +279,24 @@ export async function resendConfirmationEmail(
   email: string,
 ): Promise<AuthResult> {
   const normalized = email.trim().toLowerCase();
-  const throttleKey = `resend:${normalized}`;
+  const ip = await getRequestIpAsync()
+  const emailKey = hashRateLimitKey([LIMITS.auth.resend.bucket, `e=${normalized}`])
+  const ipKey = hashRateLimitKey([LIMITS.auth.resend.bucket, `ip=${ip}`])
 
-  const throttled = isRateLimited(throttleKey, RESEND_COOLDOWN_MS);
-  if (throttled.limited) {
-    const seconds = Math.ceil(throttled.retryAfterMs / 1000);
+  const emailDecision = peekRateLimit(emailKey, LIMITS.auth.resend.options)
+  if (emailDecision.limited) {
+    const s = Math.max(1, Math.ceil(emailDecision.retryAfterMs / 1000))
     return {
       ok: false,
-      error: `Please wait ${seconds} seconds before requesting another confirmation email.`,
-    };
+      error: `Please wait ${s} seconds before requesting another confirmation email.`,
+    }
   }
+  const ipDecision = consumeRateLimit(ipKey, LIMITS.auth.resend.options)
+  if (ipDecision.limited) {
+    const s = Math.max(1, Math.ceil(ipDecision.retryAfterMs / 1000))
+    return { ok: false, error: `Too many requests from this network. Try again in ${s} seconds.` }
+  }
+  consumeRateLimit(emailKey, LIMITS.auth.resend.options)
 
   const supabase = createAdminClient();
   const headerList = await headers();
@@ -243,21 +311,17 @@ export async function resendConfirmationEmail(
       },
     });
     if (error) {
-      recordRequest(throttleKey, RESEND_COOLDOWN_MS);
       return {
         ok: false,
         error: "We couldn't resend the confirmation link. Please try again in a moment.",
       };
     }
   } catch {
-    recordRequest(throttleKey, RESEND_COOLDOWN_MS);
     return {
       ok: false,
       error: "We couldn't resend the confirmation link. Please try again in a moment.",
     };
   }
-
-  recordRequest(throttleKey, RESEND_COOLDOWN_MS);
 
   return {
     ok: true,
@@ -267,26 +331,24 @@ export async function resendConfirmationEmail(
 
 export async function requestPasswordReset(email: string): Promise<AuthResult> {
   const normalized = email.trim().toLowerCase();
-  const throttleKey = `reset:${normalized}`;
-  const hourlyKey = `reset:hour:${normalized}`;
+  const ip = await getRequestIpAsync()
+  const emailKey = hashRateLimitKey([LIMITS.auth.resetRequest.bucket, `e=${normalized}`])
+  const ipKey = hashRateLimitKey([LIMITS.auth.resetRequest.bucket, `ip=${ip}`])
 
-  const throttled = isRateLimited(throttleKey, RESET_COOLDOWN_MS);
-  if (throttled.limited) {
-    const seconds = Math.ceil(throttled.retryAfterMs / 1000);
+  const emailDecision = peekRateLimit(emailKey, LIMITS.auth.resetRequest.options)
+  if (emailDecision.limited) {
+    const s = Math.max(1, Math.ceil(emailDecision.retryAfterMs / 1000))
     return {
       ok: false,
-      error: `Please wait ${seconds} seconds before requesting another reset link.`,
-    };
+      error: `Please wait ${s} seconds before requesting another reset link.`,
+    }
   }
-
-  const hourly = checkHourlyLimit(hourlyKey, MAX_RESET_PER_HOUR);
-  if (!hourly.allowed) {
-    const minutes = Math.max(1, Math.ceil(hourly.retryAfterMs / 60_000));
-    return {
-      ok: false,
-      error: `Too many reset attempts for this email. Try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.`,
-    };
+  const ipDecision = consumeRateLimit(ipKey, LIMITS.auth.resetRequest.options)
+  if (ipDecision.limited) {
+    const s = Math.max(1, Math.ceil(ipDecision.retryAfterMs / 1000))
+    return { ok: false, error: `Too many requests from this network. Try again in ${s} seconds.` }
   }
+  consumeRateLimit(emailKey, LIMITS.auth.resetRequest.options)
 
   const supabase = createAdminClient();
   const headerList = await headers();
@@ -297,21 +359,17 @@ export async function requestPasswordReset(email: string): Promise<AuthResult> {
       redirectTo: `${origin}/auth/callback?next=${encodeURIComponent("/reset-password")}`,
     });
     if (error) {
-      recordRequest(throttleKey, RESET_COOLDOWN_MS);
       return {
         ok: false,
         error: "We couldn't send a reset link right now. Please try again in a moment.",
       };
     }
   } catch {
-    recordRequest(throttleKey, RESET_COOLDOWN_MS);
     return {
       ok: false,
       error: "We couldn't send a reset link right now. Please try again in a moment.",
     };
   }
-
-  recordRequest(throttleKey, RESET_COOLDOWN_MS);
 
   return {
     ok: true,
@@ -334,6 +392,18 @@ export async function updatePassword(newPassword: string): Promise<AuthResult> {
       ok: false,
       error: "Your reset link has expired. Please request a new one.",
     };
+  }
+
+  const ip = await getRequestIpAsync()
+  const confirmKey = hashRateLimitKey([
+    LIMITS.auth.resetConfirm.bucket,
+    `id=${user.id}`,
+    `ip=${ip}`,
+  ])
+  const decision = consumeRateLimit(confirmKey, LIMITS.auth.resetConfirm.options)
+  if (decision.limited) {
+    const s = Math.max(1, Math.ceil(decision.retryAfterMs / 1000))
+    return { ok: false, error: `Too many reset attempts. Try again in ${s} seconds.` }
   }
 
   const { error } = await supabase.auth.updateUser({ password: newPassword });

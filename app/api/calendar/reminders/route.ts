@@ -3,11 +3,18 @@ import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { sendEmail } from "@/lib/notifications/email"
 import { sendSms } from "@/lib/notifications/sms"
+import { buildCorsHeaders } from "@/lib/security/cors"
+import { consume, getRequestIp, tooManyRequests } from "@/lib/security/limiter"
+import { LIMITS } from "@/lib/security/limits"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 const MAX_ATTEMPTS = 3
+
+function cors(request: Request) {
+  return buildCorsHeaders(request)
+}
 
 function buildReminderContent(opts: {
   brandName: string
@@ -56,6 +63,9 @@ function buildReminderContent(opts: {
 }
 
 export async function GET(request: Request) {
+  const rl = consume(LIMITS.calendarReminders, { ip: getRequestIp(request) })
+  if (rl.limited) return tooManyRequests(rl, cors(request))
+
   const auth = request.headers.get("authorization") || ""
   const expected = process.env.CRON_SECRET
   if (expected) {

@@ -23,6 +23,8 @@ import { buildCorsHeaders } from "@/lib/security/cors"
 import {
   consumePublicRateLimit,
 } from "@/lib/security/public-rate-limit"
+import { LIMITS } from "@/lib/security/limits"
+import { tooManyRequests, type RateLimitDecision } from "@/lib/security/limiter"
 import { isSupportedLanguage, buildLanguageDirective } from "@/lib/i18n"
 
 type ChatRequest = z.infer<typeof chatRequestSchema>
@@ -30,27 +32,14 @@ type ChatRequest = z.infer<typeof chatRequestSchema>
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const CHAT_LIMIT = {
-  bucket: "chat",
-  options: { maxRequests: 30, windowMs: 60_000 },
-}
+const CHAT_LIMIT = LIMITS.chat
 
 function cors(request: Request) {
   return buildCorsHeaders(request)
 }
 
-function rateLimitResponse(
-  retryAfterMs: number,
-  request: Request,
-): Response {
-  const headers = {
-    ...cors(request),
-    "retry-after": String(Math.ceil(retryAfterMs / 1000)),
-  }
-  return Response.json(
-    { error: "Too many requests. Please slow down." },
-    { status: 429, headers },
-  )
+function rateLimitResponse(decision: RateLimitDecision, request: Request): Response {
+  return tooManyRequests(decision, cors(request))
 }
 
 export function OPTIONS(request: Request) {
@@ -59,7 +48,7 @@ export function OPTIONS(request: Request) {
 
 export async function POST(request: NextRequest) {
   const rl = consumePublicRateLimit(request, CHAT_LIMIT)
-  if (rl.limited) return rateLimitResponse(rl.retryAfterMs, request)
+  if (rl.limited) return rateLimitResponse(rl, request)
 
   let raw: unknown
   try {

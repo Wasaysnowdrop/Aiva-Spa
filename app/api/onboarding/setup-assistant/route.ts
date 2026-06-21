@@ -13,15 +13,11 @@ import {
 } from "@/lib/ai/setup-assistant-schema"
 import { recordAuditForUser } from "@/lib/audit"
 import { buildCorsHeaders } from "@/lib/security/cors"
-import { consumePublicRateLimit } from "@/lib/security/public-rate-limit"
+import { consume, getRequestIp, tooManyRequests } from "@/lib/security/limiter"
+import { LIMITS } from "@/lib/security/limits"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-
-const SETUP_LIMIT = {
-  bucket: "setup-assistant",
-  options: { maxRequests: 30, windowMs: 60_000 },
-}
 
 const historyItemSchema = z.object({
   role: z.enum(["user", "assistant"]),
@@ -45,20 +41,6 @@ export function OPTIONS(request: Request) {
 }
 
 export async function POST(request: NextRequest) {
-  const rl = consumePublicRateLimit(request, SETUP_LIMIT)
-  if (rl.limited) {
-    return Response.json(
-      { error: "Too many requests. Please slow down." },
-      {
-        status: 429,
-        headers: {
-          ...cors(request),
-          "retry-after": String(Math.ceil(rl.retryAfterMs / 1000)),
-        },
-      },
-    )
-  }
-
   let raw: unknown
   try {
     raw = await request.json()
@@ -88,6 +70,13 @@ export async function POST(request: NextRequest) {
       { status: 401, headers: cors(request) },
     )
   }
+
+  // Per-user limit so a single owner can't blow up the LLM bill.
+  const rl = consume(LIMITS.onboardingAssistant, {
+    ip: getRequestIp(request),
+    identity: user.id,
+  })
+  if (rl.limited) return tooManyRequests(rl, cors(request))
 
   const body = parsed.data
 

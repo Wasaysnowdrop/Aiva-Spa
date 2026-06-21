@@ -11,31 +11,17 @@ import { isAfterHours } from "@/lib/ai/working-hours"
 import { checkEmbedAccess } from "@/lib/widget/access"
 import { buildCorsHeaders } from "@/lib/security/cors"
 import { consumePublicRateLimit } from "@/lib/security/public-rate-limit"
+import { LIMITS } from "@/lib/security/limits"
+import { tooManyRequests } from "@/lib/security/limiter"
 import type { TranscriptMessage } from "@/lib/supabase/types"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const BOOK_LIMIT = {
-  bucket: "calendar-book",
-  options: { maxRequests: 20, windowMs: 60_000 },
-}
+const BOOK_LIMIT = LIMITS.calendarBook
 
 function cors(request: Request) {
   return buildCorsHeaders(request)
-}
-
-function rateLimitResponse(retryAfterMs: number, request: Request): Response {
-  return Response.json(
-    { ok: false, error: "Too many requests. Please slow down." },
-    {
-      status: 429,
-      headers: {
-        ...cors(request),
-        "retry-after": String(Math.ceil(retryAfterMs / 1000)),
-      },
-    },
-  )
 }
 
 export function OPTIONS(request: Request) {
@@ -44,7 +30,7 @@ export function OPTIONS(request: Request) {
 
 export async function POST(request: NextRequest) {
   const rl = consumePublicRateLimit(request, BOOK_LIMIT)
-  if (rl.limited) return rateLimitResponse(rl.retryAfterMs, request)
+  if (rl.limited) return tooManyRequests(rl, cors(request))
 
   let raw: unknown
   try {

@@ -2,6 +2,9 @@ import type { NextRequest } from "next/server"
 
 import { resolveCustomDomain } from "@/lib/widget/domains"
 import { buildCorsHeaders } from "@/lib/security/cors"
+import { consumePublicRateLimit } from "@/lib/security/public-rate-limit"
+import { LIMITS } from "@/lib/security/limits"
+import { tooManyRequests } from "@/lib/security/limiter"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -15,6 +18,9 @@ export function OPTIONS(request: Request) {
 }
 
 export async function GET(request: NextRequest) {
+  const rl = consumePublicRateLimit(request, LIMITS.widgetResolveHost)
+  if (rl.limited) return tooManyRequests(rl, cors(request))
+
   const url = new URL(request.url)
   const host =
     url.searchParams.get("host") ||

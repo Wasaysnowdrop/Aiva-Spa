@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/server"
+import { checkActionLimit } from "@/lib/security/check-action-limit"
+import { LIMITS } from "@/lib/security/limits"
 import {
   activatePaidPlan,
   dismissTrialPopup,
@@ -29,6 +31,9 @@ function readPlanId(formData: FormData): PlanId | null {
 }
 
 export async function startTrial(): Promise<CheckoutResult> {
+  const limit = await checkActionLimit(LIMITS.actionSubscription)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient()
   const {
     data: { user },
@@ -49,6 +54,9 @@ export async function startTrial(): Promise<CheckoutResult> {
 }
 
 export async function fakeCheckout(formData: FormData): Promise<CheckoutResult> {
+  const limit = await checkActionLimit(LIMITS.actionSubscription)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient()
   const {
     data: { user },
@@ -92,6 +100,9 @@ export async function fakeCheckout(formData: FormData): Promise<CheckoutResult> 
 }
 
 export async function cancelSubscription(): Promise<CheckoutResult> {
+  const limit = await checkActionLimit(LIMITS.actionSubscription)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient()
   const {
     data: { user },
@@ -116,6 +127,8 @@ export async function cancelSubscription(): Promise<CheckoutResult> {
 }
 
 export async function dismissTrialPopupAction(): Promise<void> {
+  const limit = await checkActionLimit(LIMITS.actionSubscription)
+  if (!limit.ok) return
   const supabase = await createClient()
   const {
     data: { user },

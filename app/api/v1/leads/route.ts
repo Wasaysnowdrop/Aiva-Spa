@@ -9,15 +9,14 @@ import { dispatchLeadNotifications } from "@/lib/notifications/dispatch"
 import { fireEvent } from "@/lib/webhooks"
 import { buildCorsHeaders } from "@/lib/security/cors"
 import { consumePublicRateLimit } from "@/lib/security/public-rate-limit"
+import { LIMITS } from "@/lib/security/limits"
+import { tooManyRequests, type RateLimitDecision } from "@/lib/security/limiter"
 import { safeValidate, leadRequestSchema } from "@/lib/ai/validation"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const API_KEY_LIMIT = {
-  bucket: "v1-leads",
-  options: { maxRequests: 60, windowMs: 60_000 },
-}
+const API_KEY_LIMIT = LIMITS.v1Leads
 
 function cors(request: Request) {
   return buildCorsHeaders(request, {
@@ -36,15 +35,8 @@ function jsonError(
   )
 }
 
-function rateLimitResponse(retryAfterMs: number, request: Request): Response {
-  const headers = {
-    ...cors(request),
-    "retry-after": String(Math.ceil(retryAfterMs / 1000)),
-  }
-  return Response.json(
-    { error: "Too many requests. Please slow down." },
-    { status: 429, headers },
-  )
+function rateLimitResponse(decision: RateLimitDecision, request: Request): Response {
+  return tooManyRequests(decision, cors(request))
 }
 
 export function OPTIONS(request: Request) {
@@ -70,7 +62,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: NextRequest) {
   const rl = consumePublicRateLimit(request, API_KEY_LIMIT)
-  if (rl.limited) return rateLimitResponse(rl.retryAfterMs, request)
+  if (rl.limited) return rateLimitResponse(rl, request)
 
   const authHeader = request.headers.get("authorization") ?? ""
   const bearer = authHeader.toLowerCase().startsWith("bearer ")

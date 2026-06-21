@@ -2,6 +2,9 @@ import { headers } from "next/headers"
 
 import { checkEmbedAccess } from "@/lib/widget/access"
 import { buildCorsHeaders } from "@/lib/security/cors"
+import { consumePublicRateLimit } from "@/lib/security/public-rate-limit"
+import { LIMITS } from "@/lib/security/limits"
+import { tooManyRequests } from "@/lib/security/limiter"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -40,6 +43,9 @@ function isPrivateHost(hostname: string) {
 }
 
 export async function GET(request: Request) {
+  const rl = consumePublicRateLimit(request, LIMITS.widgetVerify)
+  if (rl.limited) return tooManyRequests(rl, cors(request))
+
   const url = new URL(request.url)
   const targetRaw = url.searchParams.get("url") ?? ""
   const spaId = url.searchParams.get("spaId") ?? ""

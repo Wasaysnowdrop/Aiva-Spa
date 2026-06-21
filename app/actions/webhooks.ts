@@ -12,6 +12,8 @@ import {
   listWebhooks,
   type WebhookEvent,
 } from "@/lib/webhooks";
+import { checkActionLimit } from "@/lib/security/check-action-limit";
+import { LIMITS } from "@/lib/security/limits";
 
 function readString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -30,6 +32,9 @@ export type WebhookResult = { ok: boolean; error?: string; webhookId?: string };
 export async function createWebhookAction(
   formData: FormData,
 ): Promise<WebhookResult> {
+  const limit = await checkActionLimit(LIMITS.actionWebhooks)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -72,6 +77,9 @@ export async function toggleWebhookAction(
   id: string,
   active: boolean,
 ): Promise<WebhookResult> {
+  const limit = await checkActionLimit(LIMITS.actionWebhooks)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -91,6 +99,9 @@ export async function toggleWebhookAction(
 export async function deleteWebhookAction(
   id: string,
 ): Promise<WebhookResult> {
+  const limit = await checkActionLimit(LIMITS.actionWebhooks)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -110,6 +121,9 @@ export async function deleteWebhookAction(
 export async function testWebhookAction(
   id: string,
 ): Promise<WebhookResult & { status?: number; durationMs?: number; error?: string }> {
+  const limit = await checkActionLimit(LIMITS.actionWebhooks)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -160,6 +174,9 @@ export async function testWebhookAction(
 export async function rotateWebhookSecretAction(
   id: string,
 ): Promise<WebhookResult & { secret?: string }> {
+  const limit = await checkActionLimit(LIMITS.actionWebhooks)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient();
   const {
     data: { user },

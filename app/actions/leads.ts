@@ -18,6 +18,8 @@ import { fireEventForAll } from "@/lib/webhooks"
 import { sendEmail, buildLeadNotificationEmail } from "@/lib/notifications/email"
 import { sendSms, buildLeadNotificationSms } from "@/lib/notifications/sms"
 import { loadKnowledge } from "@/lib/ai/conversation"
+import { checkActionLimit } from "@/lib/security/check-action-limit"
+import { LIMITS } from "@/lib/security/limits"
 
 export type MergeFieldChoice = {
   field: "name" | "phone" | "email" | "service" | "preferredTime" | "notes"
@@ -46,6 +48,8 @@ export async function findDuplicateAction(input: {
   email?: string
   excludeLeadId?: string
 }): Promise<LeadActionResult<FindDuplicateResult>> {
+  const limit = await checkActionLimit(LIMITS.actionLeads)
+  if (!limit.ok) return { ok: false, error: limit.error }
   await requireUser()
   try {
     const phone = input.phone?.trim() ?? ""
@@ -87,6 +91,8 @@ export async function getDuplicateGroupsAction(): Promise<
     }>
   >
 > {
+  const limit = await checkActionLimit(LIMITS.actionLeads)
+  if (!limit.ok) return { ok: false, error: limit.error }
   await requireUser()
   try {
     const groups = await getDuplicateGroups(100)
@@ -112,6 +118,8 @@ export async function mergeLeadsAction(input: {
   transcriptMerge?: "append" | "keep-primary"
 }): Promise<LeadActionResult<{ primary: Lead; merged: Lead[] }>> {
   const user = await requireUser()
+  const limit = await checkActionLimit(LIMITS.actionLeads)
+  if (!limit.ok) return { ok: false, error: limit.error }
   if (!input.primaryLeadId || input.secondaryLeadIds.length === 0) {
     return { ok: false, error: "Pick a primary and at least one duplicate to merge." }
   }
@@ -160,6 +168,8 @@ export async function mergeLeadsAction(input: {
 
 export async function unmergeLeadAction(secondaryLeadId: string): Promise<LeadActionResult> {
   await requireUser()
+  const limit = await checkActionLimit(LIMITS.actionLeads)
+  if (!limit.ok) return { ok: false, error: limit.error }
   try {
     await unmergeLeadServer(secondaryLeadId)
     void recordAudit({
@@ -179,6 +189,8 @@ export async function updateLeadStatusAction(
   next: "new" | "contacted" | "booked" | "lost",
 ): Promise<LeadActionResult<Lead>> {
   await requireUser()
+  const limit = await checkActionLimit(LIMITS.actionLeads)
+  if (!limit.ok) return { ok: false, error: limit.error }
   if (!leadId) return { ok: false, error: "Missing lead id" }
   if (!["new", "contacted", "booked", "lost"].includes(next)) {
     return { ok: false, error: "Invalid status" }
@@ -237,6 +249,8 @@ export async function createLeadAction(
   input: CreateLeadInput,
 ): Promise<LeadActionResult<Lead>> {
   const user = await requireUser()
+  const limit = await checkActionLimit(LIMITS.actionLeads)
+  if (!limit.ok) return { ok: false, error: limit.error }
   try {
     const name = (input.name ?? "").trim()
     const phone = (input.phone ?? "").trim()
@@ -348,6 +362,8 @@ export async function updateLeadNotesAction(
   notes: string,
 ): Promise<LeadActionResult<{ notes: string }>> {
   const user = await requireUser()
+  const limit = await checkActionLimit(LIMITS.actionLeads)
+  if (!limit.ok) return { ok: false, error: limit.error }
   if (!leadId) return { ok: false, error: "Missing lead id" }
   try {
     const supabase = await createClient()
@@ -396,6 +412,8 @@ export async function sendLeadMessageAction(
   if (!user) {
     return { ok: false, error: "Not authenticated" }
   }
+  const limit = await checkActionLimit(LIMITS.actionLeads)
+  if (!limit.ok) return { ok: false, error: limit.error }
   if (!input.leadId) return { ok: false, error: "Missing lead id" }
   if (!input.body?.trim()) return { ok: false, error: "Message body is required" }
   if (input.body.length > 2000) {

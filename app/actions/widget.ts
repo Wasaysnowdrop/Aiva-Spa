@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { invalidateKnowledgeCache } from "@/lib/ai/retrieval";
 import { recordAudit } from "@/lib/audit";
+import { checkActionLimit } from "@/lib/security/check-action-limit";
+import { LIMITS } from "@/lib/security/limits";
 
 export type WidgetActionResult<T = void> =
   | { ok: true; data?: T }
@@ -32,6 +34,9 @@ export async function updateWidgetBranding(input: {
   consentText?: string;
   workingHours?: WorkingHoursInput;
 }): Promise<WidgetActionResult> {
+  const limit = await checkActionLimit(LIMITS.actionWidget)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -96,6 +101,9 @@ export type CreateNotificationChannelInput = {
 export async function updateNotificationChannel(
   update: NotificationChannelUpdate,
 ): Promise<WidgetActionResult> {
+  const limit = await checkActionLimit(LIMITS.actionWidget)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -122,6 +130,9 @@ export async function updateNotificationChannel(
 export async function createNotificationChannelAction(
   input: CreateNotificationChannelInput,
 ): Promise<WidgetActionResult<{ id: string }>> {
+  const limit = await checkActionLimit(LIMITS.actionWidget)
+  if (!limit.ok) return { ok: false, error: limit.error }
+
   const supabase = await createClient();
   const {
     data: { user },
