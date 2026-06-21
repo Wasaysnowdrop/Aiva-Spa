@@ -2,6 +2,7 @@ import { Suspense } from "react"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { CalendarView } from "@/components/dashboard/calendar-view"
+import { DashboardHeader } from "@/components/dashboard/dashboard-header"
 import { listBookings } from "@/lib/calendar"
 
 export const dynamic = "force-dynamic"
@@ -39,12 +40,15 @@ export default async function CalendarPage() {
   if (!user) redirect("/login?redirectTo=/dashboard/calendar")
   const { spaId, bookings } = await loadBookingsForCurrentSpa()
   return (
-    <Suspense
-      fallback={
-        <div className="p-5 text-xs text-[#8A8F98]">Loading calendar…</div>
-      }
-    >
-      <CalendarView spaId={spaId ?? "default"} initialBookings={bookings} />
-    </Suspense>
+    <>
+      <DashboardHeader />
+      <Suspense
+        fallback={
+          <div className="p-5 text-xs text-[#8A8F98]">Loading calendar…</div>
+        }
+      >
+        <CalendarView spaId={spaId ?? "default"} initialBookings={bookings} />
+      </Suspense>
+    </>
   )
 }
