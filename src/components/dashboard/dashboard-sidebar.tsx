@@ -53,8 +53,9 @@ function initials(user: SidebarUser) {
     .split(/\s+|@/)
     .filter(Boolean)
     .slice(0, 2)
-    .map((part) => part[0]!.toUpperCase())
-    .join("")
+    .map((part) => part?.[0]?.toUpperCase() ?? "")
+    .filter(Boolean)
+    .join("") || "U"
 }
 
 export function DashboardSidebar({ user }: { user: SidebarUser }) {
@@ -73,31 +74,60 @@ export function DashboardSidebar({ user }: { user: SidebarUser }) {
 function SidebarPanel({ user, onNavigate }: { user: SidebarUser; onNavigate?: () => void }) {
   const pathname = usePathname()
   const [newLeadsCount, setNewLeadsCount] = React.useState(0)
+  const reactId = React.useId()
+  const channelId = React.useMemo(
+    () => `sidebar-leads-${user.email ?? "anon"}-${reactId.replace(/[:]/g, "")}`,
+    [user.email, reactId],
+  )
 
   React.useEffect(() => {
-    const supabase = createClient()
-    const fetchCount = async () => {
-      const { count } = await supabase
-        .from("leads")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "new")
-      if (count !== null) setNewLeadsCount(count)
+    if (typeof window === "undefined") return
+    let cancelled = false
+    let channel: ReturnType<ReturnType<typeof createClient>["channel"]> | null = null
+    let supabase: ReturnType<typeof createClient> | null = null
+    try {
+      supabase = createClient()
+      const client = supabase
+      const fetchCount = async () => {
+        try {
+          const { count } = await client
+            .from("leads")
+            .select("*", { count: "exact", head: true })
+            .eq("status", "new")
+          if (!cancelled && typeof count === "number") setNewLeadsCount(count)
+        } catch (e) {
+          console.error("[sidebar] leads count fetch failed:", e)
+        }
+      }
+      void fetchCount()
+      try {
+        channel = client
+          .channel(channelId)
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "leads" },
+            () => {
+              void fetchCount()
+            },
+          )
+          .subscribe()
+      } catch (e) {
+        console.error("[sidebar] realtime subscribe failed:", e)
+      }
+    } catch (e) {
+      console.error("[sidebar] supabase client init failed:", e)
     }
-    fetchCount()
-    const channel = supabase
-      .channel(`sidebar-leads-${user.email ?? "anon"}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "leads" },
-        () => {
-          fetchCount()
-        },
-      )
-      .subscribe()
     return () => {
-      supabase.removeChannel(channel)
+      cancelled = true
+      try {
+        if (supabase && channel) {
+          void supabase.removeChannel(channel)
+        }
+      } catch (e) {
+        console.error("[sidebar] removeChannel failed:", e)
+      }
     }
-  }, [user.email])
+  }, [channelId])
 
   return (
     <SidebarBody
@@ -123,15 +153,25 @@ export function MobileSidebarDrawer({ user }: { user: SidebarUser }) {
   // still see the address bar.
   React.useEffect(() => {
     if (!open) return
-    const prev = document.body.style.overflow
-    document.body.style.overflow = "hidden"
+    if (typeof document === "undefined") return
+    let prev: string | null = null
+    try {
+      prev = document.body.style.overflow
+      document.body.style.overflow = "hidden"
+    } catch (e) {
+      console.error("[sidebar] body lock failed:", e)
+    }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeDrawer()
     }
     document.addEventListener("keydown", onKey)
     return () => {
-      document.body.style.overflow = prev
       document.removeEventListener("keydown", onKey)
+      try {
+        document.body.style.overflow = prev ?? ""
+      } catch (e) {
+        console.error("[sidebar] body unlock failed:", e)
+      }
     }
   }, [open, closeDrawer])
 

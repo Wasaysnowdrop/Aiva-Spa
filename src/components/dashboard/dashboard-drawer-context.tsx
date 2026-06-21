@@ -13,14 +13,14 @@ const DashboardDrawerContext = React.createContext<DrawerContextValue | null>(nu
 
 export function DashboardDrawerProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = React.useState(false)
+
+  const openDrawer = React.useCallback(() => setOpen(true), [])
+  const closeDrawer = React.useCallback(() => setOpen(false), [])
+  const toggleDrawer = React.useCallback(() => setOpen((v) => !v), [])
+
   const value = React.useMemo<DrawerContextValue>(
-    () => ({
-      open,
-      openDrawer: () => setOpen(true),
-      closeDrawer: () => setOpen(false),
-      toggleDrawer: () => setOpen((v) => !v),
-    }),
-    [open],
+    () => ({ open, openDrawer, closeDrawer, toggleDrawer }),
+    [open, openDrawer, closeDrawer, toggleDrawer],
   )
   return (
     <DashboardDrawerContext.Provider value={value}>
@@ -31,8 +31,6 @@ export function DashboardDrawerProvider({ children }: { children: React.ReactNod
 
 export function useDashboardDrawer(): DrawerContextValue {
   const ctx = React.useContext(DashboardDrawerContext)
-  // Fall back to a no-op set so components rendered outside the
-  // provider (e.g. an isolated test) never crash.
   if (!ctx) {
     return {
       open: false,
