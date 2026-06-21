@@ -50,12 +50,26 @@ const dateRanges = [
 ]
 
 export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
+  const safeInitial = React.useMemo(
+    () => (initialLeads ?? []).filter((l): l is Lead => Boolean(l?.id)),
+    [initialLeads],
+  )
+
   const { data: leads } = useRealtimeSubscription<Lead>({
     table: "leads",
-    initialData: initialLeads,
+    initialData: safeInitial,
     mapRow: (row) => mapLead(row),
     getId: (item) => item.id,
   })
+
+  const safeLeads = React.useMemo(
+    () => (leads ?? []).filter((l): l is Lead => Boolean(l?.id)),
+    [leads],
+  )
+
+  if (typeof window !== "undefined") {
+    console.log("Leads Data:", safeLeads)
+  }
 
   const [query, setQuery] = React.useState("")
   const [status, setStatus] = React.useState<string>("all")
@@ -74,44 +88,45 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
   const [mergeOpen, setMergeOpen] = React.useState(false)
 
   const services = React.useMemo(
-    () => Array.from(new Set(leads.map((l) => l.service))).sort(),
-    [leads],
+    () => Array.from(new Set(safeLeads.map((l) => l?.service).filter(Boolean) as string[])).sort(),
+    [safeLeads],
   )
 
   const filtered = React.useMemo(() => {
-    return leads.filter((lead) => {
+    return safeLeads.filter((lead) => {
+      if (!lead?.id) return false
       if (status !== "all" && lead.status !== status) return false
       if (service !== "all" && lead.service !== service) return false
       if (query) {
         const q = query.toLowerCase()
-        if (
-          !lead.name.toLowerCase().includes(q) &&
-          !lead.email.toLowerCase().includes(q) &&
-          !lead.phone.toLowerCase().includes(q)
-        ) {
+        const name = (lead.name ?? "").toLowerCase()
+        const email = (lead.email ?? "").toLowerCase()
+        const phone = (lead.phone ?? "").toLowerCase()
+        if (!name.includes(q) && !email.includes(q) && !phone.includes(q)) {
           return false
         }
       }
       return true
     })
-  }, [leads, query, status, service])
+  }, [safeLeads, query, status, service])
 
   const counts = React.useMemo(
     () => ({
-      all: leads.length,
-      new: leads.filter((l) => l.status === "new").length,
-      contacted: leads.filter((l) => l.status === "contacted").length,
-      booked: leads.filter((l) => l.status === "booked").length,
-      lost: leads.filter((l) => l.status === "lost").length,
+      all: safeLeads.length,
+      new: safeLeads.filter((l) => l?.status === "new").length,
+      contacted: safeLeads.filter((l) => l?.status === "contacted").length,
+      booked: safeLeads.filter((l) => l?.status === "booked").length,
+      lost: safeLeads.filter((l) => l?.status === "lost").length,
     }),
-    [leads],
+    [safeLeads],
   )
 
   const toggleAll = () => {
     if (selected.length === filtered.length) setSelected([])
-    else setSelected(filtered.map((l) => l.id))
+    else setSelected(filtered.map((l) => l?.id).filter((id): id is string => Boolean(id)))
   }
   const toggle = (id: string) => {
+    if (!id) return
     setSelected((prev) =>
       prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
     )
@@ -137,13 +152,13 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
   }, [])
 
   const openMergeForGroup = (group: { leadIds: string[]; matchType: "phone" | "email" }) => {
-    const all = leads
     const involved = group.leadIds
-      .map((id) => all.find((l) => l.id === id))
-      .filter((l): l is Lead => Boolean(l))
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map((id) => safeLeads.find((l) => l?.id === id))
+      .filter((l): l is Lead => Boolean(l?.id))
+      .sort((a, b) => (a?.createdAt ?? "").localeCompare(b?.createdAt ?? ""))
     if (involved.length < 2) return
     const [primary, ...rest] = involved
+    if (!primary) return
     setMergePrimary(primary)
     setMergeCandidates(
       rest.map((lead) => ({ lead, matchType: group.matchType })),
@@ -226,9 +241,9 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
           <ul className="space-y-1.5">
             {dupes.map((g) => {
               const involved = g.leadIds
-                .map((id) => leads.find((l) => l.id === id))
-                .filter((l): l is Lead => Boolean(l))
-                .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+                .map((id) => safeLeads.find((l) => l?.id === id))
+                .filter((l): l is Lead => Boolean(l?.id))
+                .sort((a, b) => (a?.createdAt ?? "").localeCompare(b?.createdAt ?? ""))
               return (
                 <li
                   key={g.matchKey}
@@ -240,13 +255,13 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
                   <span className="font-mono text-[#8A8F98]">{g.value}</span>
                   <span className="flex flex-wrap items-center gap-1 text-[#F7F8F8]">
                     {involved.map((l, i) => (
-                      <React.Fragment key={l.id}>
+                      <React.Fragment key={l?.id ?? i}>
                         {i > 0 ? <span className="text-[#62666D]">·</span> : null}
                         <Link
-                          href={`/dashboard/leads/${l.id}`}
+                          href={l?.id ? `/dashboard/leads/${l.id}` : "/dashboard/leads"}
                           className="hover:underline"
                         >
-                          {l.name}
+                          {l?.name ?? "Unknown lead"}
                         </Link>
                       </React.Fragment>
                     ))}
@@ -359,24 +374,30 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
         </div>
 
         {filtered.length === 0 ? (
-          <EmptyState onClear={() => { setQuery(""); setStatus("all"); setService("all") }} />
+          safeLeads.length === 0 ? (
+            <DatabaseEmptyState />
+          ) : (
+            <EmptyState onClear={() => { setQuery(""); setStatus("all"); setService("all") }} />
+          )
         ) : (
           <ul className="divide-y divide-[#23252A]">
-            {filtered.map((lead) => (
-              <LeadRow
-                key={lead.id}
-                lead={lead}
-                checked={selected.includes(lead.id)}
-                onToggle={() => toggle(lead.id)}
-              />
-            ))}
+            {filtered.map((lead) =>
+              lead?.id ? (
+                <LeadRow
+                  key={lead.id}
+                  lead={lead}
+                  checked={selected.includes(lead.id)}
+                  onToggle={() => toggle(lead.id)}
+                />
+              ) : null,
+            )}
           </ul>
         )}
       </div>
 
       <div className="flex items-center justify-between text-xs text-[#8A8F98]">
         <p>
-          Showing {filtered.length} of {leads.length} leads
+          Showing {filtered.length} of {safeLeads.length} leads
         </p>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" disabled>
@@ -398,7 +419,7 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
             setMergeCandidates([])
           }
         }}
-        primary={mergePrimary ?? leads[0]}
+        primary={mergePrimary ?? safeLeads[0] ?? null}
         candidates={mergeCandidates}
         onMerged={() => {
           void scanDuplicates()
@@ -417,6 +438,14 @@ function LeadRow({
   checked: boolean
   onToggle: () => void
 }) {
+  const safeName = lead?.name ?? "Unknown lead"
+  const initials = safeName
+    .split(" ")
+    .map((n) => n?.[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("") || "?"
+  const href = lead?.id ? `/dashboard/leads/${lead.id}` : "/dashboard/leads"
   return (
     <li
       className={cn(
@@ -427,51 +456,47 @@ function LeadRow({
       <div>
         <input
           type="checkbox"
-          aria-label={`Select ${lead.name}`}
+          aria-label={`Select ${safeName}`}
           checked={checked}
           onChange={onToggle}
           className="size-3.5 rounded border-[#23252A] bg-[#121316] accent-[#E2E54B]"
         />
       </div>
       <Link
-        href={`/dashboard/leads/${lead.id}`}
+        href={href}
         className="flex min-w-0 items-center gap-3"
       >
         <span
           className="flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-[#08090A]"
           style={{
             background: `linear-gradient(135deg, ${
-              lead.service === "Botox"
+              lead?.service === "Botox"
                 ? "#E2E54B"
-                : lead.service === "Fillers"
+                : lead?.service === "Fillers"
                   ? "#5E6AD2"
-                  : lead.service === "Laser"
+                  : lead?.service === "Laser"
                     ? "#22D3EE"
-                    : lead.service === "Facials"
+                    : lead?.service === "Facials"
                       ? "#34D399"
-                      : lead.service === "Microneedling"
+                      : lead?.service === "Microneedling"
                         ? "#FF77E9"
                         : "#8A8F98"
             }, #1A1B1E)`,
           }}
         >
-          {lead.name
-            .split(" ")
-            .map((n) => n[0])
-            .slice(0, 2)
-            .join("")}
+          {initials}
         </span>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <p className="truncate text-sm font-semibold text-[#F7F8F8] group-hover:text-[#E2E54B]">
-              {lead.name}
+              {safeName}
             </p>
-            {lead.afterHours ? (
+            {lead?.afterHours ? (
               <span className="rounded-md border border-[#22D3EE]/30 bg-[#22D3EE]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#22D3EE]">
                 After hrs
               </span>
             ) : null}
-            {!lead.consentGiven ? (
+            {lead && !lead.consentGiven ? (
               <span
                 className="rounded-md border border-[#EB5757]/30 bg-[#EB5757]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#EB5757]"
                 title="No consent recorded"
@@ -481,29 +506,29 @@ function LeadRow({
             ) : null}
           </div>
           <p className="truncate text-xs text-[#8A8F98]">
-            {lead.email} · {lead.phone}
+            {lead?.email ?? "no email"} · {lead?.phone ?? "no phone"}
           </p>
         </div>
       </Link>
       <div className="min-w-0">
-        <p className="truncate text-sm text-[#F7F8F8]">{lead.service}</p>
-        <p className="truncate text-xs text-[#8A8F98]">{lead.sourceUrl}</p>
+        <p className="truncate text-sm text-[#F7F8F8]">{lead?.service ?? "—"}</p>
+        <p className="truncate text-xs text-[#8A8F98]">{lead?.sourceUrl ?? ""}</p>
       </div>
       <div>
-        <LeadStatusBadge status={lead.status} />
+        <LeadStatusBadge status={lead?.status ?? "new"} />
       </div>
       <div>
-        <p className="truncate text-sm text-[#F7F8F8]">{lead.preferredTime}</p>
-        <p className="truncate text-xs text-[#8A8F98]">{lead.source}</p>
+        <p className="truncate text-sm text-[#F7F8F8]">{lead?.preferredTime ?? "—"}</p>
+        <p className="truncate text-xs text-[#8A8F98]">{lead?.source ?? ""}</p>
       </div>
       <div>
-        <p className="text-sm text-[#F7F8F8]">{formatRelativeTime(lead.createdAt)}</p>
-        <p className="text-[10px] text-[#62666D]">via {lead.source}</p>
+        <p className="text-sm text-[#F7F8F8]">{lead?.createdAt ? formatRelativeTime(lead.createdAt) : "—"}</p>
+        <p className="text-[10px] text-[#62666D]">via {lead?.source ?? "—"}</p>
       </div>
       <Link
-        href={`/dashboard/leads/${lead.id}`}
+        href={href}
         className="flex size-8 items-center justify-center rounded-md text-[#62666D] hover:bg-[#23252A] hover:text-[#F7F8F8]"
-        aria-label={`Open ${lead.name}`}
+        aria-label={`Open ${safeName}`}
       >
         <ChevronRight className="size-4" />
       </Link>
@@ -523,6 +548,24 @@ function EmptyState({ onClear }: { onClear: () => void }) {
       </p>
       <Button variant="outline" size="sm" onClick={onClear}>
         Clear filters
+      </Button>
+    </div>
+  )
+}
+
+function DatabaseEmptyState() {
+  return (
+    <div className="flex flex-col items-center gap-3 py-16 text-center">
+      <span className="flex size-12 items-center justify-center rounded-2xl border border-[#23252A] bg-[#1A1B1E] text-[#8A8F98]">
+        <Inbox className="size-5" />
+      </span>
+      <p className="text-sm font-semibold text-[#F7F8F8]">No leads yet</p>
+      <p className="max-w-sm text-xs text-[#8A8F98]">
+        When a visitor shares their contact info through your widget, they&apos;ll show up here. Install the
+        widget on your site to start capturing leads 24/7.
+      </p>
+      <Button asChild size="sm" className="bg-[#E2E54B] text-[#08090A] hover:bg-[#E2E54B]/90">
+        <Link href="/dashboard/guide">Install widget</Link>
       </Button>
     </div>
   )

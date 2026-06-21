@@ -67,9 +67,11 @@ const statusOptions = [
 ]
 
 export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
+  const safeInitialLead: Lead = initialLead ?? ({} as Lead)
+
   const { data: liveLeads } = useRealtimeSubscription<Lead>({
     table: "leads",
-    initialData: [initialLead],
+    initialData: [safeInitialLead],
     mapRow: (row) => mapLead(row),
     getId: (item) => item.id,
   })
@@ -86,11 +88,19 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
     getId: (item) => item.id,
   })
 
-  const calendarEvent = events.find((e) => e.lead_id === initialLead.id)
+  if (typeof window !== "undefined") {
+    console.log("Selected Lead:", safeInitialLead)
+  }
 
-  const lead = liveLeads.find((l) => l.id === initialLead.id) ?? initialLead
-  const [status, setStatus] = React.useState(() => lead.status)
-  const [note, setNote] = React.useState(() => lead.notes ?? "")
+  const safeLiveLeads = (liveLeads ?? []).filter((l): l is Lead => Boolean(l?.id))
+  const safeTeamMembers = (teamMembers ?? []).filter((m): m is TeamMember => Boolean(m?.id))
+  const safeEvents = (events ?? []).filter((e): e is CalendarEventRow => Boolean(e?.id))
+
+  const calendarEvent = safeEvents.find((e) => e.lead_id === safeInitialLead.id)
+
+  const lead = safeLiveLeads.find((l) => l?.id === safeInitialLead.id) ?? safeInitialLead
+  const [status, setStatus] = React.useState(() => lead?.status ?? "new")
+  const [note, setNote] = React.useState(() => lead?.notes ?? "")
   const [updating, setUpdating] = React.useState(false)
   const [candidates, setCandidates] = React.useState<Candidate[] | null>(null)
   const [loadingDupes, setLoadingDupes] = React.useState(false)
@@ -101,9 +111,8 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
   const [sendingMessage, setSendingMessage] = React.useState(false)
 
   React.useEffect(() => {
+    if (!lead?.id) return
     if (!lead.phoneNormalized && !lead.emailNormalized) {
-      // Defer the state update so it runs in a microtask rather than
-      // synchronously inside the effect body.
       Promise.resolve().then(() => setCandidates([]))
       return
     }
@@ -116,7 +125,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
       try {
         if (lead.phoneNormalized) {
           const phoneRes = await findDuplicateAction({
-            phone: lead.phone,
+            phone: lead.phone ?? "",
             excludeLeadId: lead.id,
           })
           if (phoneRes.ok && phoneRes.data.duplicate && phoneRes.data.matchType === "phone") {
@@ -125,7 +134,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
         }
         if (lead.emailNormalized) {
           const emailRes = await findDuplicateAction({
-            email: lead.email,
+            email: lead.email ?? "",
             excludeLeadId: lead.id,
           })
           if (
@@ -134,7 +143,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
             emailRes.data.matchType === "email"
           ) {
             const dup = emailRes.data.duplicate
-            if (!out.find((c) => c.lead.id === dup.id)) {
+            if (dup?.id && !out.find((c) => c.lead.id === dup.id)) {
               out.push({ lead: dup, matchType: "email" })
             }
           }
@@ -149,16 +158,17 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
     return () => {
       cancelled = true
     }
-  }, [lead.id, lead.phone, lead.email, lead.phoneNormalized, lead.emailNormalized])
+  }, [lead?.id, lead?.phone, lead?.email, lead?.phoneNormalized, lead?.emailNormalized])
 
   const handleStatusChange = async (newStatus: typeof status) => {
+    if (!lead?.id) return
     setStatus(newStatus)
     setUpdating(true)
     try {
       await updateLeadStatus(lead.id, newStatus)
       toast.success("Status updated")
     } catch {
-      setStatus(lead.status)
+      setStatus(lead?.status ?? "new")
       toast.error("Failed to update status")
     } finally {
       setUpdating(false)
@@ -166,6 +176,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
   }
 
   const handleSaveNote = async () => {
+    if (!lead?.id) return
     setSavingNote(true)
     try {
       const result = await updateLeadNotesAction(lead.id, note)
@@ -180,6 +191,10 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
   }
 
   const handleSendMessage = async () => {
+    if (!lead?.id) {
+      toast.error("Lead is not loaded yet")
+      return
+    }
     if (!messageBody.trim()) {
       toast.error("Type a message first")
       return
@@ -204,7 +219,9 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
     }
   }
 
-  const assignee = teamMembers.find((m) => m.id === lead.assignedTo)
+  const assignee = lead?.assignedTo
+    ? safeTeamMembers.find((m) => m?.id === lead.assignedTo)
+    : undefined
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -237,9 +254,9 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-xl font-semibold text-[#F7F8F8]">{lead.name}</h2>
+                <h2 className="text-xl font-semibold text-[#F7F8F8]">{lead?.name ?? "Unknown lead"}</h2>
                 <LeadStatusBadge status={status} />
-                {lead.afterHours ? (
+                {lead?.afterHours ? (
                   <span className="rounded-md border border-[#22D3EE]/30 bg-[#22D3EE]/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#22D3EE]">
                     After hours
                   </span>
@@ -247,28 +264,30 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
               </div>
               <p className="mt-1 text-sm text-[#8A8F98]">
                 Interested in{" "}
-                <span className="font-semibold text-[#F7F8F8]">{lead.service}</span> · preferred{" "}
-                <span className="text-[#F7F8F8]">{lead.preferredTime}</span>
+                <span className="font-semibold text-[#F7F8F8]">{lead?.service ?? "—"}</span> · preferred{" "}
+                <span className="text-[#F7F8F8]">{lead?.preferredTime ?? "—"}</span>
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
                 <a
-                  href={`mailto:${lead.email}`}
+                  href={lead?.email ? `mailto:${lead.email}` : "#"}
                   className="inline-flex items-center gap-1.5 rounded-md border border-[#23252A] bg-[#0B0C0E] px-2.5 py-1.5 text-[#F7F8F8] hover:border-[#3A3D44]"
                 >
-                  <Send className="size-3" /> {lead.email}
+                  <Send className="size-3" /> {lead?.email ?? "no email"}
                 </a>
                 <a
-                  href={`tel:${lead.phone.replace(/\D/g, "")}`}
+                  href={lead?.phone ? `tel:${lead.phone.replace(/\D/g, "")}` : "#"}
                   className="inline-flex items-center gap-1.5 rounded-md border border-[#23252A] bg-[#0B0C0E] px-2.5 py-1.5 text-[#F7F8F8] hover:border-[#3A3D44]"
                 >
-                  <Phone className="size-3" /> {lead.phone}
+                  <Phone className="size-3" /> {lead?.phone ?? "no phone"}
                 </a>
-                <a
-                  href={lead.sourceUrl}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-[#23252A] bg-[#0B0C0E] px-2.5 py-1.5 text-[#8A8F98] hover:border-[#3A3D44] hover:text-[#F7F8F8]"
-                >
-                  <ExternalLink className="size-3" /> {lead.sourceUrl}
-                </a>
+                {lead?.sourceUrl ? (
+                  <a
+                    href={lead.sourceUrl}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-[#23252A] bg-[#0B0C0E] px-2.5 py-1.5 text-[#8A8F98] hover:border-[#3A3D44] hover:text-[#F7F8F8]"
+                  >
+                    <ExternalLink className="size-3" /> {lead.sourceUrl}
+                  </a>
+                ) : null}
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -306,10 +325,10 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
 
           <div className="grid grid-cols-2 gap-px border-b border-[#23252A] bg-[#23252A] sm:grid-cols-4">
             {[
-              { label: "Source", value: lead.source },
-              { label: "Created", value: formatDateTime(lead.createdAt) },
-              { label: "Last activity", value: formatRelativeTime(lead.lastActivityAt) },
-              { label: "Consent", value: lead.consentGiven ? "Captured" : "Not recorded" },
+              { label: "Source", value: lead?.source ?? "—" },
+              { label: "Created", value: lead?.createdAt ? formatDateTime(lead.createdAt) : "—" },
+              { label: "Last activity", value: lead?.lastActivityAt ? formatRelativeTime(lead.lastActivityAt) : "—" },
+              { label: "Consent", value: lead?.consentGiven ? "Captured" : "Not recorded" },
             ].map((stat) => (
               <div key={stat.label} className="bg-[#121316] p-4">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-[#62666D]">
@@ -325,7 +344,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-semibold text-[#F7F8F8]">Conversation transcript</h3>
                 <span className="rounded-md border border-[#23252A] bg-[#0B0C0E] px-1.5 py-0.5 text-[10px] font-mono text-[#8A8F98]">
-                  {lead.transcript.length} messages
+                  {(lead?.transcript ?? []).length} messages
                 </span>
               </div>
               <Button variant="ghost" size="sm">
@@ -335,32 +354,33 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
             </div>
 
             <ol className="space-y-4">
-              {lead.transcript.map((msg) => (
+              {(lead?.transcript ?? []).map((msg, idx) => (
                 <li
-                  key={msg.id}
+                  key={msg?.id ?? `transcript-${idx}`}
                   className={cn(
                     "flex gap-3",
-                    msg.role === "visitor" ? "" : "flex-row-reverse",
+                    msg?.role === "visitor" ? "" : "flex-row-reverse",
                   )}
                 >
                   <span
                     className={cn(
                       "flex size-8 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
-                      msg.role === "ai"
+                      msg?.role === "ai"
                         ? "bg-[#5E6AD2]/15 text-[#5E6AD2]"
-                        : msg.role === "staff"
+                        : msg?.role === "staff"
                           ? "bg-[#4CB782]/15 text-[#4CB782]"
                           : "bg-[#E2E54B]/15 text-[#E2E54B]",
                     )}
                   >
-                    {msg.role === "ai" ? (
+                    {msg?.role === "ai" ? (
                       <Bot className="size-3.5" />
-                    ) : msg.role === "staff" ? (
+                    ) : msg?.role === "staff" ? (
                       <User className="size-3.5" />
                     ) : (
-                      msg.content
+                      (msg?.content ?? "")
                         .split(" ")
-                        .map((w) => w[0])
+                        .map((w) => w?.[0])
+                        .filter(Boolean)
                         .join("")
                         .slice(0, 2)
                         .toUpperCase()
@@ -369,22 +389,22 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
                   <div
                     className={cn(
                       "max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-6",
-                      msg.role === "ai"
+                      msg?.role === "ai"
                         ? "rounded-tl-sm border border-[#23252A] bg-[#0B0C0E] text-[#F7F8F8]"
-                        : msg.role === "staff"
+                        : msg?.role === "staff"
                           ? "rounded-tl-sm border border-[#4CB782]/30 bg-[#4CB782]/10 text-[#F7F8F8]"
                           : "rounded-tr-sm bg-[#E2E54B] text-[#08090A]",
                     )}
                   >
-                    <p>{msg.content}</p>
+                    <p>{msg?.content ?? ""}</p>
                     <p
                       className={cn(
                         "mt-1.5 text-[10px]",
-                        msg.role === "visitor" ? "text-[#08090A]/60" : "text-[#62666D]",
+                        msg?.role === "visitor" ? "text-[#08090A]/60" : "text-[#62666D]",
                       )}
                     >
-                      {msg.role === "ai" ? "AivaSpa" : msg.role === "staff" ? "Staff" : lead.name}{" "}
-                      · {msg.timestamp}
+                      {msg?.role === "ai" ? "AivaSpa" : msg?.role === "staff" ? "Staff" : (lead?.name ?? "Visitor")}{" "}
+                      · {msg?.timestamp ?? ""}
                     </p>
                   </div>
                 </li>
@@ -425,7 +445,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
                     SMS
                   </button>
                   <span className="text-[10px] text-[#62666D]">
-                    {messageChannel === "email" ? lead.email : lead.phone}
+                    {messageChannel === "email" ? (lead?.email ?? "no email") : (lead?.phone ?? "no phone")}
                   </span>
                 </div>
               </div>
@@ -464,7 +484,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
               variant="ghost"
               size="xs"
               onClick={handleSaveNote}
-              disabled={savingNote || note === (lead.notes ?? "")}
+              disabled={savingNote || note === (lead?.notes ?? "")}
             >
               {savingNote ? (
                 <><Loader2 className="size-3 animate-spin" /> Saving…</>
@@ -523,7 +543,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
             </>
           ) : null}
 
-          {lead.mergedFrom && lead.mergedFrom.length > 0 ? (
+          {lead?.mergedFrom && lead.mergedFrom.length > 0 ? (
             <div className="mt-4 border-t border-[#23252A] pt-3">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8A8F98]">
                 Merged into this lead
@@ -612,12 +632,12 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
 
         <div className="rounded-2xl border border-[#23252A] bg-[#121316] p-5">
           <h3 className="text-sm font-semibold text-[#F7F8F8]">Assignment</h3>
-          <Select defaultValue={lead.assignedTo ?? undefined}>
+          <Select defaultValue={lead?.assignedTo ?? undefined}>
             <SelectTrigger className="mt-3 w-full">
               <SelectValue placeholder="Unassigned" />
             </SelectTrigger>
             <SelectContent>
-              {teamMembers.map((m) => (
+              {safeTeamMembers.map((m) => (
                 <SelectItem key={m.id} value={m.id}>
                   {m.name} — {m.role}
                 </SelectItem>
@@ -681,7 +701,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
               <CheckCircle2
                 className={cn(
                   "size-3.5",
-                  lead.consentGiven ? "text-[#4CB782]" : "text-[#EB5757]",
+                  lead?.consentGiven ? "text-[#4CB782]" : "text-[#EB5757]",
                 )}
               />
               Consent captured

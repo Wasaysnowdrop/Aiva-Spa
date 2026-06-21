@@ -53,6 +53,34 @@ export function useRealtimeSubscription<T>({
 
     const events = event === "*" ? ["INSERT", "UPDATE", "DELETE"] : [event]
 
+    const safeGetId = (item: unknown): string | undefined => {
+      if (item == null) return undefined
+      try {
+        if (getIdRef.current) {
+          const id = getIdRef.current(item as never)
+          return typeof id === "string" && id.length > 0 ? id : undefined
+        }
+      } catch (e) {
+        console.error(`[realtime:${table}] getId threw:`, e)
+        return undefined
+      }
+      const fallback = (item as { id?: unknown })?.id
+      return typeof fallback === "string" && fallback.length > 0 ? fallback : undefined
+    }
+
+    const safeMapRow = (row: unknown): T | undefined => {
+      if (row == null) return undefined
+      try {
+        if (!mapRowRef.current) return row as T
+        const mapped = mapRowRef.current(row as Record<string, unknown>)
+        if (mapped == null) return undefined
+        return mapped
+      } catch (e) {
+        console.error(`[realtime:${table}] mapRow threw:`, e, { row })
+        return undefined
+      }
+    }
+
     events.forEach((evt) => {
       channel.on(
         "postgres_changes",
@@ -64,34 +92,35 @@ export function useRealtimeSubscription<T>({
         },
           (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
           setData((prev) => {
-            const resolveMapRow = mapRowRef.current
-            const resolveGetId = getIdRef.current
             if (payload.eventType === "INSERT") {
-              const mapped = resolveMapRow
-                ? resolveMapRow(payload.new as Record<string, unknown>)
-                : (payload.new as unknown as T)
+              const mapped = safeMapRow(payload.new)
+              if (!mapped) return prev
+              const newId = safeGetId(mapped)
+              if (!newId) return prev
+              if (prev.some((item) => safeGetId(item) === newId)) {
+                return prev.map((item) =>
+                  safeGetId(item) === newId ? mapped : item,
+                )
+              }
               return [mapped, ...prev]
             }
 
             if (payload.eventType === "UPDATE") {
-              const mapped = resolveMapRow
-                ? resolveMapRow(payload.new as Record<string, unknown>)
-                : (payload.new as unknown as T)
-              const id = resolveGetId ? resolveGetId(mapped) : (mapped as unknown as { id: string }).id
-              return prev.map((item) => {
-                const itemId = resolveGetId ? resolveGetId(item) : (item as unknown as { id: string }).id
-                return itemId === id ? mapped : item
-              })
+              const mapped = safeMapRow(payload.new)
+              if (!mapped) return prev.filter((item) => item != null)
+              const id = safeGetId(mapped)
+              if (!id) return prev.filter((item) => item != null)
+              return prev
+                .filter((item) => item != null)
+                .map((item) => (safeGetId(item) === id ? mapped : item))
             }
 
             if (payload.eventType === "DELETE") {
-              const id = resolveGetId
-                ? resolveGetId(payload.old as unknown as T)
-                : (payload.old as unknown as { id: string }).id
-              return prev.filter((item) => {
-                const itemId = resolveGetId ? resolveGetId(item) : (item as unknown as { id: string }).id
-                return itemId !== id
-              })
+              const id = safeGetId(payload.old)
+              if (!id) return prev.filter((item) => item != null)
+              return prev
+                .filter((item) => item != null)
+                .filter((item) => safeGetId(item) !== id)
             }
 
             return prev
