@@ -2,6 +2,7 @@ import "server-only"
 import { cache } from "react"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
+import { isEmailAllowedAsAdmin } from "@/lib/admin/allowlist"
 
 export type AdminUser = {
   id: string
@@ -14,10 +15,12 @@ export type AdminUser = {
 }
 
 export const isAdminUser = (
-  user: { app_metadata?: Record<string, unknown> | null } | null | undefined,
+  user: { email?: string | null; app_metadata?: Record<string, unknown> | null } | null | undefined,
 ): boolean => {
   if (!user) return false
-  return Boolean((user.app_metadata as { is_admin?: boolean } | null)?.is_admin)
+  const flagged = Boolean((user.app_metadata as { is_admin?: boolean } | null)?.is_admin)
+  if (!flagged) return false
+  return isEmailAllowedAsAdmin(user.email)
 }
 
 export const requireAdmin = async (): Promise<AdminUser> => {

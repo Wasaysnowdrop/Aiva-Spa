@@ -7,7 +7,6 @@ import {
   Mail,
   MessageCircle,
   ShieldCheck,
-  Sparkles,
   Wand2,
 } from "lucide-react";
 import type { Metadata } from "next";
@@ -24,7 +23,6 @@ import { AnimatedKbVisual, AnimatedLeadVisual, AnimatedPipelineVisual } from "@/
 import { AnimatedTestimonials } from "@/components/landing/animated-testimonials";
 import { AnimatedSteps } from "@/components/landing/animated-steps";
 import { ColorCard } from "@/components/landing/color-card";
-import { ExitIntentPopupLazy as ExitIntentPopup } from "@/components/landing/exit-intent-popup-lazy";
 import { FloatingShapes } from "@/components/landing/floating-shapes";
 import { HeroNotifications } from "@/components/landing/hero-notifications";
 import { MarqueeLogos } from "@/components/landing/marquee-logos";
@@ -683,7 +681,6 @@ export default async function LandingPage() {
         </div>
       </footer>
 
-      <ExitIntentPopup />
     </main>
   );
 }

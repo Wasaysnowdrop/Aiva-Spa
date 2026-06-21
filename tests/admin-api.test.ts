@@ -54,6 +54,7 @@ describe("GET /api/admin/system-health", () => {
   })
 
   it("returns 200 + health JSON for admins", async () => {
+    process.env.ADMIN_ALLOWED_EMAILS = "admin@x.com"
     const { server } = installSupabaseMocks()
     server.setAuthUser({
       id: "u_admin",

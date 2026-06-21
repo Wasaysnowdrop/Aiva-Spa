@@ -32,6 +32,11 @@ function getOrigin(headersList: Awaited<ReturnType<typeof headers>>): string {
   return getSiteUrl();
 }
 
+function isAdminSubdomainRequest(headersList: Awaited<ReturnType<typeof headers>>): boolean {
+  const host = (headersList.get("host") ?? "").split(":")[0].toLowerCase();
+  return host.startsWith("admin.");
+}
+
 /**
  * Brute-force protection for sign-in. We check BOTH a per-IP bucket and
  * a per-email bucket. The per-email bucket is what stops an attacker
@@ -136,6 +141,11 @@ export async function signUpWithPassword(
   fullName: string,
   spaName?: string,
 ): Promise<AuthResult> {
+  const headerList = await headers();
+  if (isAdminSubdomainRequest(headerList)) {
+    return { ok: false, error: "Sign-up is disabled on the admin panel." }
+  }
+
   // Server-side password length check. The client form also enforces this,
   // but we re-check here so a crafted request can't bypass it.
   if (typeof password !== "string" || password.length < 8) {
@@ -169,7 +179,6 @@ export async function signUpWithPassword(
   consumeRateLimit(emailKey, LIMITS.auth.signup.options)
 
   const supabase = await createClient();
-  const headerList = await headers();
   const origin = getOrigin(headerList);
 
   const { data, error } = await supabase.auth.signUp({
@@ -238,6 +247,10 @@ export async function signInWithOAuth(
   provider: "google",
   redirectTo?: string,
 ): Promise<AuthResult> {
+  const headerList = await headers();
+  if (isAdminSubdomainRequest(headerList)) {
+    return { ok: false, error: "Social sign-up is disabled on the admin panel." }
+  }
   const ip = await getRequestIpAsync()
   const decision = consume(LIMITS.auth.oauth, { ip })
   if (decision.limited) {
@@ -246,7 +259,6 @@ export async function signInWithOAuth(
   }
 
   const supabase = await createClient();
-  const headerList = await headers();
   const origin = getOrigin(headerList);
 
   const next = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/dashboard";

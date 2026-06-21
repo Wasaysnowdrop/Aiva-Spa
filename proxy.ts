@@ -4,6 +4,7 @@ import { createServerClient } from "@supabase/ssr"
 import { resolveCustomDomain } from "@/lib/widget/domains"
 import { consume, getRequestIp } from "@/lib/security/limiter"
 import { LIMITS } from "@/lib/security/limits"
+import { isEmailAllowedAsAdmin } from "@/lib/admin/allowlist"
 
 const PROTECTED_PREFIXES = ["/dashboard", "/onboarding", "/admin"]
 const AUTH_ROUTES = [
@@ -138,14 +139,29 @@ export async function proxy(request: NextRequest) {
       !pathname.startsWith("/_next/") &&
       !pathname.includes(".")
     ) {
+      // Sign-up, password reset, etc. are explicitly forbidden on the
+      // admin subdomain — there is no path for a visitor to create an
+      // account from here.
+      if (
+        pathname === "/signup" ||
+        pathname.startsWith("/signup/") ||
+        pathname === "/forgot-password" ||
+        pathname.startsWith("/forgot-password/") ||
+        pathname === "/reset-password" ||
+        pathname.startsWith("/reset-password/") ||
+        pathname === "/check-email" ||
+        pathname.startsWith("/check-email/")
+      ) {
+        return new NextResponse("Not Found", { status: 404 })
+      }
       const rewriteUrl = request.nextUrl.clone()
       rewriteUrl.pathname = pathname === "/" ? "/admin" : `/admin${pathname}`
       return NextResponse.rewrite(rewriteUrl)
     }
     if (user) {
-      const isAdmin = Boolean(
-        (user.app_metadata as { is_admin?: boolean } | null)?.is_admin,
-      )
+      const isAdmin =
+        Boolean((user.app_metadata as { is_admin?: boolean } | null)?.is_admin) &&
+        isEmailAllowedAsAdmin(user.email)
       if (!isAdmin) {
         // Authenticated but not an admin — 403.
         return new NextResponse("Forbidden — admin access required", {
@@ -157,9 +173,9 @@ export async function proxy(request: NextRequest) {
   } else {
     // On the main domain, hide /admin/* unless the visitor is an admin.
     if (pathname.startsWith("/admin") && user) {
-      const isAdmin = Boolean(
-        (user.app_metadata as { is_admin?: boolean } | null)?.is_admin,
-      )
+      const isAdmin =
+        Boolean((user.app_metadata as { is_admin?: boolean } | null)?.is_admin) &&
+        isEmailAllowedAsAdmin(user.email)
       if (!isAdmin) {
         return new NextResponse("Not Found", { status: 404 })
       }
