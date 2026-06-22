@@ -13,6 +13,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Send,
   Sparkles,
@@ -76,6 +77,7 @@ import {
   deleteGuardrailAction,
   updateConsentTextAction,
 } from "@/app/actions/knowledge"
+import { loadKnowledgeBaseAction } from "@/app/actions/knowledge-load"
 import { toast } from "sonner"
 
 const SERVICE_CATEGORIES = [
@@ -146,27 +148,59 @@ export function KnowledgeBaseEditor() {
   >("All")
   const [consentText, setConsentText] = React.useState<string | null>(null)
   const [widgetConfig, setWidgetConfig] = React.useState<WidgetConfig | null>(null)
+  const [refreshing, setRefreshing] = React.useState(false)
 
-  const { data: services, setData: setServices, refresh: refreshServices, error: servicesError } = useRealtimeSubscription<KnowledgeService>({
+  const { data: services, setData: setServices, error: servicesError, lastEvent: servicesLastEvent, fetchCount: servicesFetchCount } = useRealtimeSubscription<KnowledgeService>({
     table: "knowledge_services",
     orderBy: { column: "name", ascending: true },
     mapRow: (row) => mapKnowledgeService(row),
     getId: (item) => item.id,
   })
 
-  const { data: faqs, setData: setFaqs, refresh: refreshFaqs } = useRealtimeSubscription<KnowledgeFaq>({
+  const { data: faqs, setData: setFaqs, lastEvent: faqsLastEvent, fetchCount: faqsFetchCount } = useRealtimeSubscription<KnowledgeFaq>({
     table: "knowledge_faqs",
     orderBy: { column: "created_at", ascending: true },
     mapRow: (row) => mapKnowledgeFaq(row),
     getId: (item) => item.id,
   })
 
-  const { data: guardrails, setData: setGuardrails, refresh: refreshGuardrails } = useRealtimeSubscription<KnowledgeGuardrail>({
+  const { data: guardrails, setData: setGuardrails, lastEvent: guardrailsLastEvent, fetchCount: guardrailsFetchCount } = useRealtimeSubscription<KnowledgeGuardrail>({
     table: "knowledge_guardrails",
     orderBy: { column: "created_at", ascending: true },
     mapRow: (row) => mapKnowledgeGuardrail(row),
     getId: (item) => item.id,
   })
+
+  // Authoritative re-fetch via server action (admin client) so the
+  // dashboard never has to rely on a possibly-flaky browser-side
+  // anon-key SELECT. The realtime subscription still runs and merges
+  // any change, but it can't blow away the result of a successful
+  // server fetch.
+  const [lastServerFetchAt, setLastServerFetchAt] = React.useState<string | null>(null)
+  const loadFromServer = React.useCallback(async () => {
+    setRefreshing(true)
+    try {
+      const snap = await loadKnowledgeBaseAction()
+      setServices(snap.services)
+      setFaqs(snap.faqs)
+      setGuardrails(snap.guardrails)
+      setLastServerFetchAt(new Date().toISOString())
+    } catch (e) {
+      console.error("[kb] loadFromServer failed", e)
+      toast.error(e instanceof Error ? e.message : "Failed to load knowledge base")
+    } finally {
+      setRefreshing(false)
+    }
+  }, [setServices, setFaqs, setGuardrails])
+
+  React.useEffect(() => {
+    // One-time authoritative fetch on mount; subsequent updates come
+    // from the realtime subscription. The setState inside loadFromServer
+    // is intentional and benign here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadFromServer()
+  }, [loadFromServer])
+
 
   const [activeFaqId, setActiveFaqId] = React.useState<string>(() => "")
   if (!activeFaqId && faqs[0]) {
@@ -240,7 +274,7 @@ export function KnowledgeBaseEditor() {
       }
       toast.success(mode === "new" ? "Service added" : "Service updated")
       setServiceDialog(null)
-      await refreshServices()
+      await loadFromServer()
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unexpected error"
       console.error("[kb] save service threw", { mode, payload, error: message })
@@ -275,7 +309,7 @@ export function KnowledgeBaseEditor() {
       }
       toast.success(mode === "new" ? "FAQ added" : "FAQ updated")
       setFaqDialog(null)
-      await refreshFaqs()
+      await loadFromServer()
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unexpected error"
       console.error("[kb] save faq threw", { mode, error: message })
@@ -315,7 +349,7 @@ export function KnowledgeBaseEditor() {
       }
       toast.success(mode === "new" ? "Guardrail added" : "Guardrail updated")
       setGuardrailDialog(null)
-      await refreshGuardrails()
+      await loadFromServer()
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unexpected error"
       console.error("[kb] save guardrail threw", { mode, payload, error: message })
@@ -354,6 +388,10 @@ export function KnowledgeBaseEditor() {
       toast.success("Guardrail deleted")
     }
     setConfirmDelete(null)
+    // Re-fetch from the server so the local state can never disagree
+    // with what's actually in the database (defends against phantom
+    // DELETE events from realtime and any stale UI).
+    void loadFromServer()
   }
 
   const onToggleService = async (service: KnowledgeService) => {
@@ -467,6 +505,52 @@ export function KnowledgeBaseEditor() {
             <Wand2 className="size-4" /> Test in sandbox
           </Button>
         </div>
+
+        <div className="rounded-2xl border border-[#23252A] bg-[#121316] p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-[#F7F8F8]">Sync</p>
+              <p className="mt-0.5 text-[10px] text-[#8A8F98]">
+                {lastServerFetchAt
+                  ? `Last server fetch: ${new Date(lastServerFetchAt).toLocaleTimeString()}`
+                  : "Not loaded yet"}
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              className="size-8"
+              onClick={() => void loadFromServer()}
+              disabled={refreshing}
+              aria-label="Refresh from server"
+            >
+              {refreshing ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
+              )}
+            </Button>
+          </div>
+          {process.env.NODE_ENV !== "production" ? (
+            <ul className="mt-3 space-y-1 font-mono text-[10px] text-[#62666D]">
+              <li>
+                services · fetch#{servicesFetchCount} · last:{" "}
+                {servicesLastEvent?.eventType ?? "—"}
+                {servicesLastEvent?.eventType === "DELETE"
+                  ? ` id=${servicesLastEvent.id ?? "?"}`
+                  : ""}
+              </li>
+              <li>
+                faqs · fetch#{faqsFetchCount} · last:{" "}
+                {faqsLastEvent?.eventType ?? "—"}
+              </li>
+              <li>
+                guardrails · fetch#{guardrailsFetchCount} · last:{" "}
+                {guardrailsLastEvent?.eventType ?? "—"}
+              </li>
+            </ul>
+          ) : null}
+        </div>
       </aside>
 
       <section className="flex flex-col gap-5">
@@ -495,6 +579,8 @@ export function KnowledgeBaseEditor() {
               setConfirmDelete({ kind: "service", id: s.id, name: s.name })
             }
             onToggleActive={onToggleService}
+            onRefresh={() => void loadFromServer()}
+            refreshing={refreshing}
           />
         )}
         {tab === "faqs" && (
@@ -668,6 +754,8 @@ function ServicesTab({
   onEdit,
   onDelete,
   onToggleActive,
+  onRefresh,
+  refreshing,
 }: {
   services: KnowledgeService[]
   servicesError?: Error | null
@@ -675,6 +763,8 @@ function ServicesTab({
   onEdit: (s: KnowledgeService) => void
   onDelete: (s: KnowledgeService) => void
   onToggleActive: (s: KnowledgeService) => void
+  onRefresh?: () => void
+  refreshing?: boolean
 }) {
   return (
     <div className="rounded-2xl border border-[#23252A] bg-[#121316]">
@@ -706,7 +796,23 @@ function ServicesTab({
       ) : null}
       {services.length === 0 ? (
         <div className="p-8 text-center text-sm text-[#8A8F98]">
-          No services yet. Click <span className="text-[#F7F8F8]">New service</span> to add one.
+          <p>No services yet. Click <span className="text-[#F7F8F8]">New service</span> to add one.</p>
+          {onRefresh ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-3"
+              onClick={onRefresh}
+              disabled={refreshing}
+            >
+              {refreshing ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
+              )}
+              Refresh from server
+            </Button>
+          ) : null}
         </div>
       ) : (
         <div className="divide-y divide-[#23252A]">
