@@ -61,6 +61,14 @@ async function actorName(): Promise<string> {
   }
 }
 
+function friendlyError(e: unknown, fallback: string): string {
+  const raw = e instanceof Error ? e.message : fallback
+  if (/row-level security|violates row-level security/i.test(raw)) {
+    return "Database rejected the write (RLS). Restart the Next.js dev server and clear .next cache: `Remove-Item -Recurse -Force .next; npm run dev`."
+  }
+  return raw
+}
+
 export async function createServiceAction(
   input: z.infer<typeof serviceSchema>,
 ): Promise<KnowledgeActionResult> {
@@ -77,7 +85,7 @@ export async function createServiceAction(
     revalidatePath("/dashboard/knowledge-base")
     return { ok: true, id: result.id }
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Create failed" }
+    return { ok: false, error: friendlyError(e, "Create failed") }
   }
 }
 
@@ -98,7 +106,7 @@ export async function updateServiceAction(
     revalidatePath("/dashboard/knowledge-base")
     return { ok: true, id: result.id }
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Update failed" }
+    return { ok: false, error: friendlyError(e, "Update failed") }
   }
 }
 
@@ -116,7 +124,7 @@ export async function deleteServiceAction(
     revalidatePath("/dashboard/knowledge-base")
     return { ok: true, id }
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Delete failed" }
+    return { ok: false, error: friendlyError(e, "Delete failed") }
   }
 }
 
@@ -135,7 +143,7 @@ export async function toggleServiceActiveAction(
     revalidatePath("/dashboard/knowledge-base")
     return { ok: true, id: result.id }
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Toggle failed" }
+    return { ok: false, error: friendlyError(e, "Toggle failed") }
   }
 }
 
@@ -155,7 +163,7 @@ export async function createFaqAction(
     revalidatePath("/dashboard/knowledge-base")
     return { ok: true, id: result.id }
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Create failed" }
+    return { ok: false, error: friendlyError(e, "Create failed") }
   }
 }
 
@@ -176,7 +184,7 @@ export async function updateFaqAction(
     revalidatePath("/dashboard/knowledge-base")
     return { ok: true, id: result.id }
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Update failed" }
+    return { ok: false, error: friendlyError(e, "Update failed") }
   }
 }
 
@@ -201,7 +209,7 @@ export async function deleteFaqAction(
     revalidatePath("/dashboard/knowledge-base")
     return { ok: true, id }
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Delete failed" }
+    return { ok: false, error: friendlyError(e, "Delete failed") }
   }
 }
 
@@ -220,7 +228,7 @@ export async function toggleGuardrailAction(
     revalidatePath("/dashboard/knowledge-base")
     return { ok: true, id: result.id }
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Toggle failed" }
+    return { ok: false, error: friendlyError(e, "Toggle failed") }
   }
 }
 
@@ -240,7 +248,7 @@ export async function createGuardrailAction(
     revalidatePath("/dashboard/knowledge-base")
     return { ok: true, id: result.id }
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Create failed" }
+    return { ok: false, error: friendlyError(e, "Create failed") }
   }
 }
 
@@ -261,7 +269,7 @@ export async function updateGuardrailBodyAction(
     revalidatePath("/dashboard/knowledge-base")
     return { ok: true, id: result.id }
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Update failed" }
+    return { ok: false, error: friendlyError(e, "Update failed") }
   }
 }
 
@@ -286,7 +294,7 @@ export async function deleteGuardrailAction(
     revalidatePath("/dashboard/knowledge-base")
     return { ok: true, id }
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Delete failed" }
+    return { ok: false, error: friendlyError(e, "Delete failed") }
   }
 }
 
@@ -313,7 +321,7 @@ export async function updateConsentTextAction(
     revalidatePath("/dashboard/widget")
     return { ok: true }
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Save failed" }
+    return { ok: false, error: friendlyError(e, "Save failed") }
   }
 }
 
