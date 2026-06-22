@@ -94,6 +94,18 @@ const suggestedKnowledgeCategoryOptions: KnowledgeCategory[] = [...SERVICE_CATEG
 
 type Tab = "services" | "faqs" | "rules"
 
+function mergeById<T extends { id: string }>(serverRows: T[], prev: T[]): T[] {
+  // Server rows are authoritative. Anything in `prev` that the server
+  // didn't echo back is preserved so a transient admin-client hiccup
+  // or a rate-limited response can never shrink the visible list.
+  const byId = new Map<string, T>()
+  for (const row of serverRows) byId.set(row.id, row)
+  for (const row of prev) {
+    if (!byId.has(row.id)) byId.set(row.id, row)
+  }
+  return Array.from(byId.values())
+}
+
 type ServiceDraft = {
   name: string
   category: KnowledgeCategory
@@ -152,6 +164,7 @@ export function KnowledgeBaseEditor() {
 
   const { data: services, setData: setServices, error: servicesError, lastEvent: servicesLastEvent, fetchCount: servicesFetchCount } = useRealtimeSubscription<KnowledgeService>({
     table: "knowledge_services",
+    event: "INSERT",
     orderBy: { column: "name", ascending: true },
     mapRow: (row) => mapKnowledgeService(row),
     getId: (item) => item.id,
@@ -159,6 +172,7 @@ export function KnowledgeBaseEditor() {
 
   const { data: faqs, setData: setFaqs, lastEvent: faqsLastEvent, fetchCount: faqsFetchCount } = useRealtimeSubscription<KnowledgeFaq>({
     table: "knowledge_faqs",
+    event: "INSERT",
     orderBy: { column: "created_at", ascending: true },
     mapRow: (row) => mapKnowledgeFaq(row),
     getId: (item) => item.id,
@@ -166,6 +180,7 @@ export function KnowledgeBaseEditor() {
 
   const { data: guardrails, setData: setGuardrails, lastEvent: guardrailsLastEvent, fetchCount: guardrailsFetchCount } = useRealtimeSubscription<KnowledgeGuardrail>({
     table: "knowledge_guardrails",
+    event: "INSERT",
     orderBy: { column: "created_at", ascending: true },
     mapRow: (row) => mapKnowledgeGuardrail(row),
     getId: (item) => item.id,
@@ -175,15 +190,17 @@ export function KnowledgeBaseEditor() {
   // dashboard never has to rely on a possibly-flaky browser-side
   // anon-key SELECT. The realtime subscription still runs and merges
   // any change, but it can't blow away the result of a successful
-  // server fetch.
+  // server fetch. The merge is a never-lose union: any locally
+  // visible row that the server didn't return is preserved so a
+  // transient admin-client hiccup can never make a row "vanish".
   const [lastServerFetchAt, setLastServerFetchAt] = React.useState<string | null>(null)
   const loadFromServer = React.useCallback(async () => {
     setRefreshing(true)
     try {
       const snap = await loadKnowledgeBaseAction()
-      setServices(snap.services)
-      setFaqs(snap.faqs)
-      setGuardrails(snap.guardrails)
+      setServices((prev) => mergeById(snap.services, prev))
+      setFaqs((prev) => mergeById(snap.faqs, prev))
+      setGuardrails((prev) => mergeById(snap.guardrails, prev))
       setLastServerFetchAt(new Date().toISOString())
     } catch (e) {
       console.error("[kb] loadFromServer failed", e)

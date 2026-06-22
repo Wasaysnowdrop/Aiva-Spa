@@ -73,43 +73,47 @@ export async function loadKnowledge(): Promise<KnowledgeBundle> {
   if (cache && now - cache.fetchedAt < CACHE_TTL_MS) {
     return cache
   }
-  try {
-    const admin = createAdminClient()
-    const [servicesRes, faqsRes, guardrailsRes, widgetRes] = await Promise.all([
-      admin.from("knowledge_services").select("*").order("name"),
-      admin.from("knowledge_faqs").select("*").order("created_at"),
-      admin.from("knowledge_guardrails").select("*").order("created_at"),
-      admin.from("widget_config").select("*").limit(1).maybeSingle(),
-    ])
+  const admin = createAdminClient()
+  const [servicesRes, faqsRes, guardrailsRes, widgetRes] = await Promise.all([
+    admin.from("knowledge_services").select("*").order("name"),
+    admin.from("knowledge_faqs").select("*").order("created_at"),
+    admin.from("knowledge_guardrails").select("*").order("created_at"),
+    admin.from("widget_config").select("*").limit(1).maybeSingle(),
+  ])
 
-    const services = (servicesRes.data ?? []).map((r) =>
-      mapKnowledgeService(r as Record<string, unknown>),
-    )
-    const faqs = (faqsRes.data ?? []).map((r) =>
-      mapKnowledgeFaq(r as Record<string, unknown>),
-    )
-    const guardrails = (guardrailsRes.data ?? []).map((r) =>
-      mapKnowledgeGuardrail(r as Record<string, unknown>),
-    )
-    const widget = widgetRes.data
-      ? mapWidgetConfig(widgetRes.data as Record<string, unknown>)
-      : FALLBACK_WIDGET
-
-    const extendedKb = parseExtendedKb(widget.extendedKb)
-
-    cache = { services, faqs, guardrails, widget, extendedKb, fetchedAt: now }
-    return cache
-  } catch {
-    cache = {
-      services: [],
-      faqs: [],
-      guardrails: [],
-      widget: FALLBACK_WIDGET,
-      extendedKb: { ...emptyKnowledgeBase(), source: "fallback" },
-      fetchedAt: now,
-    }
-    return cache
+  // Surface any partial failure (RLS denial, missing table, etc.) so the
+  // operator can see it in logs instead of getting a silent empty KB
+  // that makes the AI fall back to canned replies.
+  if (servicesRes.error) {
+    console.error("[retrieval] knowledge_services fetch failed", servicesRes.error)
   }
+  if (faqsRes.error) {
+    console.error("[retrieval] knowledge_faqs fetch failed", faqsRes.error)
+  }
+  if (guardrailsRes.error) {
+    console.error("[retrieval] knowledge_guardrails fetch failed", guardrailsRes.error)
+  }
+  if (widgetRes.error) {
+    console.error("[retrieval] widget_config fetch failed", widgetRes.error)
+  }
+
+  const services = (servicesRes.data ?? []).map((r) =>
+    mapKnowledgeService(r as Record<string, unknown>),
+  )
+  const faqs = (faqsRes.data ?? []).map((r) =>
+    mapKnowledgeFaq(r as Record<string, unknown>),
+  )
+  const guardrails = (guardrailsRes.data ?? []).map((r) =>
+    mapKnowledgeGuardrail(r as Record<string, unknown>),
+  )
+  const widget = widgetRes.data
+    ? mapWidgetConfig(widgetRes.data as Record<string, unknown>)
+    : FALLBACK_WIDGET
+
+  const extendedKb = parseExtendedKb(widget.extendedKb)
+
+  cache = { services, faqs, guardrails, widget, extendedKb, fetchedAt: now }
+  return cache
 }
 
 export function invalidateKnowledgeCache() {

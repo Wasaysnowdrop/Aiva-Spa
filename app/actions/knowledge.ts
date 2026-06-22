@@ -19,6 +19,7 @@ import {
 } from "@/lib/db/knowledge.server"
 import { updateWidgetConfig, getWidgetConfig } from "@/lib/db/widget.server"
 import { recordAudit } from "@/lib/audit"
+import { invalidateKnowledgeCache } from "@/lib/ai/retrieval"
 import { createClient } from "@/lib/supabase/server"
 import type { FaqCategory, KnowledgeCategory, GuardrailRuleType } from "@/lib/supabase/types"
 import { GUARDRAIL_RULE_TYPES } from "@/lib/supabase/types"
@@ -95,6 +96,7 @@ export async function createServiceAction(
       action: `kb.service_created ${result.id} (${result.name})`,
     })
     revalidatePath("/dashboard/knowledge-base")
+    invalidateKnowledgeCache()
     return { ok: true, id: result.id }
   } catch (e) {
     return { ok: false, error: friendlyError(e, "Create failed") }
@@ -116,6 +118,7 @@ export async function updateServiceAction(
       action: `kb.service_updated ${id} (${result.name}, active=${result.active})`,
     })
     revalidatePath("/dashboard/knowledge-base")
+    invalidateKnowledgeCache()
     return { ok: true, id: result.id }
   } catch (e) {
     return { ok: false, error: friendlyError(e, "Update failed") }
@@ -134,6 +137,7 @@ export async function deleteServiceAction(
       action: `kb.service_deleted ${id}`,
     })
     revalidatePath("/dashboard/knowledge-base")
+    invalidateKnowledgeCache()
     return { ok: true, id }
   } catch (e) {
     return { ok: false, error: friendlyError(e, "Delete failed") }
@@ -153,6 +157,7 @@ export async function toggleServiceActiveAction(
       action: `kb.service_toggled ${id} -> active=${active}`,
     })
     revalidatePath("/dashboard/knowledge-base")
+    invalidateKnowledgeCache()
     return { ok: true, id: result.id }
   } catch (e) {
     return { ok: false, error: friendlyError(e, "Toggle failed") }
@@ -173,6 +178,7 @@ export async function createFaqAction(
       action: `kb.faq_created ${result.id} (${truncate(result.question, 60)})`,
     })
     revalidatePath("/dashboard/knowledge-base")
+    invalidateKnowledgeCache()
     return { ok: true, id: result.id }
   } catch (e) {
     return { ok: false, error: friendlyError(e, "Create failed") }
@@ -194,6 +200,7 @@ export async function updateFaqAction(
       action: `kb.faq_updated ${id} (${truncate(result.question, 60)})`,
     })
     revalidatePath("/dashboard/knowledge-base")
+    invalidateKnowledgeCache()
     return { ok: true, id: result.id }
   } catch (e) {
     return { ok: false, error: friendlyError(e, "Update failed") }
@@ -219,6 +226,7 @@ export async function deleteFaqAction(
       action: `kb.faq_deleted ${id}`,
     })
     revalidatePath("/dashboard/knowledge-base")
+    invalidateKnowledgeCache()
     return { ok: true, id }
   } catch (e) {
     return { ok: false, error: friendlyError(e, "Delete failed") }
@@ -238,6 +246,7 @@ export async function toggleGuardrailAction(
       action: `kb.guardrail_toggled ${id} -> enabled=${enabled} (${truncate(result.title, 60)})`,
     })
     revalidatePath("/dashboard/knowledge-base")
+    invalidateKnowledgeCache()
     return { ok: true, id: result.id }
   } catch (e) {
     return { ok: false, error: friendlyError(e, "Toggle failed") }
@@ -258,6 +267,7 @@ export async function createGuardrailAction(
       action: `kb.guardrail_created ${result.id} (${truncate(result.title, 60)})`,
     })
     revalidatePath("/dashboard/knowledge-base")
+    invalidateKnowledgeCache()
     return { ok: true, id: result.id }
   } catch (e) {
     return { ok: false, error: friendlyError(e, "Create failed") }
@@ -279,6 +289,7 @@ export async function updateGuardrailBodyAction(
       action: `kb.guardrail_updated ${id} (${truncate(result.title, 60)})`,
     })
     revalidatePath("/dashboard/knowledge-base")
+    invalidateKnowledgeCache()
     return { ok: true, id: result.id }
   } catch (e) {
     return { ok: false, error: friendlyError(e, "Update failed") }
@@ -304,6 +315,7 @@ export async function deleteGuardrailAction(
       action: `kb.guardrail_deleted ${id}`,
     })
     revalidatePath("/dashboard/knowledge-base")
+    invalidateKnowledgeCache()
     return { ok: true, id }
   } catch (e) {
     return { ok: false, error: friendlyError(e, "Delete failed") }
