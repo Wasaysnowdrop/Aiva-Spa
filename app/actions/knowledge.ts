@@ -67,7 +67,16 @@ async function actorName(): Promise<string> {
 function friendlyError(e: unknown, fallback: string): string {
   const raw = e instanceof Error ? e.message : fallback
   if (/row-level security|violates row-level security/i.test(raw)) {
-    return "Database rejected the write (RLS). Restart the Next.js dev server and clear .next cache: `Remove-Item -Recurse -Force .next; npm run dev`."
+    return "Database rejected the write (RLS). Apply supabase/migrations/00025_kb_bulletproof_rls.sql on the remote DB (`npx supabase db push`), then restart the Next.js dev server and clear .next cache: `Remove-Item -Recurse -Force .next; npm run dev`."
+  }
+  if (/column .* does not exist/i.test(raw)) {
+    return "Database schema is out of date. Run `npx supabase db push` to apply the latest migrations (00025_kb_bulletproof_rls.sql)."
+  }
+  if (/invalid input value for enum/i.test(raw)) {
+    return "Service category is using a legacy enum. Apply supabase/migrations/00025_kb_bulletproof_rls.sql to switch category to free-form text."
+  }
+  if (/permission denied/i.test(raw)) {
+    return "Supabase service role key is missing or wrong. Check SUPABASE_SERVICE_ROLE_KEY in .env.local."
   }
   return raw
 }
