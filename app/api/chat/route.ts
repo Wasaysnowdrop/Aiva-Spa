@@ -146,7 +146,7 @@ async function handleStreamingChat(
         // First-turn detection (cheap, runs in parallel with the LLM stream).
         const firstTurnP = chatSessionExists(body.sessionId)
           .catch(() => false)
-          .then((exists) => !exists)
+          .then((exists) => ({ exists, isFirstTurn: !exists }))
 
         const result = await streamConversationTurn({
           sessionId: body.sessionId,
@@ -156,7 +156,8 @@ async function handleStreamingChat(
           onChunk: (text) => send("chunk", { text }),
         })
 
-        const [isFirstTurn, brandName] = await Promise.all([firstTurnP, brandNameP])
+        const [firstTurn, brandName] = await Promise.all([firstTurnP, brandNameP])
+        const isFirstTurn = firstTurn.isFirstTurn
 
         send("meta", {
           model: result.model,
@@ -167,6 +168,13 @@ async function handleStreamingChat(
         })
 
         if (isFirstTurn) {
+          // Count a new conversation against the owner's quota so the
+          // billing page reflects real usage, not just lead captures.
+          if (accessUserId) {
+            incrementConversations(accessUserId, 1).catch((e) =>
+              console.error("incrementConversations failed", e),
+            )
+          }
           void fireEventForAll(accessUserId ?? "__anon__", "conversation.started", {
             sessionId: body.sessionId,
             spaId: body.spaId ?? null,
@@ -243,6 +251,13 @@ async function handleBufferedChat(
     try {
       const exists = await chatSessionExists(body.sessionId)
       if (!exists) {
+        // Count a new conversation against the owner's quota so the
+        // billing page reflects real usage, not just lead captures.
+        if (accessUserId) {
+          incrementConversations(accessUserId, 1).catch((e) =>
+            console.error("incrementConversations failed", e),
+          )
+        }
         void fireEventForAll(accessUserId ?? "__anon__", "conversation.started", {
           sessionId: body.sessionId,
           spaId: body.spaId ?? null,

@@ -11,6 +11,8 @@ import {
 import { createBooking } from "@/lib/calendar"
 import { checkEmbedAccess } from "@/lib/widget/access"
 
+const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T/
+
 export type CreatePublicLeadInput = {
   name: string
   phone: string
@@ -55,14 +57,21 @@ export async function createPublicLead(
       consentGiven: Boolean(input.consentGiven),
       transcript: input.transcript ?? [],
     })
+    // If the visitor came back and booked a specific time slot,
+    // promote the existing lead out of "new" so the dashboard inbox
+    // doesn't keep surfacing them as a fresh lead.
+    const bookedLead = await maybePromoteLeadOnBooking(
+      result.lead,
+      input.preferredTime,
+    )
     await maybeAutoBookFromLead({
       spaId: input.spaId,
-      lead: result.lead,
+      lead: bookedLead,
       preferredTime: input.preferredTime,
       service: input.service,
     })
     return {
-      lead: result.lead,
+      lead: bookedLead,
       merged: true,
       mergedFromLeadId: existing.id,
     }
@@ -82,7 +91,13 @@ export async function createPublicLead(
     notes: input.notes ?? null,
     transcript: input.transcript ?? [],
     consent_given: Boolean(input.consentGiven),
-    status: "new" as const,
+    // New leads where the visitor picked a concrete time slot start
+    // life as "booked" so the inbox doesn't immediately treat them as
+    // untouched. Free-form time requests (e.g. "next Tuesday") stay
+    // as "new" until a human moves them.
+    status: (ISO_DATETIME_RE.test(input.preferredTime.trim())
+      ? "booked"
+      : "new") as "new" | "contacted" | "booked" | "lost",
   }
 
   const { data, error } = await admin
@@ -102,6 +117,35 @@ export async function createPublicLead(
   })
 
   return { lead, merged: false }
+}
+
+/**
+ * If the incoming `preferredTime` is a concrete ISO timestamp, the
+ * visitor is committing to a real slot. Promote the lead to "booked"
+ * (unless it's already in a terminal state like "lost") so the
+ * dashboard inbox reflects the new commitment.
+ */
+async function maybePromoteLeadOnBooking(
+  lead: Lead,
+  preferredTime: string,
+): Promise<Lead> {
+  const trimmed = preferredTime?.trim() ?? ""
+  if (!ISO_DATETIME_RE.test(trimmed)) return lead
+  if (lead.status === "booked" || lead.status === "lost") {
+    return lead
+  }
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from("leads")
+    .update({
+      status: "booked",
+      last_activity_at: new Date().toISOString(),
+    } as never)
+    .eq("id", lead.id)
+    .select()
+    .maybeSingle()
+  if (error || !data) return lead
+  return mapLead(data as Record<string, unknown>)
 }
 
 /**

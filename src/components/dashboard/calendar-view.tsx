@@ -65,8 +65,9 @@ function formatDayLabel(key: string): string {
 
 export function CalendarView({
   initialBookings,
+  spaIds,
 }: {
-  spaId: string
+  spaIds?: string[]
   initialBookings: Booking[]
 }) {
   const { data: bookings, setData } = useRealtimeSubscription<Booking>({
@@ -148,11 +149,14 @@ export function CalendarView({
         <div className="rounded-2xl border border-dashed border-[#23252A] bg-[#121316] p-10 text-center">
           <CalendarDays className="mx-auto size-8 text-[#5E6AD2]" />
           <p className="mt-3 text-sm font-semibold text-[#F7F8F8]">
-            No bookings yet
+            {spaIds && spaIds.length === 0
+              ? "Install the widget to start capturing bookings"
+              : "No bookings yet"}
           </p>
           <p className="mt-1 text-xs text-[#8A8F98]">
-            When visitors pick a time slot in the chat, their booking shows up
-            here automatically.
+            {spaIds && spaIds.length === 0
+              ? "Once you embed the AivaSpa snippet on your site, every consultation a visitor books will show up here."
+              : "When visitors pick a time slot in the chat, their booking shows up here automatically."}
           </p>
         </div>
       ) : null}

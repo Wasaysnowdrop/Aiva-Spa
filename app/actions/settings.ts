@@ -5,12 +5,14 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { recordAudit } from "@/lib/audit";
+import { mapSpaSettings, type SpaSettings } from "@/lib/supabase/types";
 import { checkActionLimit } from "@/lib/security/check-action-limit";
 import { LIMITS } from "@/lib/security/limits";
 
-export type SettingsActionResult = {
+export type SettingsActionResult<T = void> = {
   ok: boolean;
   error?: string;
+  data?: T;
 };
 
 export async function updateSpaSettings(updates: {
@@ -19,7 +21,7 @@ export async function updateSpaSettings(updates: {
   ownerName?: string;
   ownerEmail?: string;
   address?: string;
-}): Promise<SettingsActionResult> {
+}): Promise<SettingsActionResult<SpaSettings>> {
   const limit = await checkActionLimit(LIMITS.actionSettings)
   if (!limit.ok) return { ok: false, error: limit.error }
 
@@ -49,7 +51,7 @@ export async function updateSpaSettings(updates: {
     return { ok: false, error: "No spa settings found" };
   }
 
-  const { error: dbError } = await supabase
+  const { data: updatedRow, error: dbError } = await supabase
     .from("spa_settings")
     .update(payload as never)
     .eq("id", existing.id)
@@ -78,7 +80,7 @@ export async function updateSpaSettings(updates: {
     action: `settings.updated ${Object.keys(updates).join(",")}`,
   });
 
-  return { ok: true };
+  return { ok: true, data: updatedRow ? mapSpaSettings(updatedRow as Record<string, unknown>) : undefined };
 }
 
 export async function deleteWorkspaceAction(): Promise<{

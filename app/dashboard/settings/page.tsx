@@ -4,15 +4,17 @@ import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { SettingsView } from "@/components/dashboard/settings-view";
 import { createClient } from "@/lib/supabase/server";
-import { getCardLast4, getCurrentSubscription } from "@/lib/subscription";
+import { getCardLast4, getCurrentSubscription, backfillConversationsFromSessions } from "@/lib/subscription";
 import { listApiKeys } from "@/app/actions/api-keys";
 import {
   getNotificationChannelsServer,
   getNotificationLogsServer,
 } from "@/lib/db/notifications.server";
+import { getSpaSettings } from "@/lib/db/settings.server";
 import type {
   NotificationChannelConfig,
   NotificationLog,
+  SpaSettings,
 } from "@/lib/supabase/types";
 
 export const metadata: Metadata = {
@@ -28,10 +30,22 @@ export default async function SettingsPage() {
   } = await supabase.auth.getUser();
   const userMeta = (user?.user_metadata as Record<string, unknown> | null) ?? null;
   const cardLast4 = getCardLast4(userMeta);
-  const isUnlimited = subscription.quota === Number.MAX_SAFE_INTEGER;
-  const periodStart = subscription.row?.periodStart ?? new Date().toISOString();
-  const periodEnd = subscription.row?.periodEnd ?? new Date().toISOString();
-  const trialStartedAt = subscription.row?.trialStartedAt ?? null;
+  const isUnlimited = refreshedSubscription.quota === Number.MAX_SAFE_INTEGER;
+  const periodStart = refreshedSubscription.row?.periodStart ?? new Date().toISOString();
+  const periodEnd = refreshedSubscription.row?.periodEnd ?? new Date().toISOString();
+  const trialStartedAt = refreshedSubscription.row?.trialStartedAt ?? null;
+
+  // Backfill quota from real chat_sessions so returning users see
+  // their actual usage, not 0. Then re-read the subscription so the
+  // page renders the corrected count without a manual refresh.
+  if (user?.id) {
+    try {
+      await backfillConversationsFromSessions(user.id)
+    } catch (e) {
+      console.error("backfillConversationsFromSessions failed", e)
+    }
+  }
+  const refreshedSubscription = user?.id ? await getCurrentSubscription() : subscription
 
   // API section data — scope everything to the signed-in user.
   const apiKeys = await listApiKeys().catch(() => [])
@@ -109,19 +123,19 @@ export default async function SettingsPage() {
     }
   })
 
-  // Pre-load notification channels + recent logs server-side so the
-  // Notifications section renders immediately without a client fetch
-  // flash. Client `refresh()` becomes a background sync for live updates.
   let initialChannels: NotificationChannelConfig[] = []
   let initialLogs: NotificationLog[] = []
+  let initialSpaSettings: SpaSettings | null = null
   const accountEmail: string | null = user?.email ?? null
   try {
-    const [channels, logs] = await Promise.all([
+    const [channels, logs, spa] = await Promise.all([
       getNotificationChannelsServer(),
       getNotificationLogsServer(),
+      getSpaSettings(),
     ])
     initialChannels = channels ?? []
     initialLogs = logs ?? []
+    initialSpaSettings = spa ?? null
   } catch (e) {
     console.error("[settings] failed to pre-load notification data:", e)
   }
@@ -136,20 +150,21 @@ export default async function SettingsPage() {
         />
         <SettingsView
           accountEmail={accountEmail}
+          initialSpaSettings={initialSpaSettings}
           initialChannels={initialChannels}
           initialLogs={initialLogs}
           billing={{
-            planId: subscription.planId,
-            planName: subscription.planName,
-            status: subscription.status,
-            billingInterval: subscription.row?.billingInterval ?? "monthly",
-            monthlyQuota: subscription.quota,
-            used: subscription.used,
+            planId: refreshedSubscription.planId,
+            planName: refreshedSubscription.planName,
+            status: refreshedSubscription.status,
+            billingInterval: refreshedSubscription.row?.billingInterval ?? "monthly",
+            monthlyQuota: refreshedSubscription.quota,
+            used: refreshedSubscription.used,
             periodStart,
             periodEnd,
             trialStartedAt,
-            trialEndsAt: subscription.trialEndsAt ? subscription.trialEndsAt.toISOString() : null,
-            trialDaysRemaining: subscription.trialDaysRemaining,
+            trialEndsAt: refreshedSubscription.trialEndsAt ? refreshedSubscription.trialEndsAt.toISOString() : null,
+            trialDaysRemaining: refreshedSubscription.trialDaysRemaining,
             cardLast4,
             isUnlimited,
           }}

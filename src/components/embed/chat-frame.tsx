@@ -650,7 +650,7 @@ export function ChatFrame({
         content: m.content,
       }))
       const sourceUrl = parentUrl || (typeof window !== "undefined" ? window.location.href : undefined)
-      const isIsoSlot = /^\d{4}-\d{2}-\d{2}T/.test(lead.preferredTime)
+      const isIsoSlot = /^\d{4}-\d{2}-\d{2}t/i.test(lead.preferredTime)
       const endpoint = isIsoSlot ? "/api/calendar/book" : "/api/leads"
       const res = await fetch(endpoint, {
         method: "POST",
@@ -668,7 +668,8 @@ export function ChatFrame({
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        throw new Error((data as { error?: string }).error || "Could not save")
+        const msg = (data as { error?: string }).error || "Could not save"
+        throw new Error(isIsoSlot ? `Booking failed: ${msg}` : msg)
       }
       if (typeof window !== "undefined") {
         window.localStorage.setItem(STORAGE_CONSENT(spaId), "1")

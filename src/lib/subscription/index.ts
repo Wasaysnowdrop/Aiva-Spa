@@ -347,6 +347,57 @@ export async function incrementConversations(userId: string, by = 1) {
   return next
 }
 
+/**
+ * Recalculate `conversations_used` from the real `chat_sessions` table.
+ * Used to backfill quota for users who chatted before the increment
+ * hook was wired up. Counts unique session_ids in the current period
+ * and never reduces an already-higher value (so we never roll back
+ * usage that's already been billed).
+ */
+export async function backfillConversationsFromSessions(
+  userId: string,
+): Promise<number | null> {
+  const supabase = await createClient()
+  const { data: sub } = await supabase
+    .from("subscriptions")
+    .select("conversations_used, period_start")
+    .eq("user_id", userId)
+    .maybeSingle()
+  if (!sub) return null
+  const subRow = sub as { conversations_used?: number; period_start?: string }
+  const periodStart = subRow.period_start ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
+  // Find the user's spa(s) via widget_installs so we can scope the count.
+  const { data: installs } = await supabase
+    .from("widget_installs")
+    .select("widget_key")
+    .eq("user_id", userId)
+  const widgetKeys = (installs ?? [])
+    .map((r) => (r as { widget_key?: string }).widget_key)
+    .filter((k): k is string => Boolean(k))
+
+  let query = supabase
+    .from("chat_sessions")
+    .select("id", { count: "exact", head: true })
+    .gte("created_at", periodStart)
+  if (widgetKeys.length > 0) {
+    query = query.in("spa_id", widgetKeys)
+  } else {
+    // No installs — can't scope; skip the backfill.
+    return null
+  }
+  const { count } = await query
+  const counted = count ?? 0
+  const current = subRow.conversations_used ?? 0
+  const next = Math.max(current, counted)
+  if (next === current) return current
+  await supabase
+    .from("subscriptions")
+    .update({ conversations_used: next } as never)
+    .eq("user_id", userId)
+  return next
+}
+
 export function shouldShowTrialPopup(snap: SubscriptionSnapshot): boolean {
   if (!snap.isTrialing) return false
   if (snap.row?.trialPopupDismissedAt) return false

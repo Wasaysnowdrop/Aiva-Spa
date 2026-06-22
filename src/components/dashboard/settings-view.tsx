@@ -25,10 +25,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiSection, type ApiSectionProps } from "@/components/dashboard/api-section"
 import { BillingView, type BillingViewProps } from "@/components/dashboard/billing-view"
-import type { NotificationLog } from "@/lib/supabase/types"
+import type { NotificationLog, SpaSettings } from "@/lib/supabase/types"
 import { cn } from "@/lib/utils"
-import { getSpaSettings } from "@/lib/db/settings"
-import type { SpaSettings } from "@/lib/supabase/types"
 import { useRealtimeSubscription } from "@/lib/hooks/use-realtime"
 import { mapNotificationLog } from "@/lib/supabase/types"
 import { toast } from "sonner"
@@ -47,12 +45,14 @@ export function SettingsView({
   billing,
   api,
   accountEmail,
+  initialSpaSettings,
   initialChannels,
   initialLogs,
 }: {
   billing: BillingViewProps
   api: ApiSectionProps
   accountEmail?: string | null
+  initialSpaSettings?: SpaSettings | null
   initialChannels?: NotificationChannelConfig[]
   initialLogs?: NotificationLog[]
 }) {
@@ -110,7 +110,9 @@ export function SettingsView({
       </nav>
 
       <section className="flex flex-col gap-5">
-        {section === "account" && <AccountSection />}
+        {section === "account" && (
+          <AccountSection initialSettings={initialSpaSettings ?? null} />
+        )}
         {section === "notifications" && (
           <NotificationsSection
             accountEmail={accountEmail ?? null}
@@ -126,10 +128,13 @@ export function SettingsView({
   )
 }
 
-function AccountSection() {
+function AccountSection({
+  initialSettings,
+}: {
+  initialSettings: SpaSettings | null
+}) {
   const router = useRouter()
-  const [settings, setSettings] = React.useState<SpaSettings | null>(null)
-  const [loading, setLoading] = React.useState(true)
+  const [settings, setSettings] = React.useState<SpaSettings | null>(initialSettings)
   const [saving, setSaving] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
   const [confirmText, setConfirmText] = React.useState("")
@@ -140,13 +145,6 @@ function AccountSection() {
   const ownerRef = React.useRef<HTMLInputElement>(null)
   const emailRef = React.useRef<HTMLInputElement>(null)
   const addressRef = React.useRef<HTMLInputElement>(null)
-
-  React.useEffect(() => {
-    getSpaSettings()
-      .then(setSettings)
-      .catch(() => toast.error("Failed to load settings"))
-      .finally(() => setLoading(false))
-  }, [])
 
   const handleSave = async () => {
     setSaving(true)
@@ -160,6 +158,7 @@ function AccountSection() {
     setSaving(false)
     if (result.ok) {
       toast.success("Settings saved")
+      if (result.data) setSettings(result.data)
       router.refresh()
     } else {
       toast.error(result.error ?? "Failed to save settings")
@@ -186,8 +185,6 @@ function AccountSection() {
       setDeleting(false)
     }
   }
-
-  if (loading) return <div className="text-sm text-[#8A8F98]">Loading...</div>
 
   return (
     <>
@@ -502,7 +499,7 @@ function NotificationsSection({
               }}
             />
           ) : null}
-          {channels.length === 0 ? null : (
+          {channels.length > 0 ? (
             channels.map((ch) => (
               <ChannelRowEditor
                 key={ch.id}
@@ -529,7 +526,7 @@ function NotificationsSection({
                 accountEmail={accountEmail}
               />
             ))
-          )}
+          ) : null}
           {channels.length === 0 ? (
             <div className="p-5 text-xs text-[#8A8F98]">
               No channels yet. Add an email above to start receiving lead alerts.
