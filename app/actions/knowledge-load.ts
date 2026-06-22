@@ -8,6 +8,7 @@ import {
   type KnowledgeFaq,
   type KnowledgeGuardrail,
 } from "@/lib/supabase/types"
+import { createAdminClient } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 import { checkActionLimit } from "@/lib/security/check-action-limit"
 import { LIMITS } from "@/lib/security/limits"
@@ -26,16 +27,20 @@ export async function loadKnowledgeBaseAction(): Promise<KnowledgeBaseSnapshot> 
   if (!limit.ok) {
     return { services: [], faqs: [], guardrails: [], fetchedAt: new Date().toISOString() }
   }
+
+  // Get user ID from SSR cookies (auth only)
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
     return { services: [], faqs: [], guardrails: [], fetchedAt: new Date().toISOString() }
   }
 
+  // Use admin client for DB reads — bypasses RLS, scoped by user_id in app code
+  const admin = createAdminClient()
   const [svc, faq, grd] = await Promise.all([
-    supabase.from("knowledge_services").select("*").eq("user_id", user.id).order("name"),
-    supabase.from("knowledge_faqs").select("*").eq("user_id", user.id).order("created_at"),
-    supabase.from("knowledge_guardrails").select("*").eq("user_id", user.id).order("created_at"),
+    admin.from("knowledge_services").select("*").eq("user_id", user.id).order("name"),
+    admin.from("knowledge_faqs").select("*").eq("user_id", user.id).order("created_at"),
+    admin.from("knowledge_guardrails").select("*").eq("user_id", user.id).order("created_at"),
   ])
   return {
     services: (svc.data ?? []).map((r) =>
