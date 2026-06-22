@@ -66,6 +66,9 @@ import {
   updateFaqAction,
   deleteFaqAction,
   toggleGuardrailAction,
+  createGuardrailAction,
+  updateGuardrailBodyAction,
+  deleteGuardrailAction,
   updateConsentTextAction,
 } from "@/app/actions/knowledge"
 import { toast } from "sonner"
@@ -107,6 +110,18 @@ const emptyFaqDraft: FaqDraft = {
   question: "",
   answer: "",
   category: "General",
+}
+
+type GuardrailDraft = {
+  title: string
+  body: string
+  enabled: boolean
+}
+
+const emptyGuardrailDraft: GuardrailDraft = {
+  title: "",
+  body: "",
+  enabled: true,
 }
 
 export function KnowledgeBaseEditor() {
@@ -156,11 +171,18 @@ export function KnowledgeBaseEditor() {
     id?: string
   } | null>(null)
 
+  const [guardrailDialog, setGuardrailDialog] = React.useState<{
+    mode: "new" | "edit"
+    draft: GuardrailDraft
+    id?: string
+  } | null>(null)
+
   const [disclaimerOpen, setDisclaimerOpen] = React.useState(false)
   const [sandboxOpen, setSandboxOpen] = React.useState(false)
   const [confirmDelete, setConfirmDelete] = React.useState<
     | { kind: "service"; id: string; name: string }
     | { kind: "faq"; id: string; question: string }
+    | { kind: "guardrail"; id: string; title: string }
     | null
   >(null)
 
@@ -215,6 +237,30 @@ export function KnowledgeBaseEditor() {
     setFaqDialog(null)
   }
 
+  const onSaveGuardrail = async () => {
+    if (!guardrailDialog) return
+    const { mode, draft, id } = guardrailDialog
+    if (!draft.title.trim() || !draft.body.trim()) {
+      toast.error("Title and body are required")
+      return
+    }
+    const payload = {
+      title: draft.title.trim(),
+      body: draft.body.trim(),
+      enabled: draft.enabled,
+    }
+    const result =
+      mode === "new"
+        ? await createGuardrailAction(payload)
+        : await updateGuardrailBodyAction(id!, payload)
+    if (!result.ok) {
+      toast.error(result.error ?? "Save failed")
+      return
+    }
+    toast.success(mode === "new" ? "Guardrail added" : "Guardrail updated")
+    setGuardrailDialog(null)
+  }
+
   const onConfirmDelete = async () => {
     if (!confirmDelete) return
     if (confirmDelete.kind === "service") {
@@ -225,7 +271,7 @@ export function KnowledgeBaseEditor() {
       }
       setServices((prev) => prev.filter((s) => s.id !== confirmDelete.id))
       toast.success("Service deleted")
-    } else {
+    } else if (confirmDelete.kind === "faq") {
       const result = await deleteFaqAction(confirmDelete.id)
       if (!result.ok) {
         toast.error(result.error ?? "Delete failed")
@@ -234,6 +280,14 @@ export function KnowledgeBaseEditor() {
       setFaqs((prev) => prev.filter((f) => f.id !== confirmDelete.id))
       if (activeFaqId === confirmDelete.id) setActiveFaqId("")
       toast.success("FAQ deleted")
+    } else {
+      const result = await deleteGuardrailAction(confirmDelete.id)
+      if (!result.ok) {
+        toast.error(result.error ?? "Delete failed")
+        return
+      }
+      setGuardrails((prev) => prev.filter((g) => g.id !== confirmDelete.id))
+      toast.success("Guardrail deleted")
     }
     setConfirmDelete(null)
   }
@@ -412,6 +466,19 @@ export function KnowledgeBaseEditor() {
             guardrails={guardrails}
             onToggle={onToggleGuardrail}
             onEditDisclaimer={() => setDisclaimerOpen(true)}
+            onAdd={() =>
+              setGuardrailDialog({ mode: "new", draft: { ...emptyGuardrailDraft } })
+            }
+            onEdit={(g) =>
+              setGuardrailDialog({
+                mode: "edit",
+                id: g.id,
+                draft: { title: g.title, body: g.body, enabled: g.enabled },
+              })
+            }
+            onDelete={(g) =>
+              setConfirmDelete({ kind: "guardrail", id: g.id, title: g.title })
+            }
           />
         )}
       </section>
@@ -440,6 +507,19 @@ export function KnowledgeBaseEditor() {
         />
       ) : null}
 
+      {guardrailDialog ? (
+        <GuardrailDialog
+          open
+          mode={guardrailDialog.mode}
+          draft={guardrailDialog.draft}
+          setDraft={(d) =>
+            setGuardrailDialog((cur) => (cur ? { ...cur, draft: d } : cur))
+          }
+          onClose={() => setGuardrailDialog(null)}
+          onSave={onSaveGuardrail}
+        />
+      ) : null}
+
       {disclaimerOpen ? (
         <DisclaimerDialog
           key="disclaimer"
@@ -455,12 +535,20 @@ export function KnowledgeBaseEditor() {
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>
-                Delete {confirmDelete.kind === "service" ? "service" : "FAQ"}?
+                Delete{" "}
+                {confirmDelete.kind === "service"
+                  ? "service"
+                  : confirmDelete.kind === "faq"
+                    ? "FAQ"
+                    : "guardrail"}
+                ?
               </DialogTitle>
               <DialogDescription>
                 {confirmDelete.kind === "service"
                   ? `This will permanently remove "${confirmDelete.name}" from the AI's knowledge base.`
-                  : `This will permanently remove the FAQ "${confirmDelete.question}".`}
+                  : confirmDelete.kind === "faq"
+                    ? `This will permanently remove the FAQ "${confirmDelete.question}".`
+                    : `This will permanently remove the guardrail "${confirmDelete.title}".`}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
@@ -810,23 +898,39 @@ function GuardrailsTab({
   guardrails,
   onToggle,
   onEditDisclaimer,
+  onAdd,
+  onEdit,
+  onDelete,
 }: {
   guardrails: KnowledgeGuardrail[]
   onToggle: (g: KnowledgeGuardrail) => void
   onEditDisclaimer: () => void
+  onAdd: () => void
+  onEdit: (g: KnowledgeGuardrail) => void
+  onDelete: (g: KnowledgeGuardrail) => void
 }) {
   return (
     <div className="rounded-2xl border border-[#23252A] bg-[#121316]">
-      <div className="border-b border-[#23252A] p-5">
-        <h2 className="text-base font-semibold text-[#F7F8F8]">Guardrails</h2>
-        <p className="mt-0.5 text-xs text-[#8A8F98]">
-          AivaSpa must never act as a medical provider. Toggle rules on or off — changes
-          apply immediately.
-        </p>
+      <div className="flex items-start justify-between gap-3 border-b border-[#23252A] p-5">
+        <div>
+          <h2 className="text-base font-semibold text-[#F7F8F8]">Guardrails</h2>
+          <p className="mt-0.5 text-xs text-[#8A8F98]">
+            AivaSpa must never act as a medical provider. Toggle rules on or off — changes
+            apply immediately.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          className="bg-[#E2E54B] text-[#08090A] hover:bg-[#E2E54B]/90"
+          onClick={onAdd}
+        >
+          <Plus className="size-4" /> New guardrail
+        </Button>
       </div>
       {guardrails.length === 0 ? (
         <div className="p-8 text-center text-sm text-[#8A8F98]">
-          No guardrails configured. Add them in the database to enforce safety rules.
+          No guardrails configured. Click <span className="text-[#F7F8F8]">New guardrail</span>{" "}
+          to add one.
         </div>
       ) : (
         <ul className="divide-y divide-[#23252A]">
@@ -846,24 +950,44 @@ function GuardrailsTab({
                 <p className="text-sm font-semibold text-[#F7F8F8]">{g.title}</p>
                 <p className="mt-0.5 text-xs text-[#8A8F98]">{g.body}</p>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={g.enabled}
-                aria-label={`${g.enabled ? "Disable" : "Enable"} ${g.title}`}
-                onClick={() => onToggle(g)}
-                className={cn(
-                  "relative h-5 w-9 shrink-0 rounded-full border transition",
-                  g.enabled ? "border-[#4CB782]/50 bg-[#4CB782]" : "border-[#23252A] bg-[#1A1B1E]",
-                )}
-              >
-                <span
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Edit ${g.title}`}
+                  onClick={() => onEdit(g)}
+                  className="size-8 text-[#8A8F98] hover:text-[#F7F8F8]"
+                >
+                  <Pencil className="size-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Delete ${g.title}`}
+                  onClick={() => onDelete(g)}
+                  className="size-8 text-[#8A8F98] hover:text-[#EB5757]"
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={g.enabled}
+                  aria-label={`${g.enabled ? "Disable" : "Enable"} ${g.title}`}
+                  onClick={() => onToggle(g)}
                   className={cn(
-                    "absolute top-0.5 size-3.5 rounded-full bg-[#F7F8F8] transition-all",
-                    g.enabled ? "left-[18px]" : "left-0.5",
+                    "relative h-5 w-9 shrink-0 rounded-full border transition",
+                    g.enabled ? "border-[#4CB782]/50 bg-[#4CB782]" : "border-[#23252A] bg-[#1A1B1E]",
                   )}
-                />
-              </button>
+                >
+                  <span
+                    className={cn(
+                      "absolute top-0.5 size-3.5 rounded-full bg-[#F7F8F8] transition-all",
+                      g.enabled ? "left-[18px]" : "left-0.5",
+                    )}
+                  />
+                </button>
+              </div>
             </li>
           ))}
         </ul>
@@ -1093,6 +1217,85 @@ function FaqDialog({
             onClick={onSave}
           >
             <Check className="size-4" /> {mode === "new" ? "Add FAQ" : "Save changes"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function GuardrailDialog({
+  open,
+  mode,
+  draft,
+  setDraft,
+  onClose,
+  onSave,
+}: {
+  open: boolean
+  mode: "new" | "edit"
+  draft: GuardrailDraft
+  setDraft: (d: GuardrailDraft) => void
+  onClose: () => void
+  onSave: () => void
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>
+            {mode === "new" ? "New guardrail" : "Edit guardrail"}
+          </DialogTitle>
+          <DialogDescription>
+            Safety rules AivaSpa must always follow. Disabled guardrails are saved but
+            ignored.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label htmlFor="g-title">Title</Label>
+          <Input
+            id="g-title"
+            value={draft.title}
+            onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+            placeholder="e.g. Never prescribe medication"
+            maxLength={200}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="g-body">Rule</Label>
+          <Textarea
+            id="g-body"
+            value={draft.body}
+            onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+            placeholder="Describe what AivaSpa must never do."
+            className="min-h-28"
+            maxLength={2000}
+          />
+          <p className="text-[10px] text-[#62666D]">
+            Plain-English rule. AivaSpa reads this verbatim during safety checks.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-2 text-xs text-[#8A8F98]">
+            <input
+              type="checkbox"
+              checked={draft.enabled}
+              onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
+              className="size-3.5 accent-[#E2E54B]"
+            />
+            Enabled (AivaSpa enforces this rule)
+          </label>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            className="bg-[#E2E54B] text-[#08090A] hover:bg-[#E2E54B]/90"
+            onClick={onSave}
+          >
+            <Check className="size-4" /> {mode === "new" ? "Add guardrail" : "Save changes"}
           </Button>
         </DialogFooter>
       </DialogContent>

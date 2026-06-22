@@ -13,9 +13,11 @@ import {
   createFaq,
   updateFaq,
   updateGuardrail,
-} from "@/lib/db/knowledge"
+  createGuardrail,
+  deleteGuardrail,
+  deleteFaq,
+} from "@/lib/db/knowledge.server"
 import { updateWidgetConfig, getWidgetConfig } from "@/lib/db/widget.server"
-import { createAdminClient } from "@/lib/supabase/admin"
 import { recordAudit } from "@/lib/audit"
 import { createClient } from "@/lib/supabase/server"
 import type { FaqCategory, KnowledgeCategory } from "@/lib/supabase/types"
@@ -36,6 +38,12 @@ const faqSchema = z.object({
   question: z.string().min(1).max(500),
   answer: z.string().min(1).max(4000),
   category: z.enum(faqCategoryValues),
+})
+
+const guardrailSchema = z.object({
+  title: z.string().min(1).max(200),
+  body: z.string().min(1).max(2000),
+  enabled: z.boolean().optional().default(true),
 })
 
 export type KnowledgeActionResult = { ok: boolean; error?: string; id?: string }
@@ -185,9 +193,7 @@ export async function deleteFaqAction(
     return { ok: false, error: "Not authenticated" }
   }
   try {
-    const admin = createAdminClient()
-    const { error } = await admin.from("knowledge_faqs").delete().eq("id", id)
-    if (error) throw new Error(error.message)
+    await deleteFaq(id)
     await recordAudit({
       userName: user.email?.split("@")[0] || user.id,
       action: `kb.faq_deleted ${id}`,
@@ -215,6 +221,72 @@ export async function toggleGuardrailAction(
     return { ok: true, id: result.id }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Toggle failed" }
+  }
+}
+
+export async function createGuardrailAction(
+  input: z.infer<typeof guardrailSchema>,
+): Promise<KnowledgeActionResult> {
+  const limit = await checkActionLimit(LIMITS.actionKnowledge)
+  if (!limit.ok) return { ok: false, error: limit.error }
+  const parsed = guardrailSchema.safeParse(input)
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" }
+  try {
+    const result = await createGuardrail(parsed.data)
+    await recordAudit({
+      userName: await actorName(),
+      action: `kb.guardrail_created ${result.id} (${truncate(result.title, 60)})`,
+    })
+    revalidatePath("/dashboard/knowledge-base")
+    return { ok: true, id: result.id }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Create failed" }
+  }
+}
+
+export async function updateGuardrailBodyAction(
+  id: string,
+  input: z.infer<typeof guardrailSchema>,
+): Promise<KnowledgeActionResult> {
+  const limit = await checkActionLimit(LIMITS.actionKnowledge)
+  if (!limit.ok) return { ok: false, error: limit.error }
+  const parsed = guardrailSchema.safeParse(input)
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" }
+  try {
+    const result = await updateGuardrail({ id, ...parsed.data })
+    await recordAudit({
+      userName: await actorName(),
+      action: `kb.guardrail_updated ${id} (${truncate(result.title, 60)})`,
+    })
+    revalidatePath("/dashboard/knowledge-base")
+    return { ok: true, id: result.id }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Update failed" }
+  }
+}
+
+export async function deleteGuardrailAction(
+  id: string,
+): Promise<KnowledgeActionResult> {
+  const limit = await checkActionLimit(LIMITS.actionKnowledge)
+  if (!limit.ok) return { ok: false, error: limit.error }
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    return { ok: false, error: "Not authenticated" }
+  }
+  try {
+    await deleteGuardrail(id)
+    await recordAudit({
+      userName: user.email?.split("@")[0] || user.id,
+      action: `kb.guardrail_deleted ${id}`,
+    })
+    revalidatePath("/dashboard/knowledge-base")
+    return { ok: true, id }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Delete failed" }
   }
 }
 
