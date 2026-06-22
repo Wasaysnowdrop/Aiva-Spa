@@ -136,23 +136,23 @@ export function KnowledgeBaseEditor() {
   const [consentText, setConsentText] = React.useState<string | null>(null)
   const [widgetConfig, setWidgetConfig] = React.useState<WidgetConfig | null>(null)
 
-  const { data: services, setData: setServices } = useRealtimeSubscription<KnowledgeService>({
+  const { data: services, setData: setServices, refresh: refreshServices } = useRealtimeSubscription<KnowledgeService>({
     table: "knowledge_services",
-    initialData: [],
+    orderBy: { column: "name", ascending: true },
     mapRow: (row) => mapKnowledgeService(row),
     getId: (item) => item.id,
   })
 
-  const { data: faqs, setData: setFaqs } = useRealtimeSubscription<KnowledgeFaq>({
+  const { data: faqs, setData: setFaqs, refresh: refreshFaqs } = useRealtimeSubscription<KnowledgeFaq>({
     table: "knowledge_faqs",
-    initialData: [],
+    orderBy: { column: "created_at", ascending: true },
     mapRow: (row) => mapKnowledgeFaq(row),
     getId: (item) => item.id,
   })
 
-  const { data: guardrails, setData: setGuardrails } = useRealtimeSubscription<KnowledgeGuardrail>({
+  const { data: guardrails, setData: setGuardrails, refresh: refreshGuardrails } = useRealtimeSubscription<KnowledgeGuardrail>({
     table: "knowledge_guardrails",
-    initialData: [],
+    orderBy: { column: "created_at", ascending: true },
     mapRow: (row) => mapKnowledgeGuardrail(row),
     getId: (item) => item.id,
   })
@@ -219,6 +219,7 @@ export function KnowledgeBaseEditor() {
     }
     toast.success(mode === "new" ? "Service added" : "Service updated")
     setServiceDialog(null)
+    await refreshServices()
   }
 
   const onSaveFaq = async () => {
@@ -243,6 +244,7 @@ export function KnowledgeBaseEditor() {
     }
     toast.success(mode === "new" ? "FAQ added" : "FAQ updated")
     setFaqDialog(null)
+    await refreshFaqs()
   }
 
   const onSaveGuardrail = async () => {
@@ -267,6 +269,7 @@ export function KnowledgeBaseEditor() {
     }
     toast.success(mode === "new" ? "Guardrail added" : "Guardrail updated")
     setGuardrailDialog(null)
+    await refreshGuardrails()
   }
 
   const onConfirmDelete = async () => {

@@ -23,9 +23,10 @@ export type TableName =
 
 export interface UseRealtimeOptions<T> {
   table: TableName
-  initialData: T[]
+  initialData?: T[]
   event?: "*" | "INSERT" | "UPDATE" | "DELETE"
   filter?: string
+  orderBy?: { column: string; ascending?: boolean }
   mapRow?: (row: Record<string, unknown>) => T
   getId?: (item: T) => string
 }
@@ -35,16 +36,111 @@ export function useRealtimeSubscription<T>({
   initialData,
   event = "*",
   filter,
+  orderBy,
   mapRow,
   getId,
 }: UseRealtimeOptions<T>) {
-  const [data, setData] = React.useState<T[]>(() => initialData)
+  const [data, setData] = React.useState<T[]>(() => initialData ?? [])
   const [error, setError] = React.useState<Error | null>(null)
-  const [loading, setLoading] = React.useState(false)
+  const [loading, setLoading] = React.useState(true)
 
   const mapRowRef = React.useRef(mapRow)
   const getIdRef = React.useRef(getId)
+  const orderByRef = React.useRef(orderBy)
 
+  React.useEffect(() => {
+    mapRowRef.current = mapRow
+    getIdRef.current = getId
+    orderByRef.current = orderBy
+  }, [mapRow, getId, orderBy])
+
+  const safeGetId = React.useCallback((item: unknown): string | undefined => {
+    if (item == null) return undefined
+    try {
+      if (getIdRef.current) {
+        const id = getIdRef.current(item as never)
+        return typeof id === "string" && id.length > 0 ? id : undefined
+      }
+    } catch (e) {
+      console.error(`[realtime:${table}] getId threw:`, e)
+      return undefined
+    }
+    const fallback = (item as { id?: unknown })?.id
+    return typeof fallback === "string" && fallback.length > 0 ? fallback : undefined
+  }, [table])
+
+  const safeMapRow = React.useCallback((row: unknown): T | undefined => {
+    if (row == null) return undefined
+    try {
+      if (!mapRowRef.current) return row as T
+      const mapped = mapRowRef.current(row as Record<string, unknown>)
+      if (mapped == null) return undefined
+      return mapped
+    } catch (e) {
+      console.error(`[realtime:${table}] mapRow threw:`, e, { row })
+      return undefined
+    }
+  }, [table])
+
+  // Initial fetch — runs once on mount so the list is populated from the DB
+  // even when Supabase Realtime is not configured for this table. Realtime
+  // events are merged into this state via dedup-by-id below.
+  const fetchInitialRef = React.useRef<(() => Promise<void>) | null>(null)
+  React.useEffect(() => {
+    let cancelled = false
+    const supabase = createClient()
+
+    async function fetchInitial() {
+      try {
+        let query = supabase.from(table).select("*")
+        const ob = orderByRef.current
+        if (ob) {
+          query = query.order(ob.column, { ascending: ob.ascending ?? true })
+        }
+        const result = await query
+        if (cancelled) return
+        const resultError = (result as { error: { message: string } | null }).error
+        const resultData = (result as { data: Record<string, unknown>[] | null }).data
+        if (resultError) {
+          setError(new Error(resultError.message))
+        } else {
+          const rows = Array.isArray(resultData) ? resultData : []
+          const mapped = rows
+            .map((row) => safeMapRow(row))
+            .filter((row): row is T => row != null)
+          setData((prev) => {
+            // Merge: keep any rows already added by realtime events, dedupe by id
+            const byId = new Map<string, T>()
+            for (const item of mapped) {
+              const id = safeGetId(item)
+              if (id) byId.set(id, item)
+            }
+            for (const item of prev) {
+              const id = safeGetId(item)
+              if (id && !byId.has(id)) byId.set(id, item)
+            }
+            return Array.from(byId.values())
+          })
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e : new Error(String(e)))
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    fetchInitialRef.current = fetchInitial
+    void fetchInitial()
+
+    return () => {
+      cancelled = true
+      fetchInitialRef.current = null
+    }
+  }, [table, safeMapRow, safeGetId])
+
+  // Realtime subscription for live updates after the initial fetch.
   React.useEffect(() => {
     const supabase = createClient()
 
@@ -52,34 +148,6 @@ export function useRealtimeSubscription<T>({
     const channel = supabase.channel(channelName)
 
     const events = event === "*" ? ["INSERT", "UPDATE", "DELETE"] : [event]
-
-    const safeGetId = (item: unknown): string | undefined => {
-      if (item == null) return undefined
-      try {
-        if (getIdRef.current) {
-          const id = getIdRef.current(item as never)
-          return typeof id === "string" && id.length > 0 ? id : undefined
-        }
-      } catch (e) {
-        console.error(`[realtime:${table}] getId threw:`, e)
-        return undefined
-      }
-      const fallback = (item as { id?: unknown })?.id
-      return typeof fallback === "string" && fallback.length > 0 ? fallback : undefined
-    }
-
-    const safeMapRow = (row: unknown): T | undefined => {
-      if (row == null) return undefined
-      try {
-        if (!mapRowRef.current) return row as T
-        const mapped = mapRowRef.current(row as Record<string, unknown>)
-        if (mapped == null) return undefined
-        return mapped
-      } catch (e) {
-        console.error(`[realtime:${table}] mapRow threw:`, e, { row })
-        return undefined
-      }
-    }
 
     events.forEach((evt) => {
       channel.on(
@@ -141,7 +209,7 @@ export function useRealtimeSubscription<T>({
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [table, event, filter])
+  }, [table, event, filter, safeMapRow, safeGetId])
 
   const updateData = React.useCallback(
     (updater: T[] | ((prev: T[]) => T[])) => {
@@ -150,5 +218,9 @@ export function useRealtimeSubscription<T>({
     [],
   )
 
-  return { data, error, loading, setData: updateData }
+  const refresh = React.useCallback(async () => {
+    await fetchInitialRef.current?.()
+  }, [])
+
+  return { data, error, loading, setData: updateData, refresh }
 }
