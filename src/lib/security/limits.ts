@@ -95,6 +95,7 @@ export const LIMITS = {
   actionSubscription: { bucket: "action:subscription", options: { maxRequests: 15, windowMs: minutes(1) } } as const,
   actionSetupAssistant: { bucket: "action:setup-assistant", options: { maxRequests: 30, windowMs: minutes(1) } } as const,
   actionAuth: { bucket: "action:auth", options: { maxRequests: 20, windowMs: minutes(1) } } as const,
+  actionAdminUsers: { bucket: "action:admin:users", options: { maxRequests: 30, windowMs: minutes(1) } } as const,
 
   // -------------------------------------------------------------------
   // Global per-IP safety net (used in proxy.ts for everything else)

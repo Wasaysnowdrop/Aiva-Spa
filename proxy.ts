@@ -118,6 +118,26 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(redirectUrl)
   }
 
+  // Banned users (auth.users.app_metadata.banned = true) are blocked from
+  // every product page. They get bounced to a 403 with a one-line
+  // explanation. Admin routes and the auth flow itself are exempt so an
+  // admin can unban them.
+  if (
+    isProtected &&
+    user &&
+    (user.app_metadata as { banned?: boolean } | null)?.banned
+  ) {
+    if (!isAdminSubdomain && (pathname.startsWith("/dashboard") || pathname.startsWith("/onboarding"))) {
+      return new NextResponse(
+        "Your account has been suspended. Please contact support.",
+        {
+          status: 403,
+          headers: { "content-type": "text/plain; charset=utf-8" },
+        },
+      )
+    }
+  }
+
   if (isAuthRoute && user) {
     const redirectUrl = request.nextUrl.clone()
     // On the admin subdomain, send the user to the admin home rather

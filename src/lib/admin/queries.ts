@@ -281,14 +281,21 @@ export async function getAdminSettings() {
 export async function getUserList() {
   const admin = createAdminClient()
   const { data } = await admin.auth.admin.listUsers({ perPage: 200 })
-  return (data?.users ?? []).map((u) => ({
-    id: u.id,
-    email: u.email ?? null,
-    createdAt: u.created_at,
-    lastSignInAt: u.last_sign_in_at ?? null,
-    appMetadata: (u.app_metadata ?? {}) as Record<string, unknown>,
-    userMetadata: (u.user_metadata ?? {}) as Record<string, unknown>,
-  }))
+  return (data?.users ?? []).map((u) => {
+    const app = (u.app_metadata ?? {}) as Record<string, unknown>
+    return {
+      id: u.id,
+      email: u.email ?? null,
+      createdAt: u.created_at,
+      lastSignInAt: u.last_sign_in_at ?? null,
+      appMetadata: app,
+      userMetadata: (u.user_metadata ?? {}) as Record<string, unknown>,
+      isAdmin: Boolean(app.is_admin),
+      banned: Boolean(app.banned),
+      bannedAt: typeof app.banned_at === "string" ? app.banned_at : null,
+      banReason: typeof app.ban_reason === "string" ? app.ban_reason : null,
+    }
+  })
 }
 
 export async function getDatabaseHealth() {

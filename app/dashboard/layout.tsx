@@ -1,4 +1,5 @@
 import * as React from "react";
+import { redirect } from "next/navigation";
 
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { DashboardDrawerProvider } from "@/components/dashboard/dashboard-drawer-context";
@@ -17,6 +18,15 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // Defense in depth: the proxy.ts should already have blocked banned
+  // users before this runs, but if a banned user lands here via a
+  // server action or cached page, sign them out and bounce them to
+  // the login screen with a clear message.
+  if (user && (user.app_metadata as { banned?: boolean } | null)?.banned) {
+    await supabase.auth.signOut().catch(() => null);
+    redirect("/login?error=banned");
+  }
 
   const subscription = await getCurrentSubscription();
 

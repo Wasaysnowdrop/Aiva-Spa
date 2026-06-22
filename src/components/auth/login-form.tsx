@@ -29,6 +29,7 @@ export function LoginForm() {
   const searchParams = useSearchParams();
   const resetStatus = searchParams.get("reset");
   const oauthError = searchParams.get("error");
+  const bannedError = searchParams.get("error") === "banned";
   const redirectTo = searchParams.get("redirectTo") ?? undefined;
 
   const {
@@ -96,6 +97,11 @@ export function LoginForm() {
       {oauthError === "oauth" ? (
         <div className="rounded-xl border border-[#EB5757]/40 bg-[#EB5757]/10 px-4 py-3 text-sm text-[#EB5757]">
           We couldn&apos;t complete the social sign-in. Please try email &amp; password.
+        </div>
+      ) : null}
+      {bannedError ? (
+        <div className="rounded-xl border border-[#EB5757]/40 bg-[#EB5757]/10 px-4 py-3 text-sm text-[#EB5757]">
+          Your account has been suspended. Please contact support to restore access.
         </div>
       ) : null}
 
