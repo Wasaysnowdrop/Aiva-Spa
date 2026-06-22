@@ -84,17 +84,10 @@ function logKbError(stage: string, payload: unknown, error: unknown) {
 
 export async function getServices(): Promise<KnowledgeService[]> {
   const supabase = createAdminClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser().catch(() => ({ data: { user: null } } as never))
-  let query = supabase
+  const { data, error } = await supabase
     .from("knowledge_services")
     .select("*")
     .order("name")
-  if (user?.id) {
-    query = query.or(`user_id.is.null,user_id.eq.${user.id}`)
-  }
-  const { data, error } = await query
   if (error) {
     logKbError("getServices", null, error)
     throw new Error(error.message)
@@ -254,17 +247,10 @@ function faqToSnake(
 
 export async function getFaqs(): Promise<KnowledgeFaq[]> {
   const supabase = createAdminClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser().catch(() => ({ data: { user: null } } as never))
-  let query = supabase
+  const { data, error } = await supabase
     .from("knowledge_faqs")
     .select("*")
     .order("created_at")
-  if (user?.id) {
-    query = query.or(`user_id.is.null,user_id.eq.${user.id}`)
-  }
-  const { data, error } = await query
   if (error) throw new Error(error.message)
   return (data ?? []).map((row) =>
     mapKnowledgeFaq(row as Record<string, unknown>),
@@ -452,17 +438,10 @@ function guardrailToSnake(
 
 export async function getGuardrails(): Promise<KnowledgeGuardrail[]> {
   const supabase = createAdminClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser().catch(() => ({ data: { user: null } } as never))
-  let query = supabase
+  const { data, error } = await supabase
     .from("knowledge_guardrails")
     .select("*")
     .order("created_at")
-  if (user?.id) {
-    query = query.or(`user_id.is.null,user_id.eq.${user.id}`)
-  }
-  const { data, error } = await query
   if (error) throw new Error(error.message)
   return (data ?? []).map((row) =>
     mapKnowledgeGuardrail(row as Record<string, unknown>),
