@@ -382,7 +382,7 @@ See `supabase/migrations/00001_initial_schema.sql` for full DDL. Tables:
 | --- | --- |
 | `spa_settings` | Single-row workspace config (name, website, owner, plan). |
 | `team_members` | Roles + invite status. |
-| `knowledge_services` / `knowledge_faqs` / `knowledge_guardrails` | Approved KB the AI is allowed to draw from. |
+| `knowledge_services` / `knowledge_faqs` / `knowledge_guardrails` | Approved KB the AI is allowed to draw from. RLS disabled (see migration `00019`) — dashboard edits use the admin client; public widget reads are scoped by `spa_settings.allowed_origins` at the route boundary. |
 | `widget_config` | Single-row widget appearance + working hours. |
 | `widget_installs` | One row per install of the widget (key = `widget_key` = `spaId`); `active` flag + `user_id`. |
 | `leads` | Captured leads with normalized phone/email, transcript, status, source, after_hours, consent_given. |
