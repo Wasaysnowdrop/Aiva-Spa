@@ -1,6 +1,5 @@
 import "server-only"
 
-import { createAdminClient } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 import type {
   KnowledgeService,
@@ -13,18 +12,6 @@ import {
   mapKnowledgeFaq,
   mapKnowledgeGuardrail,
 } from "@/lib/supabase/types"
-// KB read/write helpers.
-//
-// Each helper that mutates a row takes the current authenticated user id
-// (`auth.users.id`) and stamps it onto `user_id`. Reads always include
-// `user_id IS NULL` so legacy / seed rows stay visible to everyone until
-// they're touched by a user. RLS (migration 00022_kb_user_scoping.sql)
-// enforces the same predicate on the browser client, so the dashboard
-// realtime fetch and the server action read agree.
-//
-// Server actions look up the user via the SSR cookie client
-// (`createClient()`); the admin client is used for the actual mutation
-// so a stale cookie in the action request can never block a write.
 
 export type ServiceInsert = {
   name: string
@@ -55,11 +42,9 @@ async function resolveCurrentUserId(): Promise<string> {
     const supabase = await createClient()
     const {
       data: { user },
+      error
     } = await supabase.auth.getUser()
-    if (!user) throw new Error("Not authenticated")
-    if (process.env.NODE_ENV !== "production") {
-      console.log("[kb] resolveCurrentUserId ->", user.id)
-    }
+    if (error || !user) throw new Error("Not authenticated")
     return user.id
   } catch (e) {
     const message = e instanceof Error ? e.message : "auth lookup failed"
@@ -83,18 +68,21 @@ function logKbError(stage: string, payload: unknown, error: unknown) {
 }
 
 export async function getServices(): Promise<KnowledgeService[]> {
-  const supabase = createAdminClient()
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
   const { data, error } = await supabase
     .from("knowledge_services")
     .select("*")
+    .eq("user_id", user.id)
     .order("name")
+  
   if (error) {
     logKbError("getServices", null, error)
     throw new Error(error.message)
   }
-  if (process.env.NODE_ENV !== "production") {
-    console.log(`[kb] getServices returned ${data?.length ?? 0} rows`)
-  }
+  
   return (data ?? []).map((row) =>
     mapKnowledgeService(row as Record<string, unknown>),
   )
@@ -104,121 +92,67 @@ export async function createService(
   service: ServiceInsert,
   userId?: string,
 ): Promise<KnowledgeService> {
+  const supabase = await createClient()
   const ownerId = userId ?? (await resolveCurrentUserId())
+  
   const payload = {
     ...serviceToSnake(service),
     user_id: ownerId,
     updated_at: new Date().toISOString(),
   }
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[kb] createService payload", payload)
-  }
 
-  // First try: service-role admin client (bypasses RLS entirely).
-  try {
-    const admin = createAdminClient()
-    const { data, error } = await admin
-      .from("knowledge_services")
-      .insert(payload as never)
-      .select()
-      .single()
-    if (!error && data) {
-      if (process.env.NODE_ENV !== "production") {
-        console.log("[kb] createService ok via admin client", data)
-      }
-      return mapKnowledgeService(data as Record<string, unknown>)
-    }
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(
-        "[kb] createService admin client returned error, falling back to SSR client",
-        { error },
-      )
-    }
-  } catch (e) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(
-        "[kb] createService admin client threw, falling back to SSR client",
-        { error: e instanceof Error ? e.message : String(e) },
-      )
-    }
-  }
-
-  // Fallback: SSR (user-cookie) client. Migration 00025 made the
-  // INSERT policy permissive (`with check (true)`) and added a BEFORE
-  // INSERT trigger that auto-fills user_id from auth.uid(), so this
-  // path is now bulletproof as well.
-  const supabase = await createClient()
   const { data, error } = await supabase
     .from("knowledge_services")
     .insert(payload as never)
     .select()
     .single()
+    
   if (error) {
-    logKbError("createService (fallback)", payload, error)
+    logKbError("createService", payload, error)
     throw new Error(error.message)
   }
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[kb] createService ok via SSR fallback", data)
-  }
+  
   return mapKnowledgeService(data as Record<string, unknown>)
 }
 
 export async function updateService(
   update: ServiceUpdate,
 ): Promise<KnowledgeService> {
+  const supabase = await createClient()
   const ownerId = await resolveCurrentUserId()
   const { id, ...rest } = update
+  
   const snakeUpdate = {
     ...serviceToSnake(rest),
-    user_id: ownerId,
     updated_at: new Date().toISOString(),
   }
 
-  try {
-    const admin = createAdminClient()
-    const { data, error } = await admin
-      .from("knowledge_services")
-      .update(snakeUpdate as never)
-      .eq("id", id)
-      .select()
-      .single()
-    if (!error && data) {
-      return mapKnowledgeService(data as Record<string, unknown>)
-    }
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(
-        "[kb] updateService admin client returned error, falling back",
-        { error },
-      )
-    }
-  } catch (e) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn("[kb] updateService admin client threw, falling back", {
-        error: e instanceof Error ? e.message : String(e),
-      })
-    }
-  }
-
-  const supabase = await createClient()
   const { data, error } = await supabase
     .from("knowledge_services")
     .update(snakeUpdate as never)
     .eq("id", id)
+    .eq("user_id", ownerId)
     .select()
     .single()
+    
   if (error) {
-    logKbError("updateService (fallback)", { id, ...rest }, error)
+    logKbError("updateService", { id, ...rest }, error)
     throw new Error(error.message)
   }
+  
   return mapKnowledgeService(data as Record<string, unknown>)
 }
 
 export async function deleteService(id: string): Promise<void> {
-  const supabase = createAdminClient()
+  const supabase = await createClient()
+  const ownerId = await resolveCurrentUserId()
+  
   const { error } = await supabase
     .from("knowledge_services")
     .delete()
     .eq("id", id)
+    .eq("user_id", ownerId)
+    
   if (error) {
     logKbError("deleteService", { id }, error)
     throw new Error(error.message)
@@ -246,12 +180,18 @@ function faqToSnake(
 }
 
 export async function getFaqs(): Promise<KnowledgeFaq[]> {
-  const supabase = createAdminClient()
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
   const { data, error } = await supabase
     .from("knowledge_faqs")
     .select("*")
+    .eq("user_id", user.id)
     .order("created_at")
+    
   if (error) throw new Error(error.message)
+  
   return (data ?? []).map((row) =>
     mapKnowledgeFaq(row as Record<string, unknown>),
   )
@@ -261,109 +201,67 @@ export async function createFaq(
   faq: FaqInsert,
   userId?: string,
 ): Promise<KnowledgeFaq> {
+  const supabase = await createClient()
   const ownerId = userId ?? (await resolveCurrentUserId())
+  
   const payload = {
     ...faqToSnake(faq),
     user_id: ownerId,
     updated_at: new Date().toISOString(),
   }
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[kb] createFaq payload", payload)
-  }
 
-  try {
-    const admin = createAdminClient()
-    const { data, error } = await admin
-      .from("knowledge_faqs")
-      .insert(payload as never)
-      .select()
-      .single()
-    if (!error && data) {
-      return mapKnowledgeFaq(data as Record<string, unknown>)
-    }
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(
-        "[kb] createFaq admin client returned error, falling back to SSR client",
-        { error },
-      )
-    }
-  } catch (e) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn("[kb] createFaq admin client threw, falling back", {
-        error: e instanceof Error ? e.message : String(e),
-      })
-    }
-  }
-
-  const supabase = await createClient()
   const { data, error } = await supabase
     .from("knowledge_faqs")
     .insert(payload as never)
     .select()
     .single()
+    
   if (error) {
-    logKbError("createFaq (fallback)", payload, error)
+    logKbError("createFaq", payload, error)
     throw new Error(error.message)
   }
+  
   return mapKnowledgeFaq(data as Record<string, unknown>)
 }
 
 export async function updateFaq(
   update: FaqUpdate,
 ): Promise<KnowledgeFaq> {
+  const supabase = await createClient()
   const ownerId = await resolveCurrentUserId()
   const { id, ...rest } = update
+  
   const snakeUpdate = {
     ...faqToSnake(rest),
-    user_id: ownerId,
     updated_at: new Date().toISOString(),
   }
 
-  try {
-    const admin = createAdminClient()
-    const { data, error } = await admin
-      .from("knowledge_faqs")
-      .update(snakeUpdate as never)
-      .eq("id", id)
-      .select()
-      .single()
-    if (!error && data) {
-      return mapKnowledgeFaq(data as Record<string, unknown>)
-    }
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(
-        "[kb] updateFaq admin client returned error, falling back",
-        { error },
-      )
-    }
-  } catch (e) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn("[kb] updateFaq admin client threw, falling back", {
-        error: e instanceof Error ? e.message : String(e),
-      })
-    }
-  }
-
-  const supabase = await createClient()
   const { data, error } = await supabase
     .from("knowledge_faqs")
     .update(snakeUpdate as never)
     .eq("id", id)
+    .eq("user_id", ownerId)
     .select()
     .single()
+    
   if (error) {
-    logKbError("updateFaq (fallback)", { id }, error)
+    logKbError("updateFaq", { id }, error)
     throw new Error(error.message)
   }
+  
   return mapKnowledgeFaq(data as Record<string, unknown>)
 }
 
 export async function deleteFaq(id: string): Promise<void> {
-  const supabase = createAdminClient()
+  const supabase = await createClient()
+  const ownerId = await resolveCurrentUserId()
+  
   const { error } = await supabase
     .from("knowledge_faqs")
     .delete()
     .eq("id", id)
+    .eq("user_id", ownerId)
+    
   if (error) {
     console.error("[kb] deleteFaq failed", { id, error })
     throw new Error(error.message)
@@ -437,12 +335,18 @@ function guardrailToSnake(
 }
 
 export async function getGuardrails(): Promise<KnowledgeGuardrail[]> {
-  const supabase = createAdminClient()
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
   const { data, error } = await supabase
     .from("knowledge_guardrails")
     .select("*")
+    .eq("user_id", user.id)
     .order("created_at")
+    
   if (error) throw new Error(error.message)
+  
   return (data ?? []).map((row) =>
     mapKnowledgeGuardrail(row as Record<string, unknown>),
   )
@@ -452,13 +356,16 @@ export async function createGuardrail(
   guardrail: GuardrailInsert,
   userId?: string,
 ): Promise<KnowledgeGuardrail> {
+  const supabase = await createClient()
   const ownerId = userId ?? (await resolveCurrentUserId())
+  
   const descriptionText =
     typeof guardrail.description === "string"
       ? guardrail.description.trim()
       : typeof guardrail.body === "string"
         ? guardrail.body.trim()
         : ""
+        
   const payload = {
     ...guardrailToSnake(guardrail),
     description: descriptionText,
@@ -466,109 +373,59 @@ export async function createGuardrail(
     user_id: ownerId,
     updated_at: new Date().toISOString(),
   }
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[kb] createGuardrail payload", payload)
-  }
 
-  try {
-    const admin = createAdminClient()
-    const { data, error } = await admin
-      .from("knowledge_guardrails")
-      .insert(payload as never)
-      .select()
-      .single()
-    if (!error && data) {
-      if (process.env.NODE_ENV !== "production") {
-        console.log("[kb] createGuardrail ok via admin client", data)
-      }
-      return mapKnowledgeGuardrail(data as Record<string, unknown>)
-    }
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(
-        "[kb] createGuardrail admin client returned error, falling back to SSR client",
-        { error },
-      )
-    }
-  } catch (e) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn("[kb] createGuardrail admin client threw, falling back", {
-        error: e instanceof Error ? e.message : String(e),
-      })
-    }
-  }
-
-  const supabase = await createClient()
   const { data, error } = await supabase
     .from("knowledge_guardrails")
     .insert(payload as never)
     .select()
     .single()
+    
   if (error) {
-    logKbError("createGuardrail (fallback)", payload, error)
+    logKbError("createGuardrail", payload, error)
     throw new Error(error.message)
   }
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[kb] createGuardrail ok via SSR fallback", data)
-  }
+  
   return mapKnowledgeGuardrail(data as Record<string, unknown>)
 }
 
 export async function updateGuardrail(
   update: GuardrailUpdate,
 ): Promise<KnowledgeGuardrail> {
+  const supabase = await createClient()
   const ownerId = await resolveCurrentUserId()
   const { id, ...rest } = update
+  
   const snakeUpdate = {
     ...guardrailToSnake(rest),
-    user_id: ownerId,
     updated_at: new Date().toISOString(),
   }
 
-  try {
-    const admin = createAdminClient()
-    const { data, error } = await admin
-      .from("knowledge_guardrails")
-      .update(snakeUpdate as never)
-      .eq("id", id)
-      .select()
-      .single()
-    if (!error && data) {
-      return mapKnowledgeGuardrail(data as Record<string, unknown>)
-    }
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(
-        "[kb] updateGuardrail admin client returned error, falling back",
-        { error },
-      )
-    }
-  } catch (e) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn("[kb] updateGuardrail admin client threw, falling back", {
-        error: e instanceof Error ? e.message : String(e),
-      })
-    }
-  }
-
-  const supabase = await createClient()
   const { data, error } = await supabase
     .from("knowledge_guardrails")
     .update(snakeUpdate as never)
     .eq("id", id)
+    .eq("user_id", ownerId)
     .select()
     .single()
+    
   if (error) {
-    logKbError("updateGuardrail (fallback)", { id, ...rest }, error)
+    logKbError("updateGuardrail", { id, ...rest }, error)
     throw new Error(error.message)
   }
+  
   return mapKnowledgeGuardrail(data as Record<string, unknown>)
 }
 
 export async function deleteGuardrail(id: string): Promise<void> {
-  const supabase = createAdminClient()
+  const supabase = await createClient()
+  const ownerId = await resolveCurrentUserId()
+  
   const { error } = await supabase
     .from("knowledge_guardrails")
     .delete()
     .eq("id", id)
+    .eq("user_id", ownerId)
+    
   if (error) {
     logKbError("deleteGuardrail", { id }, error)
     throw new Error(error.message)

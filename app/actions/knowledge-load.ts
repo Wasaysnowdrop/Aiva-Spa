@@ -1,6 +1,5 @@
 "use server"
 
-import { createAdminClient } from "@/lib/supabase/admin"
 import {
   mapKnowledgeService,
   mapKnowledgeFaq,
@@ -9,6 +8,7 @@ import {
   type KnowledgeFaq,
   type KnowledgeGuardrail,
 } from "@/lib/supabase/types"
+import { createClient } from "@/lib/supabase/server"
 import { checkActionLimit } from "@/lib/security/check-action-limit"
 import { LIMITS } from "@/lib/security/limits"
 
@@ -26,11 +26,16 @@ export async function loadKnowledgeBaseAction(): Promise<KnowledgeBaseSnapshot> 
   if (!limit.ok) {
     return { services: [], faqs: [], guardrails: [], fetchedAt: new Date().toISOString() }
   }
-  const admin = createAdminClient()
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return { services: [], faqs: [], guardrails: [], fetchedAt: new Date().toISOString() }
+  }
+
   const [svc, faq, grd] = await Promise.all([
-    admin.from("knowledge_services").select("*").order("name"),
-    admin.from("knowledge_faqs").select("*").order("created_at"),
-    admin.from("knowledge_guardrails").select("*").order("created_at"),
+    supabase.from("knowledge_services").select("*").eq("user_id", user.id).order("name"),
+    supabase.from("knowledge_faqs").select("*").eq("user_id", user.id).order("created_at"),
+    supabase.from("knowledge_guardrails").select("*").eq("user_id", user.id).order("created_at"),
   ])
   return {
     services: (svc.data ?? []).map((r) =>
