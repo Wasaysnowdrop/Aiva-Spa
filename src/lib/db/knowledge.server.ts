@@ -58,11 +58,29 @@ async function resolveCurrentUserId(): Promise<string> {
       data: { user },
     } = await supabase.auth.getUser()
     if (!user) throw new Error("Not authenticated")
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[kb] resolveCurrentUserId ->", user.id)
+    }
     return user.id
   } catch (e) {
     const message = e instanceof Error ? e.message : "auth lookup failed"
     throw new Error(`KB write requires an authenticated user (${message})`)
   }
+}
+
+function logKbError(stage: string, payload: unknown, error: unknown) {
+  console.error(`[kb] ${stage} failed`, {
+    payload,
+    error:
+      error && typeof error === "object"
+        ? {
+            message: (error as { message?: string }).message,
+            code: (error as { code?: string }).code,
+            details: (error as { details?: string }).details,
+            hint: (error as { hint?: string }).hint,
+          }
+        : error,
+  })
 }
 
 export async function getServices(): Promise<KnowledgeService[]> {
@@ -78,7 +96,13 @@ export async function getServices(): Promise<KnowledgeService[]> {
     query = query.or(`user_id.is.null,user_id.eq.${user.id}`)
   }
   const { data, error } = await query
-  if (error) throw new Error(error.message)
+  if (error) {
+    logKbError("getServices", null, error)
+    throw new Error(error.message)
+  }
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`[kb] getServices returned ${data?.length ?? 0} rows`)
+  }
   return (data ?? []).map((row) =>
     mapKnowledgeService(row as Record<string, unknown>),
   )
@@ -95,14 +119,20 @@ export async function createService(
     user_id: ownerId,
     updated_at: new Date().toISOString(),
   }
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[kb] createService payload", payload)
+  }
   const { data, error } = await supabase
     .from("knowledge_services")
     .insert(payload as never)
     .select()
     .single()
   if (error) {
-    console.error("[kb] createService failed", { payload, error })
+    logKbError("createService", payload, error)
     throw new Error(error.message)
+  }
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[kb] createService result", data)
   }
   return mapKnowledgeService(data as Record<string, unknown>)
 }
@@ -124,7 +154,7 @@ export async function updateService(
     .select()
     .single()
   if (error) {
-    console.error("[kb] updateService failed", { id, error })
+    logKbError("updateService", { id, ...rest }, error)
     throw new Error(error.message)
   }
   return mapKnowledgeService(data as Record<string, unknown>)
@@ -137,7 +167,7 @@ export async function deleteService(id: string): Promise<void> {
     .delete()
     .eq("id", id)
   if (error) {
-    console.error("[kb] deleteService failed", { id, error })
+    logKbError("deleteService", { id }, error)
     throw new Error(error.message)
   }
 }

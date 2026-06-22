@@ -9,6 +9,8 @@ export const metadata: Metadata = {
   description: "Manage services, FAQs, and guardrails that power AivaSpa's answers.",
 };
 
+export const dynamic = "force-dynamic";
+
 export default function KnowledgeBasePage() {
   return (
     <>

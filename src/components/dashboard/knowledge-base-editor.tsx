@@ -73,18 +73,17 @@ import {
 } from "@/app/actions/knowledge"
 import { toast } from "sonner"
 
-const suggestedKnowledgeCategoryOptions: KnowledgeCategory[] = [
+const SERVICE_CATEGORIES = [
   "Injectables",
   "Laser Treatments",
-  "Skin",
-  "Skin Rejuvenation",
   "Facials",
-  "Body",
+  "Skin Rejuvenation",
   "Body Treatments",
   "Wellness",
-  "Hair Removal",
   "Other",
-]
+] as const
+
+const suggestedKnowledgeCategoryOptions: KnowledgeCategory[] = [...SERVICE_CATEGORIES]
 
 type Tab = "services" | "faqs" | "rules"
 
@@ -139,7 +138,7 @@ export function KnowledgeBaseEditor() {
   const [consentText, setConsentText] = React.useState<string | null>(null)
   const [widgetConfig, setWidgetConfig] = React.useState<WidgetConfig | null>(null)
 
-  const { data: services, setData: setServices, refresh: refreshServices } = useRealtimeSubscription<KnowledgeService>({
+  const { data: services, setData: setServices, refresh: refreshServices, error: servicesError } = useRealtimeSubscription<KnowledgeService>({
     table: "knowledge_services",
     orderBy: { column: "name", ascending: true },
     mapRow: (row) => mapKnowledgeService(row),
@@ -457,6 +456,7 @@ export function KnowledgeBaseEditor() {
         {tab === "services" && (
           <ServicesTab
             services={services}
+            servicesError={servicesError}
             onNew={() =>
               setServiceDialog({ mode: "new", draft: { ...emptyServiceDraft } })
             }
@@ -640,12 +640,14 @@ export function KnowledgeBaseEditor() {
 
 function ServicesTab({
   services,
+  servicesError,
   onNew,
   onEdit,
   onDelete,
   onToggleActive,
 }: {
   services: KnowledgeService[]
+  servicesError?: Error | null
   onNew: () => void
   onEdit: (s: KnowledgeService) => void
   onDelete: (s: KnowledgeService) => void
@@ -669,6 +671,16 @@ function ServicesTab({
           New service
         </Button>
       </div>
+      {servicesError ? (
+        <div className="border-b border-[#EB5757]/40 bg-[#EB5757]/10 px-5 py-3 text-xs text-[#F7F8F8]">
+          <p className="font-semibold text-[#EB5757]">Could not load services from Supabase.</p>
+          <p className="mt-1 text-[#8A8F98]">{servicesError.message}</p>
+          <p className="mt-1 text-[10px] text-[#62666D]">
+            If you just applied a migration, run supabase db push and reload. New rows are still
+            being saved; they will appear here once the read path is healthy.
+          </p>
+        </div>
+      ) : null}
       {services.length === 0 ? (
         <div className="p-8 text-center text-sm text-[#8A8F98]">
           No services yet. Click <span className="text-[#F7F8F8]">New service</span> to add one.
