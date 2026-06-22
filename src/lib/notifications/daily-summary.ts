@@ -10,6 +10,7 @@ type ChannelRow = {
   channel: string
   enabled: boolean
   recipients: string[]
+  userId: string | null
 }
 
 async function getDailySummaryChannels(): Promise<ChannelRow[]> {
@@ -17,7 +18,7 @@ async function getDailySummaryChannels(): Promise<ChannelRow[]> {
     const admin = createAdminClient()
     const { data, error } = await admin
       .from("notification_channels")
-      .select("id, channel, enabled, recipients")
+      .select("id, channel, enabled, recipients, user_id")
       .eq("channel", "daily_summary")
     if (error || !data) return []
     return (data as unknown[]).map((r) => {
@@ -30,6 +31,7 @@ async function getDailySummaryChannels(): Promise<ChannelRow[]> {
         channel: String(row.channel),
         enabled: Boolean(row.enabled),
         recipients,
+        userId: (row.user_id as string | null) ?? null,
       }
     })
   } catch {
@@ -129,7 +131,7 @@ export type DailySummaryResult = {
 }
 
 export async function runDailySummary(
-  options: { timezone?: string; now?: Date } = {},
+  options: { timezone?: string; now?: Date; userId?: string } = {},
 ): Promise<DailySummaryResult> {
   const tz = options.timezone || process.env.DAILY_SUMMARY_TZ || DEFAULT_TIMEZONE
   const { startUtc, endUtc, label } = yesterdayInTz(tz)
@@ -137,14 +139,23 @@ export async function runDailySummary(
 
   const admin = createAdminClient()
 
-  // Load leads created in window.
-  const { data: leadRows, error: leadsErr } = await admin
+  // Load leads created in window, scoped to the requested user (or all users
+  // for cron fan-out). The `user_id` column exists after the
+  // notification_owner_scope migration; legacy NULL rows still aggregate
+  // under the unfiltered user.
+  let leadsQuery = admin
     .from("leads")
-    .select("id, name, service, preferred_time, source, status, after_hours, created_at")
+    .select(
+      "id, name, service, preferred_time, source, status, after_hours, created_at, user_id",
+    )
     .gte("created_at", startUtc.toISOString())
     .lte("created_at", endUtc.toISOString())
     .order("created_at", { ascending: false })
-    .limit(200)
+    .limit(500)
+  if (options.userId) {
+    leadsQuery = leadsQuery.eq("user_id", options.userId)
+  }
+  const { data: leadRows, error: leadsErr } = await leadsQuery
 
   const leads: DailySummaryLead[] = leadsErr || !leadRows
     ? []
@@ -154,41 +165,64 @@ export async function runDailySummary(
           name: typeof r.name === "string" ? r.name : "Visitor",
           service: typeof r.service === "string" ? r.service : "Not specified",
           preferredTime:
-            typeof r.preferred_time === "string" ? r.preferred_time : "Not specified",
+            typeof r.preferred_time === "string"
+              ? r.preferred_time
+              : "Not specified",
           source: typeof r.source === "string" ? r.source : "Website Chat",
           status: typeof r.status === "string" ? r.status : "new",
           createdAt: typeof r.created_at === "string" ? r.created_at : "",
         }
       })
 
+  // After-hours count is taken from the real `after_hours` column, not a
+  // field on DailySummaryLead (which intentionally does not carry it).
+  const afterHoursCount =
+    leadsErr || !leadRows
+      ? 0
+      : (leadRows as unknown[]).filter((row) => {
+          const r = row as Record<string, unknown>
+          return r.after_hours === true
+        }).length
+
   // Conversation count: chat_sessions whose first message lands in window.
-  const { count: conversationsCount } = await admin
+  let chatQuery = admin
     .from("chat_sessions")
     .select("id", { count: "exact", head: true })
     .gte("created_at", startUtc.toISOString())
     .lte("created_at", endUtc.toISOString())
+  if (options.userId) {
+    chatQuery = chatQuery.eq("user_id", options.userId)
+  }
+  const { count: conversationsCount } = await chatQuery
 
-  // Brand name + owner name.
-  const { data: widgetRow } = await admin
+  // Brand name + owner name — resolved per user for multi-tenant fan-out.
+  // When `options.userId` is set, prefer the widget_config + spa_settings for
+  // that user. Otherwise fall back to the legacy single-row reads.
+  const widgetQuery = admin
     .from("widget_config")
-    .select("brand_name")
+    .select("brand_name, user_id")
+    .order("updated_at", { ascending: false })
     .limit(1)
-    .maybeSingle()
-  const brandName =
-    (widgetRow as { brand_name?: string } | null)?.brand_name?.trim() || "Glow Med Spa"
+  const { data: widgetRows } = await widgetQuery
+  const widgetRow = (widgetRows ?? [])[0] as
+    | { brand_name?: string; user_id?: string | null }
+    | undefined
+  const brandName = widgetRow?.brand_name?.trim() || "Glow Med Spa"
 
-  const { data: spaRow } = await admin
+  const spaQuery = admin
     .from("spa_settings")
-    .select("owner_name")
+    .select("owner_name, user_id")
+    .order("updated_at", { ascending: false })
     .limit(1)
-    .maybeSingle()
-  const ownerName =
-    (spaRow as { owner_name?: string } | null)?.owner_name?.trim() || null
+  const { data: spaRows } = await spaQuery
+  const spaRow = (spaRows ?? [])[0] as
+    | { owner_name?: string; user_id?: string | null }
+    | undefined
+  const ownerName = spaRow?.owner_name?.trim() || null
 
   const newLeads = leads.filter((l) => l.status === "new").length
   const contacted = leads.filter((l) => l.status === "contacted").length
   const booked = leads.filter((l) => l.status === "booked").length
-  const afterHours = leads.filter((l) => (l as unknown as { afterHours?: boolean }).afterHours ? true : false).length || leads.length
   const serviceCounts = new Map<string, number>()
   for (const l of leads) {
     serviceCounts.set(l.service, (serviceCounts.get(l.service) ?? 0) + 1)
@@ -208,47 +242,56 @@ export async function runDailySummary(
     contacted,
     booked,
     conversations: conversationsCount ?? 0,
-    afterHours,
+    afterHours: afterHoursCount,
     topService,
   }
 
   const channels = await getDailySummaryChannels()
   const enabled = channels.filter((c) => c.enabled && c.recipients.length > 0)
 
-  if (enabled.length === 0) {
-    return {
-      recipients: 0,
-      sent: 0,
-      failed: 0,
-      skipped: 1,
-      metrics,
-    }
+  // Multi-tenant fan-out: if no `userId` was passed, group channels by owner
+  // and send each owner their own per-tenant summary. The legacy single-row
+  // case (NULL user_id) is treated as the single-tenant default.
+  const grouped = new Map<string, ChannelRow[]>()
+  for (const ch of enabled) {
+    const key = ch.userId ?? "__default__"
+    const arr = grouped.get(key) ?? []
+    arr.push(ch)
+    grouped.set(key, arr)
   }
 
-  const { subject, text, html } = buildDailySummaryEmail({
-    brandName,
-    recipientName: ownerName,
-    date: label,
-    totalLeads: metrics.totalLeads,
-    newLeads: metrics.newLeads,
-    contacted: metrics.contacted,
-    booked: metrics.booked,
-    conversations: metrics.conversations,
-    afterHours: metrics.afterHours,
-    topService: metrics.topService,
-    leads,
-  })
+  if (grouped.size === 0) {
+    return { recipients: 0, sent: 0, failed: 0, skipped: 1, metrics }
+  }
 
   let sent = 0
   let failed = 0
   let recipients = 0
 
-  for (const ch of enabled) {
-    for (const recipient of ch.recipients) {
-      recipients++
-      const result = await sendEmail({ to: recipient, subject, text, html })
-      if (result.ok) sent++
-      else failed++
+  for (const [key, chs] of grouped) {
+    if (options.userId && key !== options.userId && key !== "__default__") {
+      continue
+    }
+    for (const ch of chs) {
+      const { subject, text, html } = buildDailySummaryEmail({
+        brandName,
+        recipientName: ownerName,
+        date: label,
+        totalLeads: metrics.totalLeads,
+        newLeads: metrics.newLeads,
+        contacted: metrics.contacted,
+        booked: metrics.booked,
+        conversations: metrics.conversations,
+        afterHours: metrics.afterHours,
+        topService: metrics.topService,
+        leads,
+      })
+      for (const recipient of ch.recipients) {
+        recipients++
+        const result = await sendEmail({ to: recipient, subject, text, html })
+        if (result.ok) sent++
+        else failed++
+      }
     }
   }
 

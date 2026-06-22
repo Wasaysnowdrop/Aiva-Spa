@@ -788,6 +788,7 @@ function FirstEmailChannelGate({
     setError(null)
     setSubmitting(true)
     try {
+      // Create the instant lead-alert email channel…
       const result = await createNotificationChannelAction({
         channel: "email",
         label: "Email",
@@ -800,7 +801,21 @@ function FirstEmailChannelGate({
         toast.error(result.error ?? "Failed to save")
         return
       }
-      toast.success("Email added — you'll get notified on new leads")
+      // …and the daily-summary channel on the same address so the owner
+      // gets a 24-hour recap without a second click. Failures here are
+      // non-fatal — the lead alert is the must-have.
+      try {
+        await createNotificationChannelAction({
+          channel: "daily_summary",
+          label: "Daily summary",
+          description: "Every morning at 8 AM, get a recap of yesterday's leads",
+          enabled: true,
+          recipients: [target],
+        })
+      } catch (e) {
+        console.error("[notifications] daily_summary seed failed", e)
+      }
+      toast.success("Email + daily summary added — you'll get notified on new leads")
       setEmail("")
       await onCreated()
     } catch (e) {
