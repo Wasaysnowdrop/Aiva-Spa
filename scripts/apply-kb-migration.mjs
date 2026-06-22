@@ -61,11 +61,11 @@ async function inspect() {
 
 async function applyMigration() {
   const sql = readFileSync(
-    resolve(process.cwd(), "supabase/migrations/00023_kb_persistence_hardening.sql"),
+    resolve(process.cwd(), "supabase/migrations/00027_kb_proper_rls.sql"),
     "utf-8",
   )
 
-  console.log("\n=== APPLYING MIGRATION 00023_kb_persistence_hardening.sql ===\n")
+  console.log("\n=== APPLYING MIGRATION 00027_kb_proper_rls.sql ===\n")
 
   // Supabase JS client doesn't run arbitrary SQL. We split the migration into
   // individual statements and execute them through the PostgREST rpc endpoint
@@ -76,7 +76,7 @@ async function applyMigration() {
   // stored procedure call.
 
   const createFnSql = `
-    create or replace function public._apply_migration_00023(p_sql text)
+    create or replace function public._apply_migration_00027(p_sql text)
     returns void
     language plpgsql
     security definer
@@ -88,7 +88,7 @@ async function applyMigration() {
     $$;
   `
 
-  const dropFnSql = `drop function if exists public._apply_migration_00023(text);`
+  const dropFnSql = `drop function if exists public._apply_migration_00027(text);`
 
   console.log("Creating transient exec function…")
   const { error: createErr } = await supabase.rpc("exec_sql", { sql: createFnSql })
@@ -111,7 +111,7 @@ async function applyMigration() {
     const stmt = statements[i]
     const preview = stmt.replace(/\s+/g, " ").slice(0, 80)
     console.log(`\n[${i + 1}/${statements.length}] ${preview}…`)
-    const { error } = await supabase.rpc("_apply_migration_00023", { p_sql: stmt })
+    const { error } = await supabase.rpc("_apply_migration_00027", { p_sql: stmt })
     if (error) {
       console.error(`  FAILED: ${error.message}`)
       fail++

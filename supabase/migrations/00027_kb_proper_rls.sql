@@ -63,6 +63,24 @@ BEGIN
   END IF;
 END $$;
 
+-- Migrate existing categories to match the new check constraint
+UPDATE public.knowledge_services SET category = 'Skin Rejuvenation' WHERE category = 'Skin';
+UPDATE public.knowledge_services SET category = 'Body Treatments' WHERE category = 'Body';
+UPDATE public.knowledge_services SET category = 'Laser Treatments' WHERE category = 'Laser';
+
+-- Backfill user_id for existing rows to prevent them from disappearing
+DO $$
+DECLARE
+  first_user_id uuid;
+BEGIN
+  SELECT id INTO first_user_id FROM auth.users ORDER BY created_at ASC LIMIT 1;
+  IF first_user_id IS NOT NULL THEN
+    UPDATE public.knowledge_services SET user_id = first_user_id WHERE user_id IS NULL;
+    UPDATE public.knowledge_faqs SET user_id = first_user_id WHERE user_id IS NULL;
+    UPDATE public.knowledge_guardrails SET user_id = first_user_id WHERE user_id IS NULL;
+  END IF;
+END $$;
+
 -- Apply user_id based RLS to knowledge_services
 CREATE POLICY "Users can view own knowledge services" ON public.knowledge_services FOR SELECT TO authenticated USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own knowledge services" ON public.knowledge_services FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
