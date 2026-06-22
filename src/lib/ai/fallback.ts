@@ -82,8 +82,7 @@ export function kbAwareFallback(
     const wh = kb.widget.workingHours
     if (wh?.enabled && Array.isArray(wh.schedule) && wh.schedule.length > 0) {
       const open = wh.schedule.filter((d) => d.open)
-      const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-      const dayLines = open.map((d) => `${dayNames[d.day]} ${d.from}–${d.to}`)
+      const dayLines = open.map((d) => `${d.day} ${d.from}–${d.to}`)
       if (dayLines.length > 0) {
         const tz = wh.tz ? ` (${wh.tz})` : ""
         return `We're open ${dayLines.join(", ")}${tz}. Want to set up a time?`

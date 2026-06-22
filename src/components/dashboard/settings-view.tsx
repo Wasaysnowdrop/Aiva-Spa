@@ -427,7 +427,7 @@ function NotificationsSection({
       })
       if (result.ok) {
         toast.success(
-          result.provider === "resend"
+          result.data?.provider === "resend"
             ? "Test email sent — check your inbox"
             : "Test recorded (Resend key not set — check the server log)",
         )

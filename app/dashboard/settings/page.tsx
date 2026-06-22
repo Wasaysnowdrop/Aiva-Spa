@@ -30,10 +30,6 @@ export default async function SettingsPage() {
   } = await supabase.auth.getUser();
   const userMeta = (user?.user_metadata as Record<string, unknown> | null) ?? null;
   const cardLast4 = getCardLast4(userMeta);
-  const isUnlimited = refreshedSubscription.quota === Number.MAX_SAFE_INTEGER;
-  const periodStart = refreshedSubscription.row?.periodStart ?? new Date().toISOString();
-  const periodEnd = refreshedSubscription.row?.periodEnd ?? new Date().toISOString();
-  const trialStartedAt = refreshedSubscription.row?.trialStartedAt ?? null;
 
   // Backfill quota from real chat_sessions so returning users see
   // their actual usage, not 0. Then re-read the subscription so the
@@ -46,6 +42,10 @@ export default async function SettingsPage() {
     }
   }
   const refreshedSubscription = user?.id ? await getCurrentSubscription() : subscription
+  const isUnlimited = refreshedSubscription.quota === Number.MAX_SAFE_INTEGER;
+  const periodStart = refreshedSubscription.row?.periodStart ?? new Date().toISOString();
+  const periodEnd = refreshedSubscription.row?.periodEnd ?? new Date().toISOString();
+  const trialStartedAt = refreshedSubscription.row?.trialStartedAt ?? null;
 
   // API section data — scope everything to the signed-in user.
   const apiKeys = await listApiKeys().catch(() => [])
