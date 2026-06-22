@@ -112,12 +112,44 @@ export interface KnowledgeFaq {
   updatedAt: string
 }
 
+export type GuardrailRuleType =
+  | "safety"
+  | "pricing"
+  | "medical"
+  | "booking"
+  | "out_of_scope"
+  | "emergency"
+  | "general"
+
+export const GUARDRAIL_RULE_TYPES: GuardrailRuleType[] = [
+  "safety",
+  "pricing",
+  "medical",
+  "booking",
+  "out_of_scope",
+  "emergency",
+  "general",
+]
+
+export const GUARDRAIL_RULE_TYPE_LABELS: Record<GuardrailRuleType, string> = {
+  safety: "Safety",
+  pricing: "Pricing",
+  medical: "Medical",
+  booking: "Booking",
+  out_of_scope: "Out of scope",
+  emergency: "Emergency",
+  general: "General",
+}
+
 export interface KnowledgeGuardrail {
   id: string
   userId: string | null
   title: string
   body: string
+  description: string
+  ruleType: GuardrailRuleType
   enabled: boolean
+  isActive: boolean
 }
 
 export interface TeamMember {
@@ -393,12 +425,31 @@ export function mapKnowledgeFaq(row: DbRecord): KnowledgeFaq {
 }
 
 export function mapKnowledgeGuardrail(row: DbRecord): KnowledgeGuardrail {
+  const rawDescription = stringValue(row.description, undefined as unknown as string)
+  const rawBody = stringValue(row.body, undefined as unknown as string)
+  const description =
+    typeof rawDescription === "string" && rawDescription.trim().length > 0
+      ? rawDescription
+      : rawBody
+  const rawRuleType = stringValue(row.rule_type ?? row.ruleType, "general").trim().toLowerCase()
+  const ruleType = (
+    GUARDRAIL_RULE_TYPES as readonly string[]
+  ).includes(rawRuleType)
+    ? (rawRuleType as GuardrailRuleType)
+    : "general"
+  const enabled = booleanValue(
+    row.is_active ?? row.isActive ?? row.enabled,
+    true,
+  )
   return {
     id: stringValue(row.id),
     userId: optionalUuidValue(row.user_id ?? row.userId),
     title: stringValue(row.title, ""),
-    body: stringValue(row.body),
-    enabled: booleanValue(row.enabled, true),
+    body: description,
+    description,
+    ruleType,
+    enabled,
+    isActive: enabled,
   }
 }
 

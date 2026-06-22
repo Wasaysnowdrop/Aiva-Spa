@@ -275,21 +275,59 @@ export const faqCategories: FaqCategory[] = [
 
 // --- Guardrails ---
 
+import type { GuardrailRuleType } from "@/lib/supabase/types"
+import { GUARDRAIL_RULE_TYPES } from "@/lib/supabase/types"
+
 export type GuardrailInsert = {
   title: string
-  body: string
+  body?: string
+  description?: string
+  ruleType?: GuardrailRuleType
   enabled?: boolean
+  isActive?: boolean
 }
 
 export type GuardrailUpdate = Partial<GuardrailInsert> & { id: string }
+
+function normalizeRuleType(value: unknown): GuardrailRuleType {
+  if (typeof value !== "string") return "general"
+  const v = value.trim().toLowerCase()
+  return (GUARDRAIL_RULE_TYPES as readonly string[]).includes(v)
+    ? (v as GuardrailRuleType)
+    : "general"
+}
 
 function guardrailToSnake(
   g: Partial<GuardrailInsert>,
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = {}
   if ("title" in g) payload.title = g.title
-  if ("body" in g) payload.body = g.body
-  if ("enabled" in g) payload.enabled = g.enabled
+  const description =
+    "description" in g
+      ? g.description
+      : "body" in g
+        ? g.body
+        : undefined
+  if (description !== undefined) {
+    const value = typeof description === "string" ? description.trim() : ""
+    payload.description = value
+    payload.body = value
+  }
+  if ("ruleType" in g) {
+    payload.rule_type = normalizeRuleType(g.ruleType)
+  } else if (Object.prototype.hasOwnProperty.call(g, "ruleType")) {
+    payload.rule_type = "general"
+  } else {
+    payload.rule_type = "general"
+  }
+  if ("enabled" in g) {
+    payload.enabled = g.enabled
+    payload.is_active = g.enabled
+  }
+  if ("isActive" in g) {
+    payload.is_active = g.isActive
+    payload.enabled = g.isActive
+  }
   return payload
 }
 
@@ -318,10 +356,21 @@ export async function createGuardrail(
 ): Promise<KnowledgeGuardrail> {
   const ownerId = userId ?? (await resolveCurrentUserId())
   const supabase = createAdminClient()
+  const descriptionText =
+    typeof guardrail.description === "string"
+      ? guardrail.description.trim()
+      : typeof guardrail.body === "string"
+        ? guardrail.body.trim()
+        : ""
   const payload = {
     ...guardrailToSnake(guardrail),
+    description: descriptionText,
+    body: descriptionText,
     user_id: ownerId,
     updated_at: new Date().toISOString(),
+  }
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[kb] createGuardrail payload", payload)
   }
   const { data, error } = await supabase
     .from("knowledge_guardrails")
@@ -329,8 +378,11 @@ export async function createGuardrail(
     .select()
     .single()
   if (error) {
-    console.error("[kb] createGuardrail failed", { payload, error })
+    logKbError("createGuardrail", payload, error)
     throw new Error(error.message)
+  }
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[kb] createGuardrail result", data)
   }
   return mapKnowledgeGuardrail(data as Record<string, unknown>)
 }
@@ -352,7 +404,7 @@ export async function updateGuardrail(
     .select()
     .single()
   if (error) {
-    console.error("[kb] updateGuardrail failed", { id, error })
+    logKbError("updateGuardrail", { id, ...rest }, error)
     throw new Error(error.message)
   }
   return mapKnowledgeGuardrail(data as Record<string, unknown>)
@@ -365,7 +417,7 @@ export async function deleteGuardrail(id: string): Promise<void> {
     .delete()
     .eq("id", id)
   if (error) {
-    console.error("[kb] deleteGuardrail failed", { id, error })
+    logKbError("deleteGuardrail", { id }, error)
     throw new Error(error.message)
   }
 }

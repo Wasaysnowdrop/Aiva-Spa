@@ -47,7 +47,12 @@ import type {
   KnowledgeGuardrail,
   FaqCategory,
   KnowledgeCategory,
+  GuardrailRuleType,
   WidgetConfig,
+} from "@/lib/supabase/types"
+import {
+  GUARDRAIL_RULE_TYPES,
+  GUARDRAIL_RULE_TYPE_LABELS,
 } from "@/lib/supabase/types"
 import { cn, formatDate } from "@/lib/utils"
 import { useRealtimeSubscription } from "@/lib/hooks/use-realtime"
@@ -120,12 +125,16 @@ const emptyFaqDraft: FaqDraft = {
 type GuardrailDraft = {
   title: string
   body: string
+  description: string
+  ruleType: GuardrailRuleType
   enabled: boolean
 }
 
 const emptyGuardrailDraft: GuardrailDraft = {
   title: "",
   body: "",
+  description: "",
+  ruleType: "general",
   enabled: true,
 }
 
@@ -215,6 +224,9 @@ export function KnowledgeBaseEditor() {
       duration: draft.duration.trim(),
       active: draft.active,
     }
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[kb] save service", { mode, payload })
+    }
     setServiceSaving(true)
     try {
       const result =
@@ -283,7 +295,12 @@ export function KnowledgeBaseEditor() {
     const payload = {
       title: draft.title.trim(),
       body: draft.body.trim(),
+      description: draft.description.trim() || draft.body.trim(),
+      ruleType: draft.ruleType,
       enabled: draft.enabled,
+    }
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[kb] save guardrail", { mode, payload })
     }
     setGuardrailSaving(true)
     try {
@@ -301,7 +318,7 @@ export function KnowledgeBaseEditor() {
       await refreshGuardrails()
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unexpected error"
-      console.error("[kb] save guardrail threw", { mode, error: message })
+      console.error("[kb] save guardrail threw", { mode, payload, error: message })
       toast.error(message)
     } finally {
       setGuardrailSaving(false)
@@ -521,7 +538,13 @@ export function KnowledgeBaseEditor() {
               setGuardrailDialog({
                 mode: "edit",
                 id: g.id,
-                draft: { title: g.title, body: g.body, enabled: g.enabled },
+                draft: {
+                  title: g.title,
+                  body: g.body || g.description,
+                  description: g.description || g.body,
+                  ruleType: g.ruleType,
+                  enabled: g.enabled,
+                },
               })
             }
             onDelete={(g) =>
@@ -1017,8 +1040,15 @@ function GuardrailsTab({
                 <AlertTriangle className="size-4" />
               </span>
               <div className="flex-1">
-                <p className="text-sm font-semibold text-[#F7F8F8]">{g.title}</p>
-                <p className="mt-0.5 text-xs text-[#8A8F98]">{g.body}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-semibold text-[#F7F8F8]">{g.title}</p>
+                  <span className="rounded-md border border-[#5E6AD2]/30 bg-[#5E6AD2]/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#8B95E0]">
+                    {GUARDRAIL_RULE_TYPE_LABELS[g.ruleType] ?? g.ruleType}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-[#8A8F98]">
+                  {g.description || g.body}
+                </p>
               </div>
               <div className="flex items-center gap-1.5">
                 <Button
@@ -1345,22 +1375,46 @@ function GuardrailDialog({
             ignored.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-1.5">
-          <Label htmlFor="g-title">Title</Label>
-          <Input
-            id="g-title"
-            value={draft.title}
-            onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-            placeholder="e.g. Never prescribe medication"
-            maxLength={200}
-          />
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="space-y-1.5 md:col-span-2">
+            <Label htmlFor="g-title">Title</Label>
+            <Input
+              id="g-title"
+              value={draft.title}
+              onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+              placeholder="e.g. Never prescribe medication"
+              maxLength={200}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="g-type">Rule type</Label>
+            <Select
+              value={draft.ruleType}
+              onValueChange={(v) =>
+                setDraft({ ...draft, ruleType: v as GuardrailRuleType })
+              }
+            >
+              <SelectTrigger id="g-type" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {GUARDRAIL_RULE_TYPES.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {GUARDRAIL_RULE_TYPE_LABELS[t]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="g-body">Rule</Label>
           <Textarea
             id="g-body"
             value={draft.body}
-            onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+            onChange={(e) =>
+              setDraft({ ...draft, body: e.target.value, description: e.target.value })
+            }
             placeholder="Describe what AivaSpa must never do."
             className="min-h-28"
             maxLength={2000}

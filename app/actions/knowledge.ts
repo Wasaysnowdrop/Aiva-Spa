@@ -20,7 +20,8 @@ import {
 import { updateWidgetConfig, getWidgetConfig } from "@/lib/db/widget.server"
 import { recordAudit } from "@/lib/audit"
 import { createClient } from "@/lib/supabase/server"
-import type { FaqCategory, KnowledgeCategory } from "@/lib/supabase/types"
+import type { FaqCategory, KnowledgeCategory, GuardrailRuleType } from "@/lib/supabase/types"
+import { GUARDRAIL_RULE_TYPES } from "@/lib/supabase/types"
 
 const faqCategoryValues = ["General", "Pricing", "Booking", "Safety", "Hours"] as const
 
@@ -42,7 +43,10 @@ const faqSchema = z.object({
 const guardrailSchema = z.object({
   title: z.string().min(1).max(200),
   body: z.string().min(1).max(2000),
+  description: z.string().min(1).max(2000).optional(),
+  ruleType: z.enum(GUARDRAIL_RULE_TYPES as [GuardrailRuleType, ...GuardrailRuleType[]]).optional(),
   enabled: z.boolean().optional().default(true),
+  isActive: z.boolean().optional(),
 })
 
 export type KnowledgeActionResult = { ok: boolean; error?: string; id?: string }

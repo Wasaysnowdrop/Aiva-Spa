@@ -56,8 +56,8 @@ const baseKb: KnowledgeBundle = {
     },
   ],
   guardrails: [
-    { id: "g1", userId: null, title: "No medical advice", body: "Refuse to assess conditions or recommend treatments for symptoms.", enabled: true },
-    { id: "g2", userId: null, title: "No firm pricing", body: "Always defer to a licensed provider during consultation.", enabled: true },
+    { id: "g1", userId: null, title: "No medical advice", body: "Refuse to assess conditions or recommend treatments for symptoms.", description: "Refuse to assess conditions or recommend treatments for symptoms.", ruleType: "medical", enabled: true, isActive: true },
+    { id: "g2", userId: null, title: "No firm pricing", body: "Always defer to a licensed provider during consultation.", description: "Always defer to a licensed provider during consultation.", ruleType: "pricing", enabled: true, isActive: true },
   ],
   widget: {
     id: "w1",
