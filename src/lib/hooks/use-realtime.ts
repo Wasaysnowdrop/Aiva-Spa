@@ -102,6 +102,7 @@ export function useRealtimeSubscription<T>({
         const resultError = (result as { error: { message: string } | null }).error
         const resultData = (result as { data: Record<string, unknown>[] | null }).data
         if (resultError) {
+          console.error(`[realtime:${table}] initial fetch failed:`, resultError.message)
           setError(new Error(resultError.message))
         } else {
           const rows = Array.isArray(resultData) ? resultData : []
@@ -124,6 +125,7 @@ export function useRealtimeSubscription<T>({
         }
       } catch (e) {
         if (!cancelled) {
+          console.error(`[realtime:${table}] initial fetch threw:`, e)
           setError(e instanceof Error ? e : new Error(String(e)))
         }
       } finally {
@@ -202,7 +204,14 @@ export function useRealtimeSubscription<T>({
         setLoading(false)
       }
       if (status === "CHANNEL_ERROR") {
+        console.error(`[realtime:${table}] channel error`)
         setError(new Error(`Realtime connection error for ${table}`))
+      }
+      if (status === "TIMED_OUT") {
+        console.error(`[realtime:${table}] channel subscribe timed out`)
+      }
+      if (status === "CLOSED") {
+        console.warn(`[realtime:${table}] channel closed`)
       }
     })
 

@@ -94,6 +94,7 @@ export interface ChatSession {
 
 export interface KnowledgeService {
   id: string
+  userId: string | null
   name: string
   category: KnowledgeCategory
   description: string
@@ -104,6 +105,7 @@ export interface KnowledgeService {
 
 export interface KnowledgeFaq {
   id: string
+  userId: string | null
   question: string
   answer: string
   category: FaqCategory
@@ -112,6 +114,7 @@ export interface KnowledgeFaq {
 
 export interface KnowledgeGuardrail {
   id: string
+  userId: string | null
   title: string
   body: string
   enabled: boolean
@@ -357,11 +360,18 @@ export function mapChatSession(row: DbRecord): ChatSession {
   }
 }
 
+function optionalUuidValue(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
 export function mapKnowledgeService(row: DbRecord): KnowledgeService {
   const rawCategory = stringValue(row.category, "")
   const category = rawCategory.trim() ? rawCategory.trim() : "Skin"
   return {
     id: stringValue(row.id),
+    userId: optionalUuidValue(row.user_id ?? row.userId),
     name: stringValue(row.name, ""),
     category,
     description: stringValue(row.description),
@@ -374,6 +384,7 @@ export function mapKnowledgeService(row: DbRecord): KnowledgeService {
 export function mapKnowledgeFaq(row: DbRecord): KnowledgeFaq {
   return {
     id: stringValue(row.id),
+    userId: optionalUuidValue(row.user_id ?? row.userId),
     question: stringValue(row.question, ""),
     answer: stringValue(row.answer),
     category: enumValue(row.category, faqCategories, "General"),
@@ -384,6 +395,7 @@ export function mapKnowledgeFaq(row: DbRecord): KnowledgeFaq {
 export function mapKnowledgeGuardrail(row: DbRecord): KnowledgeGuardrail {
   return {
     id: stringValue(row.id),
+    userId: optionalUuidValue(row.user_id ?? row.userId),
     title: stringValue(row.title, ""),
     body: stringValue(row.body),
     enabled: booleanValue(row.enabled, true),

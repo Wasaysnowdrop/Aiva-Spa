@@ -75,12 +75,15 @@ import { toast } from "sonner"
 
 const suggestedKnowledgeCategoryOptions: KnowledgeCategory[] = [
   "Injectables",
+  "Laser Treatments",
   "Skin",
-  "Body",
-  "Laser",
+  "Skin Rejuvenation",
   "Facials",
+  "Body",
+  "Body Treatments",
   "Wellness",
   "Hair Removal",
+  "Other",
 ]
 
 type Tab = "services" | "faqs" | "rules"
@@ -189,6 +192,10 @@ export function KnowledgeBaseEditor() {
     | null
   >(null)
 
+  const [serviceSaving, setServiceSaving] = React.useState(false)
+  const [faqSaving, setFaqSaving] = React.useState(false)
+  const [guardrailSaving, setGuardrailSaving] = React.useState(false)
+
   const onSaveService = async () => {
     if (!serviceDialog) return
     const { mode, draft, id } = serviceDialog
@@ -209,17 +216,27 @@ export function KnowledgeBaseEditor() {
       duration: draft.duration.trim(),
       active: draft.active,
     }
-    const result =
-      mode === "new"
-        ? await createServiceAction(payload)
-        : await updateServiceAction(id!, payload)
-    if (!result.ok) {
-      toast.error(result.error ?? "Save failed")
-      return
+    setServiceSaving(true)
+    try {
+      const result =
+        mode === "new"
+          ? await createServiceAction(payload)
+          : await updateServiceAction(id!, payload)
+      if (!result.ok) {
+        console.error("[kb] save service failed", { mode, payload, error: result.error })
+        toast.error(result.error ?? "Save failed")
+        return
+      }
+      toast.success(mode === "new" ? "Service added" : "Service updated")
+      setServiceDialog(null)
+      await refreshServices()
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Unexpected error"
+      console.error("[kb] save service threw", { mode, payload, error: message })
+      toast.error(message)
+    } finally {
+      setServiceSaving(false)
     }
-    toast.success(mode === "new" ? "Service added" : "Service updated")
-    setServiceDialog(null)
-    await refreshServices()
   }
 
   const onSaveFaq = async () => {
@@ -234,17 +251,27 @@ export function KnowledgeBaseEditor() {
       answer: draft.answer.trim(),
       category: draft.category,
     }
-    const result =
-      mode === "new"
-        ? await createFaqAction(payload)
-        : await updateFaqAction(id!, payload)
-    if (!result.ok) {
-      toast.error(result.error ?? "Save failed")
-      return
+    setFaqSaving(true)
+    try {
+      const result =
+        mode === "new"
+          ? await createFaqAction(payload)
+          : await updateFaqAction(id!, payload)
+      if (!result.ok) {
+        console.error("[kb] save faq failed", { mode, payload, error: result.error })
+        toast.error(result.error ?? "Save failed")
+        return
+      }
+      toast.success(mode === "new" ? "FAQ added" : "FAQ updated")
+      setFaqDialog(null)
+      await refreshFaqs()
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Unexpected error"
+      console.error("[kb] save faq threw", { mode, error: message })
+      toast.error(message)
+    } finally {
+      setFaqSaving(false)
     }
-    toast.success(mode === "new" ? "FAQ added" : "FAQ updated")
-    setFaqDialog(null)
-    await refreshFaqs()
   }
 
   const onSaveGuardrail = async () => {
@@ -259,17 +286,27 @@ export function KnowledgeBaseEditor() {
       body: draft.body.trim(),
       enabled: draft.enabled,
     }
-    const result =
-      mode === "new"
-        ? await createGuardrailAction(payload)
-        : await updateGuardrailBodyAction(id!, payload)
-    if (!result.ok) {
-      toast.error(result.error ?? "Save failed")
-      return
+    setGuardrailSaving(true)
+    try {
+      const result =
+        mode === "new"
+          ? await createGuardrailAction(payload)
+          : await updateGuardrailBodyAction(id!, payload)
+      if (!result.ok) {
+        console.error("[kb] save guardrail failed", { mode, payload, error: result.error })
+        toast.error(result.error ?? "Save failed")
+        return
+      }
+      toast.success(mode === "new" ? "Guardrail added" : "Guardrail updated")
+      setGuardrailDialog(null)
+      await refreshGuardrails()
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Unexpected error"
+      console.error("[kb] save guardrail threw", { mode, error: message })
+      toast.error(message)
+    } finally {
+      setGuardrailSaving(false)
     }
-    toast.success(mode === "new" ? "Guardrail added" : "Guardrail updated")
-    setGuardrailDialog(null)
-    await refreshGuardrails()
   }
 
   const onConfirmDelete = async () => {
@@ -502,8 +539,9 @@ export function KnowledgeBaseEditor() {
           setDraft={(d) =>
             setServiceDialog((cur) => (cur ? { ...cur, draft: d } : cur))
           }
-          onClose={() => setServiceDialog(null)}
+          onClose={() => !serviceSaving && setServiceDialog(null)}
           onSave={onSaveService}
+          saving={serviceSaving}
           categorySuggestions={Array.from(
             new Set([
               ...suggestedKnowledgeCategoryOptions,
@@ -520,8 +558,9 @@ export function KnowledgeBaseEditor() {
           mode={faqDialog.mode}
           draft={faqDialog.draft}
           setDraft={(d) => setFaqDialog((cur) => (cur ? { ...cur, draft: d } : cur))}
-          onClose={() => setFaqDialog(null)}
+          onClose={() => !faqSaving && setFaqDialog(null)}
           onSave={onSaveFaq}
+          saving={faqSaving}
         />
       ) : null}
 
@@ -533,8 +572,9 @@ export function KnowledgeBaseEditor() {
           setDraft={(d) =>
             setGuardrailDialog((cur) => (cur ? { ...cur, draft: d } : cur))
           }
-          onClose={() => setGuardrailDialog(null)}
+          onClose={() => !guardrailSaving && setGuardrailDialog(null)}
           onSave={onSaveGuardrail}
+          saving={guardrailSaving}
         />
       ) : null}
 
@@ -1036,6 +1076,7 @@ function ServiceDialog({
   setDraft,
   onClose,
   onSave,
+  saving,
   categorySuggestions,
 }: {
   open: boolean
@@ -1044,6 +1085,7 @@ function ServiceDialog({
   setDraft: (d: ServiceDraft) => void
   onClose: () => void
   onSave: () => void
+  saving?: boolean
   categorySuggestions: KnowledgeCategory[]
 }) {
   return (
@@ -1132,15 +1174,21 @@ function ServiceDialog({
           </label>
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
           <Button
             size="sm"
             className="bg-[#E2E54B] text-[#08090A] hover:bg-[#E2E54B]/90"
             onClick={onSave}
+            disabled={saving}
           >
-            <Check className="size-4" /> {mode === "new" ? "Add service" : "Save changes"}
+            {saving ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Check className="size-4" />
+            )}{" "}
+            {mode === "new" ? "Add service" : "Save changes"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1155,6 +1203,7 @@ function FaqDialog({
   setDraft,
   onClose,
   onSave,
+  saving,
 }: {
   open: boolean
   mode: "new" | "edit"
@@ -1162,6 +1211,7 @@ function FaqDialog({
   setDraft: (d: FaqDraft) => void
   onClose: () => void
   onSave: () => void
+  saving?: boolean
 }) {
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -1232,15 +1282,21 @@ function FaqDialog({
           </div>
         ) : null}
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
           <Button
             size="sm"
             className="bg-[#E2E54B] text-[#08090A] hover:bg-[#E2E54B]/90"
             onClick={onSave}
+            disabled={saving}
           >
-            <Check className="size-4" /> {mode === "new" ? "Add FAQ" : "Save changes"}
+            {saving ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Check className="size-4" />
+            )}{" "}
+            {mode === "new" ? "Add FAQ" : "Save changes"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1255,6 +1311,7 @@ function GuardrailDialog({
   setDraft,
   onClose,
   onSave,
+  saving,
 }: {
   open: boolean
   mode: "new" | "edit"
@@ -1262,6 +1319,7 @@ function GuardrailDialog({
   setDraft: (d: GuardrailDraft) => void
   onClose: () => void
   onSave: () => void
+  saving?: boolean
 }) {
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -1311,15 +1369,21 @@ function GuardrailDialog({
           </label>
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
           <Button
             size="sm"
             className="bg-[#E2E54B] text-[#08090A] hover:bg-[#E2E54B]/90"
             onClick={onSave}
+            disabled={saving}
           >
-            <Check className="size-4" /> {mode === "new" ? "Add guardrail" : "Save changes"}
+            {saving ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Check className="size-4" />
+            )}{" "}
+            {mode === "new" ? "Add guardrail" : "Save changes"}
           </Button>
         </DialogFooter>
       </DialogContent>

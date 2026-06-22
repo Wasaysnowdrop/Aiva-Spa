@@ -8,8 +8,9 @@ beforeEach(() => {
 
 describe("createServiceAction", () => {
   it("accepts a custom service category like 'Facials'", async () => {
-    const { server, browser } = installSupabaseMocks()
+    const { server, browser, admin } = installSupabaseMocks()
     server.setAuthUser({ id: "u_1", email: "owner@spa.com" })
+    admin.setAuthUser({ id: "u_1", email: "owner@spa.com" })
     browser.setResult("knowledge_services", "insert", {
       data: [
         {
@@ -20,6 +21,7 @@ describe("createServiceAction", () => {
           pricing_rule: "",
           duration: "60 min",
           active: true,
+          user_id: "u_1",
           created_at: "2024-01-01T00:00:00Z",
           updated_at: "2024-01-01T00:00:00Z",
         },
@@ -41,11 +43,20 @@ describe("createServiceAction", () => {
     if (result.ok) {
       expect(result.id).toBe("svc_facials_1")
     }
+
+    // Confirm the insert payload included the current user's id so RLS
+    // (migration 00022_kb_user_scoping.sql) does not reject the write.
+    const adminCalls = admin.callsFor("knowledge_services", "insert")
+    expect(adminCalls.length).toBeGreaterThan(0)
+    const inserted = adminCalls[0]?.args[0] as Record<string, unknown>
+    expect(inserted.user_id).toBe("u_1")
+    expect(inserted.category).toBe("Facials")
   })
 
   it("creates a service and writes an audit log entry", async () => {
-    const { server, browser } = installSupabaseMocks()
+    const { server, browser, admin } = installSupabaseMocks()
     server.setAuthUser({ id: "u_1", email: "owner@spa.com" })
+    admin.setAuthUser({ id: "u_1", email: "owner@spa.com" })
     browser.setResult("knowledge_services", "insert", {
       data: [
         {
@@ -56,6 +67,7 @@ describe("createServiceAction", () => {
           pricing_rule: "",
           duration: "",
           active: true,
+          user_id: "u_1",
           created_at: "2024-01-01T00:00:00Z",
           updated_at: "2024-01-01T00:00:00Z",
         },
@@ -77,6 +89,29 @@ describe("createServiceAction", () => {
     if (result.ok) {
       expect(result.id).toBe("svc_1")
     }
+  })
+
+  it("surfaces a clear error when the Supabase insert fails", async () => {
+    const { server, browser } = installSupabaseMocks()
+    server.setAuthUser({ id: "u_1", email: "owner@spa.com" })
+    browser.setResult("knowledge_services", "insert", {
+      data: null,
+      error: { message: "duplicate key value violates unique constraint" },
+    })
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { createServiceAction } = await import("@/app/actions/knowledge")
+    const result = await createServiceAction({
+      name: "Botox",
+      category: "Injectables",
+      description: "",
+      pricingRule: "",
+      duration: "",
+      active: true,
+    })
+    expect(result.ok).toBe(false)
+    expect(errorSpy).toHaveBeenCalled()
+    errorSpy.mockRestore()
   })
 })
 

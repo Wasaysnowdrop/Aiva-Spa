@@ -1,6 +1,7 @@
 import "server-only"
 
 import { createAdminClient } from "@/lib/supabase/admin"
+import { createClient } from "@/lib/supabase/server"
 import type {
   KnowledgeService,
   KnowledgeFaq,
@@ -13,17 +14,18 @@ import {
   mapKnowledgeGuardrail,
 } from "@/lib/supabase/types"
 
-// We use the service-role admin client (not the user-scoped server client) for
-// every read and write here. The dashboard's auth gate (proxy.ts) already
-// blocks unauthenticated access to /dashboard, and these helpers are only
-// called from server actions in app/actions/knowledge.ts, so RLS is enforced
-// at the route boundary. Using the admin client inside the action avoids
-// edge cases where the server-action request context can fail to forward the
-// Supabase auth cookies, which previously surfaced as
-// "new row violates row-level security policy" on knowledge_services /
-// knowledge_faqs / knowledge_guardrails.
-
-// --- Services ---
+// KB read/write helpers.
+//
+// Each helper that mutates a row takes the current authenticated user id
+// (`auth.users.id`) and stamps it onto `user_id`. Reads always include
+// `user_id IS NULL` so legacy / seed rows stay visible to everyone until
+// they're touched by a user. RLS (migration 00022_kb_user_scoping.sql)
+// enforces the same predicate on the browser client, so the dashboard
+// realtime fetch and the server action read agree.
+//
+// Server actions look up the user via the SSR cookie client
+// (`createClient()`); the admin client is used for the actual mutation
+// so a stale cookie in the action request can never block a write.
 
 export type ServiceInsert = {
   name: string
@@ -49,13 +51,33 @@ function serviceToSnake(
   return payload
 }
 
+async function resolveCurrentUserId(): Promise<string> {
+  try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) throw new Error("Not authenticated")
+    return user.id
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "auth lookup failed"
+    throw new Error(`KB write requires an authenticated user (${message})`)
+  }
+}
+
 export async function getServices(): Promise<KnowledgeService[]> {
   const supabase = createAdminClient()
-  const { data, error } = await supabase
+  const {
+    data: { user },
+  } = await supabase.auth.getUser().catch(() => ({ data: { user: null } } as never))
+  let query = supabase
     .from("knowledge_services")
     .select("*")
     .order("name")
-
+  if (user?.id) {
+    query = query.or(`user_id.is.null,user_id.eq.${user.id}`)
+  }
+  const { data, error } = await query
   if (error) throw new Error(error.message)
   return (data ?? []).map((row) =>
     mapKnowledgeService(row as Record<string, unknown>),
@@ -64,31 +86,47 @@ export async function getServices(): Promise<KnowledgeService[]> {
 
 export async function createService(
   service: ServiceInsert,
+  userId?: string,
 ): Promise<KnowledgeService> {
+  const ownerId = userId ?? (await resolveCurrentUserId())
   const supabase = createAdminClient()
+  const payload = {
+    ...serviceToSnake(service),
+    user_id: ownerId,
+    updated_at: new Date().toISOString(),
+  }
   const { data, error } = await supabase
     .from("knowledge_services")
-    .insert(serviceToSnake(service) as never)
+    .insert(payload as never)
     .select()
     .single()
-
-  if (error) throw new Error(error.message)
+  if (error) {
+    console.error("[kb] createService failed", { payload, error })
+    throw new Error(error.message)
+  }
   return mapKnowledgeService(data as Record<string, unknown>)
 }
 
 export async function updateService(
   update: ServiceUpdate,
 ): Promise<KnowledgeService> {
+  const ownerId = await resolveCurrentUserId()
   const supabase = createAdminClient()
   const { id, ...rest } = update
   const { data, error } = await supabase
     .from("knowledge_services")
-    .update(serviceToSnake(rest) as never)
+    .update({
+      ...serviceToSnake(rest),
+      user_id: ownerId,
+      updated_at: new Date().toISOString(),
+    } as never)
     .eq("id", id)
     .select()
     .single()
-
-  if (error) throw new Error(error.message)
+  if (error) {
+    console.error("[kb] updateService failed", { id, error })
+    throw new Error(error.message)
+  }
   return mapKnowledgeService(data as Record<string, unknown>)
 }
 
@@ -98,8 +136,10 @@ export async function deleteService(id: string): Promise<void> {
     .from("knowledge_services")
     .delete()
     .eq("id", id)
-
-  if (error) throw new Error(error.message)
+  if (error) {
+    console.error("[kb] deleteService failed", { id, error })
+    throw new Error(error.message)
+  }
 }
 
 // --- FAQs ---
@@ -124,11 +164,17 @@ function faqToSnake(
 
 export async function getFaqs(): Promise<KnowledgeFaq[]> {
   const supabase = createAdminClient()
-  const { data, error } = await supabase
+  const {
+    data: { user },
+  } = await supabase.auth.getUser().catch(() => ({ data: { user: null } } as never))
+  let query = supabase
     .from("knowledge_faqs")
     .select("*")
     .order("created_at")
-
+  if (user?.id) {
+    query = query.or(`user_id.is.null,user_id.eq.${user.id}`)
+  }
+  const { data, error } = await query
   if (error) throw new Error(error.message)
   return (data ?? []).map((row) =>
     mapKnowledgeFaq(row as Record<string, unknown>),
@@ -137,31 +183,43 @@ export async function getFaqs(): Promise<KnowledgeFaq[]> {
 
 export async function createFaq(
   faq: FaqInsert,
+  userId?: string,
 ): Promise<KnowledgeFaq> {
+  const ownerId = userId ?? (await resolveCurrentUserId())
   const supabase = createAdminClient()
+  const payload = {
+    ...faqToSnake(faq),
+    user_id: ownerId,
+    updated_at: new Date().toISOString(),
+  }
   const { data, error } = await supabase
     .from("knowledge_faqs")
-    .insert(faqToSnake(faq) as never)
+    .insert(payload as never)
     .select()
     .single()
-
-  if (error) throw new Error(error.message)
+  if (error) {
+    console.error("[kb] createFaq failed", { payload, error })
+    throw new Error(error.message)
+  }
   return mapKnowledgeFaq(data as Record<string, unknown>)
 }
 
 export async function updateFaq(
   update: FaqUpdate,
 ): Promise<KnowledgeFaq> {
+  const ownerId = await resolveCurrentUserId()
   const supabase = createAdminClient()
   const { id, ...rest } = update
   const { data, error } = await supabase
     .from("knowledge_faqs")
-    .update({ ...faqToSnake(rest), updated_at: new Date().toISOString() } as never)
+    .update({ ...faqToSnake(rest), user_id: ownerId, updated_at: new Date().toISOString() } as never)
     .eq("id", id)
     .select()
     .single()
-
-  if (error) throw new Error(error.message)
+  if (error) {
+    console.error("[kb] updateFaq failed", { id, error })
+    throw new Error(error.message)
+  }
   return mapKnowledgeFaq(data as Record<string, unknown>)
 }
 
@@ -171,8 +229,10 @@ export async function deleteFaq(id: string): Promise<void> {
     .from("knowledge_faqs")
     .delete()
     .eq("id", id)
-
-  if (error) throw new Error(error.message)
+  if (error) {
+    console.error("[kb] deleteFaq failed", { id, error })
+    throw new Error(error.message)
+  }
 }
 
 export const faqCategories: FaqCategory[] = [
@@ -205,11 +265,17 @@ function guardrailToSnake(
 
 export async function getGuardrails(): Promise<KnowledgeGuardrail[]> {
   const supabase = createAdminClient()
-  const { data, error } = await supabase
+  const {
+    data: { user },
+  } = await supabase.auth.getUser().catch(() => ({ data: { user: null } } as never))
+  let query = supabase
     .from("knowledge_guardrails")
     .select("*")
     .order("created_at")
-
+  if (user?.id) {
+    query = query.or(`user_id.is.null,user_id.eq.${user.id}`)
+  }
+  const { data, error } = await query
   if (error) throw new Error(error.message)
   return (data ?? []).map((row) =>
     mapKnowledgeGuardrail(row as Record<string, unknown>),
@@ -218,31 +284,47 @@ export async function getGuardrails(): Promise<KnowledgeGuardrail[]> {
 
 export async function createGuardrail(
   guardrail: GuardrailInsert,
+  userId?: string,
 ): Promise<KnowledgeGuardrail> {
+  const ownerId = userId ?? (await resolveCurrentUserId())
   const supabase = createAdminClient()
+  const payload = {
+    ...guardrailToSnake(guardrail),
+    user_id: ownerId,
+    updated_at: new Date().toISOString(),
+  }
   const { data, error } = await supabase
     .from("knowledge_guardrails")
-    .insert(guardrailToSnake(guardrail) as never)
+    .insert(payload as never)
     .select()
     .single()
-
-  if (error) throw new Error(error.message)
+  if (error) {
+    console.error("[kb] createGuardrail failed", { payload, error })
+    throw new Error(error.message)
+  }
   return mapKnowledgeGuardrail(data as Record<string, unknown>)
 }
 
 export async function updateGuardrail(
   update: GuardrailUpdate,
 ): Promise<KnowledgeGuardrail> {
+  const ownerId = await resolveCurrentUserId()
   const supabase = createAdminClient()
   const { id, ...rest } = update
   const { data, error } = await supabase
     .from("knowledge_guardrails")
-    .update(guardrailToSnake(rest) as never)
+    .update({
+      ...guardrailToSnake(rest),
+      user_id: ownerId,
+      updated_at: new Date().toISOString(),
+    } as never)
     .eq("id", id)
     .select()
     .single()
-
-  if (error) throw new Error(error.message)
+  if (error) {
+    console.error("[kb] updateGuardrail failed", { id, error })
+    throw new Error(error.message)
+  }
   return mapKnowledgeGuardrail(data as Record<string, unknown>)
 }
 
@@ -252,6 +334,8 @@ export async function deleteGuardrail(id: string): Promise<void> {
     .from("knowledge_guardrails")
     .delete()
     .eq("id", id)
-
-  if (error) throw new Error(error.message)
+  if (error) {
+    console.error("[kb] deleteGuardrail failed", { id, error })
+    throw new Error(error.message)
+  }
 }

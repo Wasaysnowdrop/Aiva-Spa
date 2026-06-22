@@ -18,6 +18,7 @@ const baseKb: KnowledgeBundle = {
   services: [
     {
       id: "s1",
+      userId: null,
       name: "Botox",
       category: "Injectables",
       description: "Neuromodulator for fine lines.",
@@ -27,6 +28,7 @@ const baseKb: KnowledgeBundle = {
     },
     {
       id: "s2",
+      userId: null,
       name: "HydraFacial",
       category: "Skin",
       description: "Deep cleansing and hydration.",
@@ -38,6 +40,7 @@ const baseKb: KnowledgeBundle = {
   faqs: [
     {
       id: "f1",
+      userId: null,
       question: "Do you offer Botox?",
       answer: "Yes, we offer Botox for forehead lines, crow's feet, and frown lines. Pricing is per unit and confirmed at consultation by a licensed provider.",
       category: "General",
@@ -45,6 +48,7 @@ const baseKb: KnowledgeBundle = {
     },
     {
       id: "f2",
+      userId: null,
       question: "How do I book a consultation?",
       answer: "Share your name, phone, email, and preferred time here in chat. Our team will confirm the appointment within 1 business hour.",
       category: "Booking",
@@ -52,8 +56,8 @@ const baseKb: KnowledgeBundle = {
     },
   ],
   guardrails: [
-    { id: "g1", title: "No medical advice", body: "Refuse to assess conditions or recommend treatments for symptoms.", enabled: true },
-    { id: "g2", title: "No firm pricing", body: "Always defer to a licensed provider during consultation.", enabled: true },
+    { id: "g1", userId: null, title: "No medical advice", body: "Refuse to assess conditions or recommend treatments for symptoms.", enabled: true },
+    { id: "g2", userId: null, title: "No firm pricing", body: "Always defer to a licensed provider during consultation.", enabled: true },
   ],
   widget: {
     id: "w1",
