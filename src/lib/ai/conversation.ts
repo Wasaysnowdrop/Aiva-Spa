@@ -82,7 +82,7 @@ export async function runConversationTurn(
     { role: "user", content: input.message },
   ]
 
-  const result = await llmChat({ messages, options: { temperature: 0.4, maxTokens: 240, timeoutMs: 12_000 } })
+  const result = await llmChat({ messages, options: { temperature: 0.7, maxTokens: 320, timeoutMs: 12_000 } })
 
   return {
     reply: result.content,
@@ -237,7 +237,7 @@ export async function streamConversationTurn(
   try {
     for await (const ev of streamLlmChat({
       messages,
-      options: { temperature: 0.4, maxTokens: 240, timeoutMs: 12_000 },
+      options: { temperature: 0.7, maxTokens: 320, timeoutMs: 12_000 },
     })) {
       if (ev.type === "chunk") {
         pending += ev.text

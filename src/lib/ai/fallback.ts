@@ -77,9 +77,19 @@ export function kbAwareFallback(
     return "Pricing varies by treatment and individual needs — a licensed provider confirms exact pricing during your consultation. Want to book a free consult?"
   }
 
-  // 5. Hours intent.
+  // 5. Hours intent — pull from the spa's actual working hours, never hardcode.
   if (HOURS_RE.test(text)) {
-    return "Our typical hours are Tue–Fri 9 AM–7 PM, Sat 9 AM–5 PM, and Sun 11 AM–4 PM (closed Mon). I'm here 24/7, and the team will follow up on any leads."
+    const wh = kb.widget.workingHours
+    if (wh?.enabled && Array.isArray(wh.schedule) && wh.schedule.length > 0) {
+      const open = wh.schedule.filter((d) => d.open)
+      const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+      const dayLines = open.map((d) => `${dayNames[d.day]} ${d.from}–${d.to}`)
+      if (dayLines.length > 0) {
+        const tz = wh.tz ? ` (${wh.tz})` : ""
+        return `We're open ${dayLines.join(", ")}${tz}. Want to set up a time?`
+      }
+    }
+    return "Hours vary — drop your details and our team will confirm a time that works for you."
   }
 
   // 6. Generic — anchor to the first active service so the reply feels grounded.

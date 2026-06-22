@@ -340,7 +340,7 @@ export async function* streamLlmChat(input: LlmChatInput): LlmStreamHandle {
           ...(m.name ? { name: m.name } : {}),
         })),
         temperature: input.options?.temperature ?? 0.4,
-        max_tokens: input.options?.maxTokens ?? 240,
+        max_tokens: input.options?.maxTokens ?? 320,
         stream: true,
       }),
       signal,
