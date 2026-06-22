@@ -73,11 +73,14 @@ import {
 } from "@/app/actions/knowledge"
 import { toast } from "sonner"
 
-const knowledgeCategoryOptions: KnowledgeCategory[] = [
+const suggestedKnowledgeCategoryOptions: KnowledgeCategory[] = [
   "Injectables",
   "Skin",
   "Body",
   "Laser",
+  "Facials",
+  "Wellness",
+  "Hair Removal",
 ]
 
 type Tab = "services" | "faqs" | "rules"
@@ -193,9 +196,14 @@ export function KnowledgeBaseEditor() {
       toast.error("Service name is required")
       return
     }
+    const category = draft.category.trim()
+    if (!category) {
+      toast.error("Category is required")
+      return
+    }
     const payload = {
       name: draft.name.trim(),
-      category: draft.category,
+      category,
       description: draft.description.trim(),
       pricingRule: draft.pricingRule.trim(),
       duration: draft.duration.trim(),
@@ -493,6 +501,13 @@ export function KnowledgeBaseEditor() {
           }
           onClose={() => setServiceDialog(null)}
           onSave={onSaveService}
+          categorySuggestions={Array.from(
+            new Set([
+              ...suggestedKnowledgeCategoryOptions,
+              ...services.map((s) => s.category).filter(Boolean),
+              serviceDialog.draft.category,
+            ]),
+          ).sort((a, b) => a.localeCompare(b))}
         />
       ) : null}
 
@@ -1018,6 +1033,7 @@ function ServiceDialog({
   setDraft,
   onClose,
   onSave,
+  categorySuggestions,
 }: {
   open: boolean
   mode: "new" | "edit"
@@ -1025,6 +1041,7 @@ function ServiceDialog({
   setDraft: (d: ServiceDraft) => void
   onClose: () => void
   onSave: () => void
+  categorySuggestions: KnowledgeCategory[]
 }) {
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -1049,19 +1066,23 @@ function ServiceDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="svc-cat">Category</Label>
-            <Select
+            <Input
+              id="svc-cat"
+              list="kb-category-suggestions"
               value={draft.category}
-              onValueChange={(v) => setDraft({ ...draft, category: v as KnowledgeCategory })}
-            >
-              <SelectTrigger id="svc-cat" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {knowledgeCategoryOptions.map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onChange={(e) => setDraft({ ...draft, category: e.target.value })}
+              placeholder="e.g. Facials"
+              maxLength={80}
+              autoComplete="off"
+            />
+            <datalist id="kb-category-suggestions">
+              {categorySuggestions.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+            <p className="text-[10px] text-[#62666D]">
+              Pick a suggestion or type your own (e.g. Facials, Wellness, Hair Removal).
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="svc-dur">Duration</Label>

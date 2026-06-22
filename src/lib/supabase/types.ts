@@ -10,7 +10,7 @@ export type LeadStatus = "new" | "contacted" | "booked" | "lost"
 export type LeadSource = "Website Chat" | "Mobile" | "Direct Link"
 export type TeamRole = "Owner" | "Manager" | "Staff" | "Receptionist"
 export type TeamMemberStatus = "active" | "invited" | "suspended"
-export type KnowledgeCategory = "Injectables" | "Skin" | "Body" | "Laser"
+export type KnowledgeCategory = string
 export type FaqCategory = "General" | "Pricing" | "Booking" | "Safety" | "Hours"
 export type NotificationChannel = "Email" | "SMS"
 export type NotificationStatus = "delivered" | "pending" | "failed"
@@ -216,7 +216,6 @@ const leadStatuses: readonly LeadStatus[] = ["new", "contacted", "booked", "lost
 const leadSources: readonly LeadSource[] = ["Website Chat", "Mobile", "Direct Link"]
 const teamRoles: readonly TeamRole[] = ["Owner", "Manager", "Staff", "Receptionist"]
 const teamStatuses: readonly TeamMemberStatus[] = ["active", "invited", "suspended"]
-const knowledgeCategories: readonly KnowledgeCategory[] = ["Injectables", "Skin", "Body", "Laser"]
 const faqCategories: readonly FaqCategory[] = ["General", "Pricing", "Booking", "Safety", "Hours"]
 const notificationChannels: readonly NotificationChannel[] = ["Email", "SMS"]
 const notificationStatuses: readonly NotificationStatus[] = ["delivered", "pending", "failed"]
@@ -359,10 +358,12 @@ export function mapChatSession(row: DbRecord): ChatSession {
 }
 
 export function mapKnowledgeService(row: DbRecord): KnowledgeService {
+  const rawCategory = stringValue(row.category, "")
+  const category = rawCategory.trim() ? rawCategory.trim() : "Skin"
   return {
     id: stringValue(row.id),
     name: stringValue(row.name, ""),
-    category: enumValue(row.category, knowledgeCategories, "Skin"),
+    category,
     description: stringValue(row.description),
     pricingRule: stringValue(row.pricing_rule ?? row.pricingRule),
     duration: stringValue(row.duration),

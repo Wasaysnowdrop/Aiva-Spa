@@ -23,11 +23,10 @@ import { createClient } from "@/lib/supabase/server"
 import type { FaqCategory, KnowledgeCategory } from "@/lib/supabase/types"
 
 const faqCategoryValues = ["General", "Pricing", "Booking", "Safety", "Hours"] as const
-const knowledgeCategoryValues = ["Injectables", "Skin", "Body", "Laser"] as const
 
 const serviceSchema = z.object({
   name: z.string().min(1).max(120),
-  category: z.enum(knowledgeCategoryValues),
+  category: z.string().trim().min(1).max(80),
   description: z.string().max(2000).optional().default(""),
   pricingRule: z.string().max(200).optional().default(""),
   duration: z.string().max(80).optional().default(""),

@@ -26,14 +26,20 @@ export type FinalizeSetupResult = {
 }
 
 function toServiceCategory(input: string): KnowledgeCategory {
+  const trimmed = (input || "").trim()
+  if (!trimmed) return "Skin"
   const map: Record<string, KnowledgeCategory> = {
     Injectables: "Injectables",
     Skin: "Skin",
     Body: "Body",
     Laser: "Laser",
-    Other: "Skin",
+    Facial: "Skin",
+    Facials: "Skin",
+    Wellness: "Wellness",
   }
-  return map[input] ?? "Skin"
+  if (map[trimmed]) return map[trimmed]
+  const titled = trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
+  return titled.length > 80 ? titled.slice(0, 80) : titled
 }
 
 function toFaqCategory(input: string): FaqCategory {

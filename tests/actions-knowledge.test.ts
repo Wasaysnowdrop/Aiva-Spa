@@ -7,19 +7,40 @@ beforeEach(() => {
 })
 
 describe("createServiceAction", () => {
-  it("rejects an unknown service category", async () => {
-    const { server } = installSupabaseMocks()
+  it("accepts a custom service category like 'Facials'", async () => {
+    const { server, browser } = installSupabaseMocks()
     server.setAuthUser({ id: "u_1", email: "owner@spa.com" })
+    browser.setResult("knowledge_services", "insert", {
+      data: [
+        {
+          id: "svc_facials_1",
+          name: "HydraFacial",
+          category: "Facials",
+          description: "Multi-step facial",
+          pricing_rule: "",
+          duration: "60 min",
+          active: true,
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+        },
+      ],
+      error: null,
+    })
+    browser.setResult("audit_logs", "insert", { data: null, error: null })
+
     const { createServiceAction } = await import("@/app/actions/knowledge")
     const result = await createServiceAction({
-      name: "Botox",
-      category: "Bogus" as never,
-      description: "Neuromodulator",
+      name: "HydraFacial",
+      category: "Facials",
+      description: "Multi-step facial",
       pricingRule: "",
-      duration: "",
+      duration: "60 min",
       active: true,
     })
-    expect(result.ok).toBe(false)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.id).toBe("svc_facials_1")
+    }
   })
 
   it("creates a service and writes an audit log entry", async () => {
