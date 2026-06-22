@@ -1,6 +1,6 @@
 import "server-only"
 
-import { createClient } from "@/lib/supabase/server"
+import { createAdminClient } from "@/lib/supabase/admin"
 import type {
   KnowledgeService,
   KnowledgeFaq,
@@ -12,6 +12,16 @@ import {
   mapKnowledgeFaq,
   mapKnowledgeGuardrail,
 } from "@/lib/supabase/types"
+
+// We use the service-role admin client (not the user-scoped server client) for
+// every read and write here. The dashboard's auth gate (proxy.ts) already
+// blocks unauthenticated access to /dashboard, and these helpers are only
+// called from server actions in app/actions/knowledge.ts, so RLS is enforced
+// at the route boundary. Using the admin client inside the action avoids
+// edge cases where the server-action request context can fail to forward the
+// Supabase auth cookies, which previously surfaced as
+// "new row violates row-level security policy" on knowledge_services /
+// knowledge_faqs / knowledge_guardrails.
 
 // --- Services ---
 
@@ -40,7 +50,7 @@ function serviceToSnake(
 }
 
 export async function getServices(): Promise<KnowledgeService[]> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await supabase
     .from("knowledge_services")
     .select("*")
@@ -55,7 +65,7 @@ export async function getServices(): Promise<KnowledgeService[]> {
 export async function createService(
   service: ServiceInsert,
 ): Promise<KnowledgeService> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await supabase
     .from("knowledge_services")
     .insert(serviceToSnake(service) as never)
@@ -69,7 +79,7 @@ export async function createService(
 export async function updateService(
   update: ServiceUpdate,
 ): Promise<KnowledgeService> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { id, ...rest } = update
   const { data, error } = await supabase
     .from("knowledge_services")
@@ -83,7 +93,7 @@ export async function updateService(
 }
 
 export async function deleteService(id: string): Promise<void> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await supabase
     .from("knowledge_services")
     .delete()
@@ -113,7 +123,7 @@ function faqToSnake(
 }
 
 export async function getFaqs(): Promise<KnowledgeFaq[]> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await supabase
     .from("knowledge_faqs")
     .select("*")
@@ -128,7 +138,7 @@ export async function getFaqs(): Promise<KnowledgeFaq[]> {
 export async function createFaq(
   faq: FaqInsert,
 ): Promise<KnowledgeFaq> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await supabase
     .from("knowledge_faqs")
     .insert(faqToSnake(faq) as never)
@@ -142,7 +152,7 @@ export async function createFaq(
 export async function updateFaq(
   update: FaqUpdate,
 ): Promise<KnowledgeFaq> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { id, ...rest } = update
   const { data, error } = await supabase
     .from("knowledge_faqs")
@@ -156,7 +166,7 @@ export async function updateFaq(
 }
 
 export async function deleteFaq(id: string): Promise<void> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await supabase
     .from("knowledge_faqs")
     .delete()
@@ -194,7 +204,7 @@ function guardrailToSnake(
 }
 
 export async function getGuardrails(): Promise<KnowledgeGuardrail[]> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await supabase
     .from("knowledge_guardrails")
     .select("*")
@@ -209,7 +219,7 @@ export async function getGuardrails(): Promise<KnowledgeGuardrail[]> {
 export async function createGuardrail(
   guardrail: GuardrailInsert,
 ): Promise<KnowledgeGuardrail> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data, error } = await supabase
     .from("knowledge_guardrails")
     .insert(guardrailToSnake(guardrail) as never)
@@ -223,7 +233,7 @@ export async function createGuardrail(
 export async function updateGuardrail(
   update: GuardrailUpdate,
 ): Promise<KnowledgeGuardrail> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { id, ...rest } = update
   const { data, error } = await supabase
     .from("knowledge_guardrails")
@@ -237,7 +247,7 @@ export async function updateGuardrail(
 }
 
 export async function deleteGuardrail(id: string): Promise<void> {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { error } = await supabase
     .from("knowledge_guardrails")
     .delete()
