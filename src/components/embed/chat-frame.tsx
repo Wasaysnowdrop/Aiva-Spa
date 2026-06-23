@@ -599,12 +599,33 @@ export function ChatFrame({
                 "I'm having a quick moment — could you rephrase that?",
             )
           } else if (currentEvent === "done" && typeof payload.reply === "string") {
-            // Server confirmed the final reply in case streaming missed
-            // any chunks (think-stripping, partial SSE). Sync our state
-            // with the authoritative server reply so the bubble is never
-            // blank if the SSE chunk stream had gaps.
-            if (!fullText.trim() && payload.reply.trim()) {
-              fullText = payload.reply
+            // Server confirmed the final reply. The server is the single
+            // source of truth — it has the KB-aware canned fallback when
+            // the LLM is down, the think-stripped final text when the
+            // LLM is up, and the corrected reply when streaming missed
+            // chunks. Always reconcile our bubble with it so the visitor
+            // never sees a generic frontend message ("I'm having a quick
+            // moment…") when the server actually had a real answer.
+            const serverReply = payload.reply
+            if (!serverReply.trim()) continue
+            if (fullText.trim() && serverReply.startsWith(fullText)) {
+              // Streamed chunks are a prefix of the server reply —
+              // append the tail (common when the LLM stream was
+              // truncated and the server appended a canned fallback).
+              const tail = serverReply.slice(fullText.length)
+              if (tail) {
+                fullText = serverReply
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === aiMsgId ? { ...m, content: fullText } : m,
+                  ),
+                )
+              }
+            } else if (serverReply !== fullText) {
+              // Either nothing was streamed, or the streamed text
+              // diverged from the server reply (think-stripping gap,
+              // fallback injection, etc.). Trust the server.
+              fullText = serverReply
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === aiMsgId ? { ...m, content: fullText } : m,
@@ -616,35 +637,28 @@ export function ChatFrame({
       }
     } catch (err) {
       console.warn("[chat-widget] stream read error", err)
-      // Network blip mid-stream: keep what we already got, surface an error
-      // banner if we got nothing useful.
+      // Network blip mid-stream: if we got nothing useful, signal the
+      // caller to try the buffered JSON path so the visitor gets the
+      // server's KB-aware answer. If we already streamed something,
+      // keep it and let the done event (if it arrives) reconcile.
       if (!fullText.trim()) {
-        const fallback =
-          "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === aiMsgId ? { ...m, content: fallback } : m,
-          ),
-        )
-        fullText = fallback
-        setError("Connection dropped. Please try again.")
+        onFinalText("")
+        return false
       }
       onFinalText(fullText)
       return true
     }
 
     // Final blank guard: if the server returned no usable chunks AND no
-    // "done" reply, force a fallback so the bubble is never blank.
+    // "done" reply, signal the caller to try the buffered JSON path so
+    // the visitor still gets the server's KB-aware answer instead of a
+    // generic frontend message.
     if (!fullText.trim()) {
-      console.warn("[chat-widget] stream ended with no text, applying fallback")
-      const fallback =
-        "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === aiMsgId ? { ...m, content: fallback } : m,
-        ),
+      console.warn(
+        "[chat-widget] stream ended with no text and no done reply, deferring to buffered fallback",
       )
-      fullText = fallback
+      onFinalText("")
+      return false
     }
 
     if (errored && !fullText.trim()) {
