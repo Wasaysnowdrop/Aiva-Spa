@@ -222,12 +222,19 @@ async function callOpenAi(
   }
 }
 
-// MiniMax-style models emit a hidden chain-of-thought inside
-// `<think>...</think>` tags before the user-visible reply. Never show that to
-// visitors — drop the block (and any leading whitespace) and return whatever
-// remains, falling back to the original string if nothing is left.
+// MiniMax-style models emit a hidden chain-of-thought before the
+// user-visible reply. The tags may come through the OpenAI-compatible
+// gateway either literally (`<think>...</think>`) or HTML-encoded
+// (`&lt;think&gt;...&lt;/think&gt;`) — TokenRouter / MiniMax-M3 has been
+// observed returning the encoded form. Strip both shapes so the visitor
+// never sees the model's reasoning, and fall back to the trimmed raw
+// text if nothing is left (better to show a partial answer than nothing).
 function stripThinkBlocks(raw: string): string {
-  const cleaned = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trimStart()
+  if (!raw) return raw
+  // Decode HTML-encoded think tags first so the regex below can match them.
+  const decoded = raw
+    .replace(/&lt;\/?think&gt;/gi, (m) => (m.includes("/") ? "</think>" : "<think>"))
+  const cleaned = decoded.replace(/<think>[\s\S]*?<\/think>/gi, "").trimStart()
   return cleaned.length > 0 ? cleaned : raw.trim()
 }
 
@@ -340,7 +347,7 @@ export async function* streamLlmChat(input: LlmChatInput): LlmStreamHandle {
           ...(m.name ? { name: m.name } : {}),
         })),
         temperature: input.options?.temperature ?? 0.4,
-        max_tokens: input.options?.maxTokens ?? 320,
+        max_tokens: input.options?.maxTokens ?? 800,
         stream: true,
       }),
       signal,
@@ -388,8 +395,16 @@ export async function* streamLlmChat(input: LlmChatInput): LlmStreamHandle {
           }
           const chunk = json.choices?.[0]?.delta?.content
           if (chunk) {
+            // Some gateways (TokenRouter / MiniMax-M3) emit think tags with
+            // HTML entities (`&lt;think&gt;`). Decode them inline so the
+            // conversation engine's incremental think-stripper can match
+            // them. We only touch the encoded tags — every other character
+            // passes through untouched.
+            const decoded = chunk
+              .replace(/&lt;think&gt;/gi, "<think>")
+              .replace(/&lt;\/think&gt;/gi, "</think>")
             sawAnyChunk = true
-            yield { type: "chunk", text: chunk }
+            yield { type: "chunk", text: decoded }
           }
         } catch {
           // ignore malformed SSE lines

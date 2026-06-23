@@ -446,23 +446,12 @@ export function ChatFrame({
       content: m.content,
     }))
 
-    // Single source of truth for the final text the visitor sees. We
-    // populate this through streaming, buffered fallback, or hardcoded
-    // catch-all so the bubble is NEVER blank.
+    // Track the final text the visitor should see. We populate this from
+    // streaming chunks, the buffered JSON reply, or (last resort) the
+    // safe fallback. The fallback only fires when no real response came
+    // back from the server.
     let finalText = ""
-
-    const ensureNonBlank = () => {
-      if (!finalText.trim()) {
-        finalText =
-          "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === aiMsgId ? { ...m, content: finalText } : m,
-          ),
-        )
-        console.warn("[chat-widget] response was blank, applied hard fallback")
-      }
-    }
+    let hadNetworkError = false
 
     try {
       // Try streaming first (much faster TTFT). Fall back to buffered JSON if
@@ -476,16 +465,26 @@ export function ChatFrame({
       }
     } catch (e) {
       console.error("[chat-widget] chat request failed", e)
+      hadNetworkError = true
       setError(e instanceof Error ? e.message : "Something went wrong")
-      finalText =
-        "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === aiMsgId ? { ...m, content: finalText } : m,
-        ),
-      )
     } finally {
-      ensureNonBlank()
+      // Only fall back if the server actually returned nothing. If the
+      // AI gave us a real answer — even a short or imperfect one — we
+      // trust it and render it. The fallback is reserved for genuine
+      // outages, not for every message.
+      if (!finalText.trim()) {
+        finalText = hadNetworkError
+          ? "I'm having trouble connecting right now. Please try again in a moment."
+          : "I'm having trouble generating a response right now. Please try again in a moment."
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === aiMsgId ? { ...m, content: finalText } : m,
+          ),
+        )
+        console.warn("[chat-widget] response was blank, applied fallback", {
+          hadNetworkError,
+        })
+      }
       setSending(false)
       inputRef.current?.focus()
       console.log("[chat-widget] Rendering response", {

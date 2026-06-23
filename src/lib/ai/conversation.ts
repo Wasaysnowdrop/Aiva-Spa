@@ -104,7 +104,7 @@ export async function runConversationTurn(
     messageCount: messages.length,
     temperature: 0.7,
   })
-  const result = await llmChat({ messages, options: { temperature: 0.7, maxTokens: 320, timeoutMs: 12_000 } })
+  const result = await llmChat({ messages, options: { temperature: 0.7, maxTokens: 800, timeoutMs: 12_000 } })
   console.log("[chat] AI response received", {
     model: result.model,
     provider: result.provider,
@@ -163,31 +163,59 @@ function applyThinkStrippingIncremental(
   pending: string,
   inThink: boolean,
 ): { emit: string; inThink: boolean; remaining: string } {
-  const THINK_OPEN = "think>"
-  const THINK_OPEN_FULL = "<" + THINK_OPEN
-  const THINK_CLOSE = "think>"
-  const THINK_CLOSE_FULL = "</" + THINK_CLOSE
+  // Some OpenAI-compatible gateways (TokenRouter serving MiniMax-M3) emit
+  // the model's chain-of-thought wrapped in HTML-encoded tags inside the
+  // JSON string value — `&lt;think&gt;` / `&lt;/think&gt;` instead of
+  // the literal `<think>` / `</think>`. The downstream JSON parser gives
+  // us the raw string back (HTML entities are NOT unescaped by JSON), so
+  // we have to recognize both shapes here.
+  const THINK_OPEN_LITERAL = "<think>"
+  const THINK_CLOSE_LITERAL = "</think>"
+  const THINK_OPEN_ENCODED = "&lt;think&gt;"
+  const THINK_CLOSE_ENCODED = "&lt;/think&gt;"
 
   let buf = pending
   let think = inThink
   let emit = ""
 
+  const indexOfAnyOpen = (s: string): number => {
+    const a = s.indexOf(THINK_OPEN_LITERAL)
+    const b = s.indexOf(THINK_OPEN_ENCODED)
+    if (a === -1) return b
+    if (b === -1) return a
+    return Math.min(a, b)
+  }
+  const indexOfAnyClose = (s: string): number => {
+    const a = s.indexOf(THINK_CLOSE_LITERAL)
+    const b = s.indexOf(THINK_CLOSE_ENCODED)
+    if (a === -1) return b
+    if (b === -1) return a
+    return Math.min(a, b)
+  }
+  // Use the longer of the two tag shapes as the "hold back" window so we
+  // never split a tag across chunk boundaries.
+  const OPEN_TAG_LEN = Math.max(THINK_OPEN_LITERAL.length, THINK_OPEN_ENCODED.length)
+  const CLOSE_TAG_LEN = Math.max(
+    THINK_CLOSE_LITERAL.length,
+    THINK_CLOSE_ENCODED.length,
+  )
+
   while (buf.length > 0) {
     if (think) {
-      const closeIdx = buf.indexOf(THINK_CLOSE_FULL)
+      const closeIdx = indexOfAnyClose(buf)
       if (closeIdx === -1) {
-        // hold back a possible prefix of the close tag
-        const keep = Math.min(buf.length, THINK_CLOSE_FULL.length - 1)
+        // Hold back a possible prefix of the close tag.
+        const keep = Math.min(buf.length, CLOSE_TAG_LEN - 1)
         buf = buf.slice(buf.length - keep)
         break
       }
       think = false
-      buf = buf.slice(closeIdx + THINK_CLOSE_FULL.length)
+      buf = buf.slice(closeIdx + CLOSE_TAG_LEN)
     } else {
-      const openIdx = buf.indexOf(THINK_OPEN_FULL)
+      const openIdx = indexOfAnyOpen(buf)
       if (openIdx === -1) {
-        // hold back a possible prefix of the open tag
-        const keep = Math.min(buf.length, THINK_OPEN_FULL.length - 1)
+        // Hold back a possible prefix of the open tag.
+        const keep = Math.min(buf.length, OPEN_TAG_LEN - 1)
         const safe = buf.slice(0, buf.length - keep)
         emit += safe
         buf = buf.slice(buf.length - keep)
@@ -197,7 +225,7 @@ function applyThinkStrippingIncremental(
         emit += buf.slice(0, openIdx)
       }
       think = true
-      buf = buf.slice(openIdx + THINK_OPEN_FULL.length)
+      buf = buf.slice(openIdx + OPEN_TAG_LEN)
     }
   }
 
@@ -269,7 +297,7 @@ export async function streamConversationTurn(
   try {
     for await (const ev of streamLlmChat({
       messages,
-      options: { temperature: 0.7, maxTokens: 320, timeoutMs: 12_000 },
+      options: { temperature: 0.7, maxTokens: 800, timeoutMs: 12_000 },
     })) {
       if (ev.type === "chunk") {
         pending += ev.text

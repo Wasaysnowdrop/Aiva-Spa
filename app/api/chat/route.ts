@@ -34,6 +34,14 @@ export const dynamic = "force-dynamic"
 
 const CHAT_LIMIT = LIMITS.chat
 
+// Specific fallback messages per the failure mode. The visitor always
+// gets a usable reply — but the wording tells them (and our logs) what
+// actually went wrong so we can debug without guesswork.
+const FALLBACK_AI_FAIL =
+  "I'm having trouble generating a response right now. Please try again in a moment."
+const FALLBACK_KB_FAIL =
+  "I'm having trouble loading the spa knowledge base right now. Please try again in a moment."
+
 function cors(request: Request) {
   return buildCorsHeaders(request)
 }
@@ -125,12 +133,14 @@ export async function POST(request: NextRequest) {
     // outage, an LLM transport glitch we forgot to wrap) lands here. We
     // log it loudly and return a usable fallback reply so the visitor
     // never sees a blank bubble.
-    console.error("[chat-api] unhandled error in chat pipeline", err)
+    console.error(
+      "[chat-api] unhandled error in chat pipeline",
+      err instanceof Error ? `${err.message}\n${err.stack}` : err,
+    )
     if ((request.headers.get("accept") || "").includes("text/event-stream")) {
       // Emit a single SSE chunk + done so the client can render text.
       const enc = new TextEncoder()
-      const fallback =
-        "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
+      const fallback = FALLBACK_AI_FAIL
       const stream = new ReadableStream({
         start(controller) {
           try {
@@ -163,8 +173,7 @@ export async function POST(request: NextRequest) {
     }
     return Response.json(
       {
-        reply:
-          "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?",
+        reply: FALLBACK_AI_FAIL,
         model: "aiva-fallback",
         provider: "mock",
         durationMs: Date.now() - requestStart,
@@ -227,15 +236,17 @@ async function handleStreamingChat(
             onChunk: (text) => send("chunk", { text }),
           })
         } catch (turnErr) {
-          // The conversation turn should NEVER throw — it has its own
-          // try/catch around the LLM call — but if it ever does, we send
-          // a usable fallback chunk so the visitor is never stranded.
+          // The conversation turn has its own try/catch around the LLM call
+          // and should never throw. If it does, log loudly and emit a
+          // specific AI-failure fallback so the visitor sees something
+          // useful and the operator can see what happened.
           console.error(
-            "[chat] streamConversationTurn threw, serving canned fallback",
-            turnErr,
+            "[chat] streamConversationTurn threw, serving AI fallback",
+            turnErr instanceof Error
+              ? `${turnErr.message}\n${turnErr.stack}`
+              : turnErr,
           )
-          const fallback =
-            "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
+          const fallback = FALLBACK_AI_FAIL
           send("chunk", { text: fallback })
           result = {
             reply: fallback,
@@ -248,19 +259,11 @@ async function handleStreamingChat(
           }
         }
 
-        // Defensive: if for any reason the conversation engine returned
-        // blank or whitespace-only text, override it with a safe fallback
-        // so the chat bubble is never blank.
-        if (!result.reply || !result.reply.trim()) {
-          console.warn(
-            "[chat] conversation engine returned blank reply, overriding with fallback",
-          )
-          const fallback =
-            "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
-          // Send as a chunk too so streaming clients see text appear.
-          send("chunk", { text: fallback })
-          result = { ...result, reply: fallback }
-        }
+        // The conversation engine's built-in fallback returns a
+        // KB-aware canned reply (e.g. emergency / out-of-scope / hours)
+        // when the LLM is unavailable. We only override with our own
+        // fallback when the engine returned nothing at all — otherwise
+        // we trust it.
 
         const [firstTurn, brandName] = await Promise.all([firstTurnP, brandNameP])
         const isFirstTurn = firstTurn.isFirstTurn
@@ -268,6 +271,8 @@ async function handleStreamingChat(
         console.log("[chat] Rendering response", {
           replyLength: result.reply.length,
           durationMs: result.durationMs,
+          model: result.model,
+          provider: result.provider,
         })
 
         send("meta", {
@@ -311,10 +316,11 @@ async function handleStreamingChat(
           leadId: null,
         })
       } catch (err) {
-        console.error("[chat] streaming conversation error", err)
-        // Emit a fallback chunk + done so the client never sees blank.
-        const fallback =
-          "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
+        console.error(
+          "[chat] streaming conversation error",
+          err instanceof Error ? `${err.message}\n${err.stack}` : err,
+        )
+        const fallback = FALLBACK_AI_FAIL
         send("chunk", { text: fallback })
         send("done", {
           reply: fallback,
@@ -356,8 +362,6 @@ async function handleBufferedChat(
   accessUserId: string | null,
 ): Promise<Response> {
   const start = Date.now()
-  const FALLBACK_REPLY =
-    "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
   try {
     let result
     try {
@@ -368,9 +372,14 @@ async function handleBufferedChat(
         language: requestedLang ?? undefined,
       })
     } catch (turnErr) {
-      console.error("[chat] runConversationTurn threw, serving fallback", turnErr)
+      console.error(
+        "[chat] runConversationTurn threw, serving AI fallback",
+        turnErr instanceof Error
+          ? `${turnErr.message}\n${turnErr.stack}`
+          : turnErr,
+      )
       result = {
-        reply: FALLBACK_REPLY,
+        reply: FALLBACK_AI_FAIL,
         model: "aiva-fallback",
         provider: "mock" as const,
         isFirstReply: false,
@@ -380,12 +389,10 @@ async function handleBufferedChat(
       }
     }
 
-    // Defensive: never return a blank reply — the dashboard sandbox and
-    // any non-streaming client depend on this field.
-    if (!result.reply || !result.reply.trim()) {
-      console.warn("[chat] conversation returned blank, overriding with fallback")
-      result = { ...result, reply: FALLBACK_REPLY }
-    }
+    // The conversation engine's built-in fallback returns a KB-aware
+    // canned reply (e.g. emergency / out-of-scope / hours) when the LLM
+    // is unavailable. We only override with our hardcoded fallback when
+    // the engine returned literally nothing — otherwise we trust it.
 
     // First-turn webhook (fire-and-forget).
     try {
@@ -433,10 +440,13 @@ async function handleBufferedChat(
       { status: 200, headers: cors(request) },
     )
   } catch (err) {
-    console.error("[chat] buffered conversation error", err)
+    console.error(
+      "[chat] buffered conversation error",
+      err instanceof Error ? `${err.message}\n${err.stack}` : err,
+    )
     return Response.json(
       {
-        reply: FALLBACK_REPLY,
+        reply: FALLBACK_AI_FAIL,
         model: "aiva-fallback",
         provider: "mock",
         durationMs: Date.now() - start,
