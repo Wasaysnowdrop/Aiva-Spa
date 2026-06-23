@@ -18,6 +18,7 @@ export const chatRequestSchema = z.object({
       phone: z.string().max(40).optional(),
       service: z.string().max(80).optional(),
       preferredTime: z.string().max(200).optional(),
+      notes: z.string().max(2000).optional(),
     })
     .partial()
     .optional(),
@@ -30,11 +31,11 @@ export const leadRequestSchema = z.object({
   spaId: z.string().min(1).max(200).optional(),
   sessionId: z.string().min(1).max(200).optional(),
   name: z.string().min(1).max(120),
-  email: z.string().email().max(254).optional().or(z.literal("")),
+  email: z.string().email().max(254),
   phone: z.string().min(5).max(40),
   service: z.string().min(1).max(80),
   preferredTime: z.string().min(1).max(200),
-  notes: z.string().max(2000).optional(),
+  notes: z.string().min(1).max(2000),
   sourceUrl: z.string().max(2000).optional(),
   transcript: z.array(chatMessageSchema).max(80).optional(),
   consentGiven: z.boolean().optional(),

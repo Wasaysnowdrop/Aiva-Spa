@@ -97,13 +97,15 @@ describe("validation", () => {
     expect(v.ok).toBe(false)
   })
 
-  it("accepts well-formed lead submissions", () => {
+  it("accepts well-formed lead submissions (all 6 required fields present)", () => {
     const v = safeValidate(leadRequestSchema, {
       sessionId: "abc",
       name: "Jane Doe",
       phone: "(415) 555-0100",
+      email: "jane@example.com",
       service: "Botox",
       preferredTime: "Saturday morning",
+      notes: "Wants to soften forehead lines",
     })
     expect(v.ok).toBe(true)
   })
@@ -337,10 +339,15 @@ describe("system prompt", () => {
     expect(system).toMatch(/It runs per unit/)
   })
 
-  it("includes a real example for an out-of-scope service that recommends the closest in-scope service", () => {
+  it("includes a real example for an out-of-scope service that follows the never-deny rule", () => {
     const { system } = buildSystemPrompt(baseKb, "hi")
     expect(system).toMatch(/CoolSculpting/)
-    expect(system).toMatch(/we don't have CoolSculpting on our menu/i)
+    // The example must NOT deny the service outright (we may not have every
+    // treatment in the KB) — instead, it offers to submit a consultation
+    // request so the team can confirm.
+    expect(system).not.toMatch(/we don't have CoolSculpting on our menu/i)
+    expect(system).toMatch(/don't have confirmed information about that service/i)
+    expect(system).toMatch(/submit a consultation request/i)
   })
 
   it("includes a real example for an emotional/fear-based visitor message", () => {
@@ -359,7 +366,9 @@ describe("system prompt", () => {
     const { system } = buildSystemPrompt(baseKb, "hi")
     expect(system).toMatch(/recommend a medicine for my back pain/i)
     expect(system).toMatch(/I'm not able to recommend medicines/i)
-    expect(system).toMatch(/set up a consult/i)
+    // The redirect must offer a consultation request (the canonical next
+    // step in our safety rules) rather than a different phrasing.
+    expect(system).toMatch(/submit a consultation request/i)
   })
 
   it("describes all five tone presets in human terms", () => {

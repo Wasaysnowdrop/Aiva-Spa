@@ -40,6 +40,8 @@ export type TranslationKey =
   | "field.service"
   | "field.preferred_time"
   | "field.preferred_time_placeholder"
+  | "field.notes"
+  | "field.notes_placeholder"
   | "submit.send"
   | "submit.sending"
   | "submit.open_calendar"
@@ -54,7 +56,7 @@ export type TranslationKey =
   | "lead_received_banner"
   | "language.aria"
 
-export type TranslationDictionary = Record<TranslationKey, string>
+export type TranslationDictionary = Partial<Record<TranslationKey, string>>
 
 function build(
   entries: Array<[TranslationKey, string]>,
@@ -89,6 +91,8 @@ const en = build([
     "field.preferred_time_placeholder",
     "Or type a time (e.g. 'Tue afternoon')",
   ],
+  ["field.notes", "Goals or notes"],
+  ["field.notes_placeholder", "Anything you'd like the provider to know?"],
   ["submit.send", "Send to {brand}"],
   ["submit.sending", "Sending…"],
   ["submit.open_calendar", "Pick a time"],

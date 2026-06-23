@@ -76,7 +76,11 @@ export type Translator = (key: TranslationKey, vars?: Record<string, string | un
 
 export function makeTranslator(lang: LanguageCode): Translator {
   const dict = getDictionary(lang)
-  return (key, vars) => fillTemplate(dict[key], vars ?? {})
+  const fallback = lang === "en" ? dict : getDictionary("en")
+  return (key, vars) => {
+    const template = dict[key] ?? fallback[key] ?? key
+    return fillTemplate(template, vars ?? {})
+  }
 }
 
 export const RTL_LANGUAGES: ReadonlySet<LanguageCode> = new Set<LanguageCode>(["ar"])

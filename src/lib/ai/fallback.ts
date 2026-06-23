@@ -15,14 +15,156 @@ const OFF_TOPIC_PATTERNS: RegExp[] = [
   /\b(capital of|president of|prime minister|weather in|cricket score|football score)\b/i,
 ]
 
-// Booking intent — needs the form, not a KB answer.
-const BOOKING_RE = /\b(book|booking|appointment|consult(ation)?|schedule|reserve|availability)\b/i
+// Medical emergency signals — these trigger an immediate, urgent response
+// BEFORE any other flow (lead capture, pricing, etc.).
+const EMERGENCY_PATTERNS: RegExp[] = [
+  /\b(trouble|difficulty|can'?t|cant|cannot)\b[^.\n]{0,40}\b(breath|breathing|breathe)\b/i,
+  /\bshort(ness)? of breath\b/i,
+  /\bsevere (swelling|allergic|bleeding|reaction)\b/i,
+  /\b(allergic|anaphyla\w*)\s*(reaction|shock)\b/i,
+  /\b(chest pain|chest tightness|cardiac|heart attack)\b/i,
+  /\b(loss of consciousness|lost consciousness|passed out|fainting|faint(ed)?|unconscious)\b/i,
+  /\bswelling (of|in|around)\b[^.\n]{0,40}\b(throat|tongue|lips?|eyes?|face|airway)\b/i,
+  /\b(can'?t|cant|cannot)\b[^.\n]{0,20}\b(swallow|breath)\b/i,
+  /\binfection\b[^.\n]{0,40}\b(spreading|spreading|fever|red streaks|worsening)\b/i,
+  /\bseptic\b/i,
+  /\bsuicid(al|e)\b/i,
+]
 
-// Pricing intent — always defer to provider.
+// Out-of-scope / unknown service signals — used when the visitor asks about a
+// specific named treatment we don't carry. We never say "we don't offer X"
+// (we may not have every treatment in the KB); we offer to submit a request.
+const UNKNOWN_SERVICE_HINTS = [
+  /\b(teeth|tooth)\b[^.\n]{0,40}\b(whitening|straightening|aligners|braces|veneers|implants)\b/i,
+  /\b(rhinoplasty|hair transplant|tummy tuck|liposuction|breast augmentation|breast reduction)\b/i,
+  /\b(weight loss|ozempic|semaglutide|phentermine|cool sculpting|coolsculpting|keto|diet pill)\b/i,
+]
+
+const BOOKING_RE = /\b(book|booking|appointment|consult(ation)?|schedule|reserve|reserved|availability)\b/i
 const PRICING_RE = /\b(price|pricing|cost|how much|expensive|cheap|afford|rate|fee)\b/i
-
-// Hours intent.
 const HOURS_RE = /\b(hours?|open|close|opening|closing|when (are|do)|what time)\b/i
+
+// Exact-unit / dosing medical requests — refuse, never invent. Matches a
+// wide variety of phrasings (units/cc/ml/dosage before or after the
+// treatment name).
+const EXACT_UNIT_REQUESTS: RegExp[] = [
+  // "how many units of botox", "what dosage of dysport", "how much filler in cc"
+  /\b(how many|how much|what|which)\b[^.\n]{0,40}\b(units?|cc|ml|millilit\w*|syringes?|vials?|dosage|dose|amount)\b[^.\n]{0,40}\b(botox|fillers?|juvederm|restylane|xeomin|dysport|sculptra|kybella|botulinum)\b/i,
+  // "units of botox", "dosage of dysport", "cc of filler"
+  /\b(units?|cc|ml|millilit\w*|syringes?|vials?|dosage|dose|amount)\b[^.\n]{0,40}\b(of|for|in)\b[^.\n]{0,40}\b(botox|fillers?|juvederm|restylane|xeomin|dysport|sculptra|kybella|botulinum)\b/i,
+  // "botox units", "filler dosage", "dysport amount"
+  /\b(botox|fillers?|juvederm|restylane|xeomin|dysport|sculptra|kybella|botulinum)\b[^.\n]{0,40}\b(units?|dosage|dose|cc|ml|amount|specific number)\b/i,
+  // "exact units", "exact dosage"
+  /\bexact (units?|amount|dose|dosage|number)\b/i,
+]// Pregnancy / breastfeeding / health-state safety questions — no medical advice.
+const PREGNANCY_RE =
+  /\b(pregnan\w*|breast\s*feed\w*|nursing|lactating|trying to conceive|ttc)\b/i
+
+const EMERGENCY_REPLY =
+  "This may be a medical emergency. Please seek urgent medical attention or contact emergency services immediately. Do not wait — your safety comes first, and a med spa cannot evaluate or treat emergencies."
+
+// KB-grounded fallback used when the LLM is unavailable (timeout, error,
+// missing key, mocked). Synchronous + cached, so it returns instantly.
+export function kbAwareFallback(
+  message: string,
+  kb: KnowledgeBundle,
+): string {
+  const text = (message || "").trim()
+  if (!text) return "Hey — what can I help you with today?"
+
+  // 0. Emergency — always first, never blocked by anything else.
+  if (isEmergencyMessage(text)) {
+    return EMERGENCY_REPLY
+  }
+
+  // 1. Off-topic / medical-advice → polite refusal grounded in real services.
+  if (OFF_TOPIC_PATTERNS.some((re) => re.test(text))) {
+    return buildOffTopicReply(kb)
+  }
+
+  // 2. Exact-unit / dosing medical request → refuse.
+  if (EXACT_UNIT_REQUESTS.some((re) => re.test(text))) {
+    return buildExactUnitRefusal(kb)
+  }
+
+  // 3. Pregnancy / breastfeeding → no medical advice, defer to provider.
+  if (PREGNANCY_RE.test(text)) {
+    return buildPregnancyReply(kb)
+  }
+
+  // 4. Visitor names a service we don't appear to have in the KB → never
+  //    deny or invent; offer to submit a consultation request.
+  //    Checked BEFORE retrieval so a query like "Do you offer CoolSculpting?"
+  //    isn't accidentally answered by a stored FAQ for a different service
+  //    that just happens to share words like "offer".
+  if (UNKNOWN_SERVICE_HINTS.some((re) => re.test(text))) {
+    return buildUnknownServiceReply(kb)
+  }
+
+  // 5. Try to retrieve a relevant KB entry for this exact message.
+  const items = retrieve(text, kb, 3)
+  if (items.length > 0) {
+    const top = items[0]
+    if (top.kind === "faq") {
+      return sanitizeReply(top.faq.answer)
+    }
+    const svc = top.service
+    const desc = svc.description ? ` ${svc.description}` : ""
+    return sanitizeReply(
+      `Yes — ${svc.name} is one of our treatments.${desc} Pricing and what's right for you get confirmed during a consultation by a licensed provider. Want me to submit a consultation request so the team can confirm details?`,
+    )
+  }
+
+  // 6. Booking intent — never confirm; always request-submit language.
+  if (BOOKING_RE.test(text)) {
+    return buildBookingReply()
+  }
+
+  // 7. Pricing intent.
+  if (PRICING_RE.test(text)) {
+    return "Pricing varies by treatment and individual needs — a licensed provider confirms exact pricing during your consultation. Want me to submit a consultation request so the team can confirm?"
+  }
+
+  // 8. Hours intent — pull from the spa's actual working hours, never hardcode.
+  if (HOURS_RE.test(text)) {
+    const wh = kb.widget.workingHours
+    if (wh?.enabled && Array.isArray(wh.schedule) && wh.schedule.length > 0) {
+      const open = wh.schedule.filter((d) => d.open)
+      const dayLines = open.map((d) => `${d.day} ${d.from}–${d.to}`)
+      if (dayLines.length > 0) {
+        const tz = wh.tz ? ` (${wh.tz})` : ""
+        return `We're open ${dayLines.join(", ")}${tz}. Want to submit a consultation request so the team can confirm a time?`
+      }
+    }
+    return "Hours vary — drop your details and our team will confirm a time that works for you."
+  }
+
+  // 9. Generic — anchor to the first active service so the reply feels grounded.
+  const topService = kb.services.find((s) => s.active)?.name
+  if (topService) {
+    return `Happy to help — we focus on treatments like ${topService}. What's on your mind?`
+  }
+
+  return "Happy to help — what would you like to know more about?"
+}
+
+// Returns true when the message looks like it's clearly outside the spa's
+// scope (medical advice, off-topic trivia, etc.). Used by callers that want
+// to short-circuit before even hitting the LLM for an obvious refusal.
+export function isOffTopicMessage(message: string): boolean {
+  const text = (message || "").trim()
+  if (!text) return false
+  if (isEmergencyMessage(text)) return false // emergencies are their own bucket
+  return OFF_TOPIC_PATTERNS.some((re) => re.test(text))
+}
+
+// True when the message signals a likely medical emergency. Always checked
+// before any other intent — emergencies must NEVER be turned into lead capture.
+export function isEmergencyMessage(message: string): boolean {
+  const text = (message || "").trim()
+  if (!text) return false
+  return EMERGENCY_PATTERNS.some((re) => re.test(text))
+}
 
 // Off-topic refusal — always grounded in the spa's actual services so the
 // reply still feels useful rather than a flat "I can't help with that".
@@ -38,73 +180,52 @@ function buildOffTopicReply(kb: KnowledgeBundle): string {
         : names.length === 2
           ? `${names[0]} and ${names[1]}`
           : `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`
-  return `That's outside what we do at ${brand} — I'm not able to recommend medicines or give medical advice. We focus on ${list}. Want to chat about any of those, or set up a consult?`
+  return `That's outside what we do at ${brand} — I'm not able to recommend medicines or give medical advice. We focus on ${list}. Want to submit a consultation request so the team can help?`
 }
 
-// KB-grounded fallback used when the LLM is unavailable (timeout, error,
-// missing key, mocked). Synchronous + cached, so it returns instantly.
-export function kbAwareFallback(
-  message: string,
-  kb: KnowledgeBundle,
-): string {
-  const text = (message || "").trim()
-  if (!text) return "Hey — what can I help you with today?"
-
-  // 1. Off-topic / medical-advice → polite refusal grounded in real services.
-  if (OFF_TOPIC_PATTERNS.some((re) => re.test(text))) {
-    return buildOffTopicReply(kb)
-  }
-
-  // 2. Try to retrieve a relevant KB entry for this exact message.
-  const items = retrieve(text, kb, 3)
-  if (items.length > 0) {
-    const top = items[0]
-    if (top.kind === "faq") {
-      return top.faq.answer
-    }
-    const svc = top.service
-    const desc = svc.description ? ` ${svc.description}` : ""
-    return `Yes — ${svc.name} is one of our treatments.${desc} Pricing and what's right for you get confirmed during a consultation. Want me to set one up?`
-  }
-
-  // 3. Booking intent.
-  if (BOOKING_RE.test(text)) {
-    return "Happy to help you book. Could you share your name, phone, and the treatment you're interested in? Our team will confirm within 1 business hour."
-  }
-
-  // 4. Pricing intent.
-  if (PRICING_RE.test(text)) {
-    return "Pricing varies by treatment and individual needs — a licensed provider confirms exact pricing during your consultation. Want to book a free consult?"
-  }
-
-  // 5. Hours intent — pull from the spa's actual working hours, never hardcode.
-  if (HOURS_RE.test(text)) {
-    const wh = kb.widget.workingHours
-    if (wh?.enabled && Array.isArray(wh.schedule) && wh.schedule.length > 0) {
-      const open = wh.schedule.filter((d) => d.open)
-      const dayLines = open.map((d) => `${d.day} ${d.from}–${d.to}`)
-      if (dayLines.length > 0) {
-        const tz = wh.tz ? ` (${wh.tz})` : ""
-        return `We're open ${dayLines.join(", ")}${tz}. Want to set up a time?`
-      }
-    }
-    return "Hours vary — drop your details and our team will confirm a time that works for you."
-  }
-
-  // 6. Generic — anchor to the first active service so the reply feels grounded.
-  const topService = kb.services.find((s) => s.active)?.name
-  if (topService) {
-    return `Happy to help — we focus on treatments like ${topService}. What's on your mind?`
-  }
-
-  return "Happy to help — what would you like to know more about?"
+// Refuse exact-unit / dosing requests politely. Never invent a number; defer
+// to the provider at consultation.
+function buildExactUnitRefusal(kb: KnowledgeBundle): string {
+  const brand = kb.widget.brandName
+  return `I can't recommend specific units or amounts — that's something a licensed provider decides based on your anatomy and goals at the consultation. Want me to submit a consultation request so ${brand} can confirm details?`
 }
 
-// Returns true when the message looks like it's clearly outside the spa's
-// scope (medical advice, off-topic trivia, etc.). Used by callers that want
-// to short-circuit before even hitting the LLM for an obvious refusal.
-export function isOffTopicMessage(message: string): boolean {
-  const text = (message || "").trim()
-  if (!text) return false
-  return OFF_TOPIC_PATTERNS.some((re) => re.test(text))
+// Pregnancy / breastfeeding / TTC — general safety, no medical advice.
+function buildPregnancyReply(kb: KnowledgeBundle): string {
+  const brand = kb.widget.brandName
+  return `That's something a licensed provider needs to weigh — I can't give medical advice, and many treatments have specific considerations around pregnancy or nursing. Want me to submit a consultation request so the ${brand} team can confirm what's appropriate for you?`
+}
+
+// Out-of-scope / unknown service reply — never invent, never deny outright.
+function buildUnknownServiceReply(kb: KnowledgeBundle): string {
+  const brand = kb.widget.brandName
+  return `I don't have confirmed information about that service in my knowledge base. I can help you submit a consultation request and our ${brand} team can confirm availability and details.`
+}
+
+// Booking / consultation-request intent — never claim a booking. Always
+// language around "request submitted, team confirms".
+function buildBookingReply(): string {
+  return "Happy to help. To submit a consultation request, I'll need your name, phone, email, the service you're interested in, your preferred date/time, and any notes or goals you'd like the provider to know. Our team will review and reach out to confirm availability."
+}
+
+// Strip any language that claims a booking / appointment has been confirmed.
+// Defensive: even if a stale FAQ or service description slipped through with
+// booking-confirmation phrasing, we soften it so we never overstate.
+function sanitizeReply(text: string): string {
+  if (!text) return text
+  let out = text
+  const replacements: Array<[RegExp, string]> = [
+    [/\bbooking confirmed\b/gi, "consultation request submitted"],
+    [/\bappointment confirmed\b/gi, "consultation request received"],
+    [/\byou(?:'?re| are) booked\b/gi, "your request has been received"],
+    [/\byour appointment is scheduled\b/gi, "your request has been received"],
+    [/\bwe reserved your slot\b/gi, "we've received your request"],
+    [/\bappointment successfully scheduled\b/gi, "consultation request received"],
+    [/\bappointment is booked\b/gi, "consultation request is received"],
+    [/\bappointment booked\b/gi, "consultation request received"],
+  ]
+  for (const [re, sub] of replacements) {
+    out = out.replace(re, sub)
+  }
+  return out
 }

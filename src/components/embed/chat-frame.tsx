@@ -89,25 +89,27 @@ const fallbackTranslator: Translator = (key) => {
     "field.service": "Service (e.g. Botox)",
     "field.preferred_time": "Preferred time",
     "field.preferred_time_placeholder": "Or type a time (e.g. 'Tue afternoon')",
+    "field.notes": "Goals or notes",
+    "field.notes_placeholder": "Anything you'd like the provider to know?",
     "submit.send": "Send to {brand}",
     "submit.sending": "Sending…",
     "submit.open_calendar": "Pick a time",
     "error.consent_required": "Please confirm consent before submitting.",
     "error.required_fields":
-      "Please fill in your name, phone, and service of interest.",
+      "Please fill in your name, phone, email, service, preferred time, and notes.",
     "error.pick_time": "Pick a time slot or type a preferred time.",
     "error.save_failed": "Could not save. Please try again.",
     "placeholder.input": "Type a question…",
     typing: "{brand} is typing…",
     "thanks_after_booking":
-      "Thanks {first}! You're booked. The {brand} team will confirm your {service} appointment by email.",
+      "Thanks {first}! Your consultation request has been submitted. The {brand} team will reach out to confirm your {service} appointment.",
     "thanks_after_lead":
       "Thanks {first}! I've passed your details to the {brand} team. They'll reach out within 1 business hour to confirm your {service} consultation.",
     "lead_received_banner":
-      "Your details have been sent to the team. You'll get a confirmation shortly.",
+      "Your details have been sent to the team. A team member will contact you to confirm availability.",
     "language.aria": "Chat language",
   }
-  const template = fb[key]
+  const template = fb[key] ?? key
   return template.replace(/\{(\w+)\}/g, () => "")
 }
 
@@ -239,6 +241,7 @@ export function ChatFrame({
     phone: "",
     service: "",
     preferredTime: "",
+    notes: "",
   })
   const [leadSubmitted, setLeadSubmitted] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -634,7 +637,13 @@ export function ChatFrame({
       setError(t("error.consent_required"))
       return
     }
-    if (!lead.name || !lead.phone || !lead.service) {
+    if (
+      !lead.name ||
+      !lead.phone ||
+      !lead.email ||
+      !lead.service ||
+      !lead.notes
+    ) {
       setError(t("error.required_fields"))
       return
     }
@@ -650,9 +659,11 @@ export function ChatFrame({
         content: m.content,
       }))
       const sourceUrl = parentUrl || (typeof window !== "undefined" ? window.location.href : undefined)
-      const isIsoSlot = /^\d{4}-\d{2}-\d{2}t/i.test(lead.preferredTime)
-      const endpoint = isIsoSlot ? "/api/calendar/book" : "/api/leads"
-      const res = await fetch(endpoint, {
+      // The chat widget only ever submits a consultation request — never
+      // claims a real booking. We route both paths (typed time + picked
+      // slot) through /api/leads so the message is consistent. The team
+      // reviews and confirms availability out-of-band.
+      const res = await fetch("/api/leads", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -669,7 +680,7 @@ export function ChatFrame({
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         const msg = (data as { error?: string }).error || "Could not save"
-        throw new Error(isIsoSlot ? `Booking failed: ${msg}` : msg)
+        throw new Error(msg)
       }
       if (typeof window !== "undefined") {
         window.localStorage.setItem(STORAGE_CONSENT(spaId), "1")
@@ -679,9 +690,7 @@ export function ChatFrame({
       const aiMsg: UiMessage = {
         id: makeId(),
         role: "ai",
-        content: isIsoSlot
-          ? t("thanks_after_booking", { first: firstName, brand: config.brandName, service: lead.service })
-          : t("thanks_after_lead", { first: firstName, brand: config.brandName, service: lead.service }),
+        content: t("thanks_after_lead", { first: firstName, brand: config.brandName, service: lead.service }),
         timestamp: new Date().toISOString(),
       }
       setMessages((prev) => [...prev, aiMsg])
@@ -979,8 +988,8 @@ const LeadForm = React.memo(function LeadForm({
 }: {
   spaId: string
   config: Config
-  lead: { name: string; email: string; phone: string; service: string; preferredTime: string }
-  setLead: (l: { name: string; email: string; phone: string; service: string; preferredTime: string }) => void
+  lead: { name: string; email: string; phone: string; service: string; preferredTime: string; notes: string }
+  setLead: (l: { name: string; email: string; phone: string; service: string; preferredTime: string; notes: string }) => void
   consent: boolean
   setConsent: (v: boolean) => void
   onSubmit: (e: React.FormEvent) => void
@@ -1029,17 +1038,26 @@ const LeadForm = React.memo(function LeadForm({
             type="tel"
             required
           />
-        ) : null}
-        {config.collectEmail ? (
+        ) : (
           <Input
-            aria-label={t("field.email")}
-            placeholder={t("field.email")}
-            value={lead.email}
-            onChange={(e) => setLead({ ...lead, email: e.target.value })}
+            aria-label={t("field.phone")}
+            placeholder={t("field.phone")}
+            value={lead.phone}
+            onChange={(e) => setLead({ ...lead, phone: e.target.value })}
             className="h-9 text-xs"
-            type="email"
+            type="tel"
+            required
           />
-        ) : null}
+        )}
+        <Input
+          aria-label={t("field.email")}
+          placeholder={t("field.email")}
+          value={lead.email}
+          onChange={(e) => setLead({ ...lead, email: e.target.value })}
+          className="h-9 text-xs"
+          type="email"
+          required
+        />
         <Input
           aria-label={t("field.service")}
           placeholder={t("field.service")}
@@ -1063,6 +1081,14 @@ const LeadForm = React.memo(function LeadForm({
             onChange={(iso, label) => setLead({ ...lead, preferredTime: iso || label })}
           />
         </div>
+        <Textarea
+          aria-label={t("field.notes")}
+          placeholder={t("field.notes_placeholder")}
+          value={lead.notes}
+          onChange={(e) => setLead({ ...lead, notes: e.target.value })}
+          className="col-span-2 min-h-14 text-xs"
+          required
+        />
       </div>
       <label className="flex items-start gap-2 text-[10px] leading-4 text-[#8A8F98]">
         <input

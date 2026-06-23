@@ -116,6 +116,7 @@ describe("POST /api/leads (public lead capture)", () => {
         email: "jane@example.com",
         service: "Botox",
         preferredTime: "Tue afternoon",
+        notes: "Want to soften forehead lines",
         consentGiven: true,
         sourceUrl: "https://example.com",
       }),
@@ -239,6 +240,7 @@ describe("POST /api/leads (public lead capture)", () => {
         email: "jane@example.com",
         service: "Botox",
         preferredTime: "Wed afternoon",
+        notes: "Wants follow-up on previous consultation",
         consentGiven: true,
       }),
     })
@@ -643,6 +645,7 @@ describe("POST /api/v1/leads (API-key authed)", () => {
         email: "jane@example.com",
         service: "Botox",
         preferredTime: "Tue",
+        notes: "External system lead — wants a Botox consult next week.",
       }),
     })
     const res = await POST(req as never)

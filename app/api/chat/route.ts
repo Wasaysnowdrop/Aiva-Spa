@@ -346,10 +346,21 @@ async function persistTurn(
       body.lead?.email ||
       body.lead?.phone ||
       body.lead?.service ||
-      body.lead?.preferredTime
+      body.lead?.preferredTime ||
+      body.lead?.notes
     )
+    // All six lead fields must be present before we save anything. This is
+    // the safety floor: never write a partial lead, never write a lead
+    // without notes/goals, never write a lead without email. The AI is
+    // responsible for asking until all six are collected.
     const completeEnough =
-      body.lead?.name && body.lead?.phone && body.lead?.service && body.consentGiven
+      body.lead?.name &&
+      body.lead?.phone &&
+      body.lead?.email &&
+      body.lead?.service &&
+      body.lead?.preferredTime &&
+      body.lead?.notes &&
+      body.consentGiven
 
     let leadId: string | null = null
     let leadSaved = false
@@ -412,9 +423,10 @@ async function persistTurn(
       const createdP = createPublicLead({
         name: lead.name ?? "Visitor",
         phone: lead.phone ?? "",
-        email: lead.email || "",
+        email: lead.email ?? "",
         service: lead.service ?? "Not specified",
-        preferredTime: lead.preferredTime || "Not specified",
+        preferredTime: lead.preferredTime ?? "Not specified",
+        notes: lead.notes ?? "",
         sourceUrl: body.sourceUrl,
         transcript,
         consentGiven: Boolean(body.consentGiven),
@@ -457,45 +469,12 @@ async function persistTurn(
         .catch((e) => console.error("lead capture failed", e))
       tasks.push(createdP)
     } else if (hasAnyLeadField && body.lead) {
-      const partialTranscript: TranscriptMessage[] = [
-        ...(body.history ?? []).map((m, i) => ({
-          id: `msg_p_${i}_${m.role}`,
-          role: m.role === "ai" ? ("ai" as const) : ("visitor" as const),
-          content: m.content,
-          timestamp: new Date().toISOString(),
-        })),
-        {
-          id: "msg_p_last_v",
-          role: "visitor" as const,
-          content: body.message,
-          timestamp: new Date().toISOString(),
-        },
-        {
-          id: "msg_p_last_ai",
-          role: "ai" as const,
-          content: reply,
-          timestamp: new Date().toISOString(),
-        },
-      ]
-
-      const createdP = createPublicLead({
-        name: body.lead.name || "Partial lead",
-        phone: body.lead.phone || "",
-        email: body.lead.email || "",
-        service: body.lead.service || "Not specified",
-        preferredTime: body.lead.preferredTime || "Not specified",
-        sourceUrl: body.sourceUrl,
-        transcript: partialTranscript,
-        consentGiven: Boolean(body.consentGiven),
-        afterHours: result.afterHours,
-        spaId: body.spaId ?? undefined,
-      })
-        .then((created) => {
-          leadId = created.lead.id
-          leadSaved = true
-        })
-        .catch((e) => console.error("partial lead save failed", e))
-      tasks.push(createdP)
+      // Partial lead data was sent, but we never save partial leads — only
+      // the full set (name + phone + email + service + preferred time +
+      // notes + consent) triggers a save. The transcript above still
+      // captures the conversation so the AI has full context on the next
+      // turn. This intentionally avoids creating low-quality rows that the
+      // dashboard can't act on.
     }
 
     await Promise.allSettled(tasks)
