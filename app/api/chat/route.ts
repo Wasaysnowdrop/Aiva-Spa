@@ -47,65 +47,134 @@ export function OPTIONS(request: Request) {
 }
 
 export async function POST(request: NextRequest) {
-  const rl = consumePublicRateLimit(request, CHAT_LIMIT)
-  if (rl.limited) return rateLimitResponse(rl, request)
+  const requestStart = Date.now()
+  console.log("[chat-api] incoming chat request", {
+    contentType: request.headers.get("content-type"),
+    accept: request.headers.get("accept"),
+  })
 
-  let raw: unknown
+  // Hard outer guard: the entire chat pipeline is wrapped so a failure
+  // anywhere (rate limit, validation, KB, LLM, DB write) NEVER leaves the
+  // visitor staring at a blank bubble. We always return a usable response.
   try {
-    raw = await request.json()
-  } catch {
-    return Response.json(
-      { error: "Body must be valid JSON" },
-      { status: 400, headers: cors(request) },
-    )
-  }
+    const rl = consumePublicRateLimit(request, CHAT_LIMIT)
+    if (rl.limited) {
+      console.warn("[chat-api] rate limited", { remaining: rl.remaining })
+      return rateLimitResponse(rl, request)
+    }
 
-  const parsed = safeValidate(chatRequestSchema, raw)
-  if (!parsed.ok) {
-    return Response.json(
-      { error: parsed.error },
-      { status: 400, headers: cors(request) },
-    )
-  }
-
-  const body = parsed.data
-  const rawBody = raw as { language?: unknown }
-  const requestedLang =
-    isSupportedLanguage(rawBody.language) && rawBody.language
-      ? (rawBody.language as Parameters<typeof buildLanguageDirective>[0])
-      : null
-
-  let accessUserId: string | null = null
-  if (body.spaId) {
-    const access = await checkEmbedAccess(body.spaId)
-    if (!access.ok) {
-      console.warn(
-        `[chat] embed access denied for spaId=${body.spaId} reason=${access.reason}`,
-      )
+    let raw: unknown
+    try {
+      raw = await request.json()
+    } catch {
       return Response.json(
-        {
-          error: "Chat is currently unavailable.",
-          reason: access.reason,
-        },
-        { status: 403, headers: cors(request) },
+        { error: "Body must be valid JSON" },
+        { status: 400, headers: cors(request) },
       )
     }
-    accessUserId = access.userId
-  } else {
+
+    const parsed = safeValidate(chatRequestSchema, raw)
+    if (!parsed.ok) {
+      console.warn("[chat-api] validation failed", { error: parsed.error })
+      return Response.json(
+        { error: parsed.error },
+        { status: 400, headers: cors(request) },
+      )
+    }
+
+    const body = parsed.data
+    const rawBody = raw as { language?: unknown }
+    const requestedLang =
+      isSupportedLanguage(rawBody.language) && rawBody.language
+        ? (rawBody.language as Parameters<typeof buildLanguageDirective>[0])
+        : null
+
+    let accessUserId: string | null = null
+    if (body.spaId) {
+      const access = await checkEmbedAccess(body.spaId)
+      if (!access.ok) {
+        console.warn(
+          `[chat] embed access denied for spaId=${body.spaId} reason=${access.reason}`,
+        )
+        return Response.json(
+          {
+            error: "Chat is currently unavailable.",
+            reason: access.reason,
+          },
+          { status: 403, headers: cors(request) },
+        )
+      }
+      accessUserId = access.userId
+    } else {
+      return Response.json(
+        { error: "spaId is required." },
+        { status: 400, headers: cors(request) },
+      )
+    }
+
+    const wantsStream = (request.headers.get("accept") || "").includes(
+      "text/event-stream",
+    )
+
+    if (wantsStream) {
+      return handleStreamingChat(request, body, requestedLang, accessUserId)
+    }
+    return handleBufferedChat(request, body, requestedLang, accessUserId)
+  } catch (err) {
+    // Last-resort safety net: any uncaught throw above (e.g. a Supabase
+    // outage, an LLM transport glitch we forgot to wrap) lands here. We
+    // log it loudly and return a usable fallback reply so the visitor
+    // never sees a blank bubble.
+    console.error("[chat-api] unhandled error in chat pipeline", err)
+    if ((request.headers.get("accept") || "").includes("text/event-stream")) {
+      // Emit a single SSE chunk + done so the client can render text.
+      const enc = new TextEncoder()
+      const fallback =
+        "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
+      const stream = new ReadableStream({
+        start(controller) {
+          try {
+            controller.enqueue(
+              enc.encode(
+                `event: chunk\ndata: ${JSON.stringify({ text: fallback })}\n\n`,
+              ),
+            )
+            controller.enqueue(
+              enc.encode(
+                `event: done\ndata: ${JSON.stringify({ reply: fallback, leadSaved: false, leadId: null })}\n\n`,
+              ),
+            )
+          } finally {
+            try {
+              controller.close()
+            } catch {
+              // already closed
+            }
+          }
+        },
+      })
+      return new Response(stream, {
+        headers: {
+          ...cors(request),
+          "content-type": "text/event-stream; charset=utf-8",
+          "cache-control": "no-cache, no-transform",
+        },
+      })
+    }
     return Response.json(
-      { error: "spaId is required." },
-      { status: 400, headers: cors(request) },
+      {
+        reply:
+          "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?",
+        model: "aiva-fallback",
+        provider: "mock",
+        durationMs: Date.now() - requestStart,
+        afterHours: false,
+        leadSaved: false,
+        leadId: null,
+      },
+      { status: 200, headers: cors(request) },
     )
   }
-
-  const wantsStream = (request.headers.get("accept") || "").includes(
-    "text/event-stream",
-  )
-
-  if (wantsStream) {
-    return handleStreamingChat(request, body, requestedLang, accessUserId)
-  }
-  return handleBufferedChat(request, body, requestedLang, accessUserId)
 }
 
 // ---------------------------------------------------------------------------
@@ -148,16 +217,58 @@ async function handleStreamingChat(
           .catch(() => false)
           .then((exists) => ({ exists, isFirstTurn: !exists }))
 
-        const result = await streamConversationTurn({
-          sessionId: body.sessionId,
-          message: body.message,
-          history: body.history,
-          language: requestedLang ?? undefined,
-          onChunk: (text) => send("chunk", { text }),
-        })
+        let result
+        try {
+          result = await streamConversationTurn({
+            sessionId: body.sessionId,
+            message: body.message,
+            history: body.history,
+            language: requestedLang ?? undefined,
+            onChunk: (text) => send("chunk", { text }),
+          })
+        } catch (turnErr) {
+          // The conversation turn should NEVER throw — it has its own
+          // try/catch around the LLM call — but if it ever does, we send
+          // a usable fallback chunk so the visitor is never stranded.
+          console.error(
+            "[chat] streamConversationTurn threw, serving canned fallback",
+            turnErr,
+          )
+          const fallback =
+            "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
+          send("chunk", { text: fallback })
+          result = {
+            reply: fallback,
+            model: "aiva-fallback",
+            provider: "mock" as const,
+            isFirstReply: false,
+            afterHours: false,
+            durationMs: 0,
+            retrievedIds: [],
+          }
+        }
+
+        // Defensive: if for any reason the conversation engine returned
+        // blank or whitespace-only text, override it with a safe fallback
+        // so the chat bubble is never blank.
+        if (!result.reply || !result.reply.trim()) {
+          console.warn(
+            "[chat] conversation engine returned blank reply, overriding with fallback",
+          )
+          const fallback =
+            "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
+          // Send as a chunk too so streaming clients see text appear.
+          send("chunk", { text: fallback })
+          result = { ...result, reply: fallback }
+        }
 
         const [firstTurn, brandName] = await Promise.all([firstTurnP, brandNameP])
         const isFirstTurn = firstTurn.isFirstTurn
+
+        console.log("[chat] Rendering response", {
+          replyLength: result.reply.length,
+          durationMs: result.durationMs,
+        })
 
         send("meta", {
           model: result.model,
@@ -201,9 +312,14 @@ async function handleStreamingChat(
         })
       } catch (err) {
         console.error("[chat] streaming conversation error", err)
-        send("error", {
-          message:
-            "I'm having a quick moment — could you rephrase that, or ask me about a treatment, hours, or booking?",
+        // Emit a fallback chunk + done so the client never sees blank.
+        const fallback =
+          "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
+        send("chunk", { text: fallback })
+        send("done", {
+          reply: fallback,
+          leadSaved: false,
+          leadId: null,
         })
       } finally {
         closed = true
@@ -239,13 +355,37 @@ async function handleBufferedChat(
   requestedLang: Parameters<typeof buildLanguageDirective>[0] | null,
   accessUserId: string | null,
 ): Promise<Response> {
+  const start = Date.now()
+  const FALLBACK_REPLY =
+    "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
   try {
-    const result = await runConversationTurn({
-      sessionId: body.sessionId,
-      message: body.message,
-      history: body.history,
-      language: requestedLang ?? undefined,
-    })
+    let result
+    try {
+      result = await runConversationTurn({
+        sessionId: body.sessionId,
+        message: body.message,
+        history: body.history,
+        language: requestedLang ?? undefined,
+      })
+    } catch (turnErr) {
+      console.error("[chat] runConversationTurn threw, serving fallback", turnErr)
+      result = {
+        reply: FALLBACK_REPLY,
+        model: "aiva-fallback",
+        provider: "mock" as const,
+        isFirstReply: false,
+        afterHours: false,
+        durationMs: 0,
+        retrievedIds: [],
+      }
+    }
+
+    // Defensive: never return a blank reply — the dashboard sandbox and
+    // any non-streaming client depend on this field.
+    if (!result.reply || !result.reply.trim()) {
+      console.warn("[chat] conversation returned blank, overriding with fallback")
+      result = { ...result, reply: FALLBACK_REPLY }
+    }
 
     // First-turn webhook (fire-and-forget).
     try {
@@ -293,21 +433,16 @@ async function handleBufferedChat(
       { status: 200, headers: cors(request) },
     )
   } catch (err) {
-    console.error("[chat] conversation error", err)
+    console.error("[chat] buffered conversation error", err)
     return Response.json(
       {
-        reply:
-          "I'm having a quick moment — could you rephrase that, or ask me about a treatment, hours, or booking?",
+        reply: FALLBACK_REPLY,
         model: "aiva-fallback",
         provider: "mock",
-        durationMs: 0,
+        durationMs: Date.now() - start,
         afterHours: false,
         leadSaved: false,
         leadId: null,
-        error:
-          process.env.NODE_ENV === "production"
-            ? undefined
-            : "chat engine error",
       },
       { status: 200, headers: cors(request) },
     )

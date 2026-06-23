@@ -47,7 +47,18 @@ export async function runConversationTurn(
   input: ConversationTurnInput,
 ): Promise<ConversationTurnResult> {
   const start = Date.now()
+  console.log("[chat] runConversationTurn: incoming message", {
+    sessionId: input.sessionId,
+    messageLength: input.message?.length ?? 0,
+    historyLength: input.history?.length ?? 0,
+  })
   const kb = await loadKnowledge()
+  console.log("[chat] Knowledge Base loaded", {
+    services: kb.services.length,
+    faqs: kb.faqs.length,
+    guardrails: kb.guardrails.length,
+    brand: kb.widget.brandName,
+  })
   const history = mapHistory(input.history)
   const isFirstReply = !input.history || input.history.length === 0
   const afterHours = isAfterHours(kb.widget.workingHours)
@@ -57,6 +68,9 @@ export async function runConversationTurn(
     afterHours,
   })
   if (greeting.matched) {
+    console.log("[chat] greeting matched, returning deterministic reply", {
+      reason: greeting.reason,
+    })
     return {
       reply: greeting.reply,
       model: "aiva-greeting",
@@ -70,6 +84,10 @@ export async function runConversationTurn(
   }
 
   const { system, retrieved } = buildSystemPrompt(kb, input.message)
+  console.log("[chat] Prompt generated", {
+    systemLength: system.length,
+    retrievedCount: retrieved.length,
+  })
   const languageDirective =
     input.language && isSupportedLanguage(input.language)
       ? buildLanguageDirective(input.language)
@@ -82,7 +100,21 @@ export async function runConversationTurn(
     { role: "user", content: input.message },
   ]
 
+  console.log("[chat] Sending request to AI", {
+    messageCount: messages.length,
+    temperature: 0.7,
+  })
   const result = await llmChat({ messages, options: { temperature: 0.7, maxTokens: 320, timeoutMs: 12_000 } })
+  console.log("[chat] AI response received", {
+    model: result.model,
+    provider: result.provider,
+    contentLength: result.content?.length ?? 0,
+    durationMs: Date.now() - start,
+  })
+
+  if (!result.content || !result.content.trim()) {
+    console.warn("[chat] AI returned blank content, applying safe fallback")
+  }
 
   return {
     reply: result.content,

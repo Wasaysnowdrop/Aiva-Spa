@@ -74,12 +74,49 @@ export async function loadKnowledge(): Promise<KnowledgeBundle> {
     return cache
   }
   const admin = createAdminClient()
-  const [servicesRes, faqsRes, guardrailsRes, widgetRes] = await Promise.all([
+  console.log("[retrieval] loading knowledge base from Supabase", {
+    services: "knowledge_services",
+    faqs: "knowledge_faqs",
+    guardrails: "knowledge_guardrails",
+    widget: "widget_config",
+  })
+  // Race the four KB queries against a hard timeout. If Supabase is slow,
+  // unreachable, or the connection pool is exhausted, we MUST NOT freeze
+  // the chat — serve an empty (but valid) KB instead so the AI can still
+  // respond with safe canned replies. The visitor never sees a blank
+  // bubble because of a slow DB.
+  const KB_LOAD_TIMEOUT_MS = 4_000
+  const loadPromise = Promise.all([
     admin.from("knowledge_services").select("*").order("name"),
     admin.from("knowledge_faqs").select("*").order("created_at"),
     admin.from("knowledge_guardrails").select("*").order("created_at"),
     admin.from("widget_config").select("*").limit(1).maybeSingle(),
   ])
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(
+      () => reject(new Error(`loadKnowledge timeout after ${KB_LOAD_TIMEOUT_MS}ms`)),
+      KB_LOAD_TIMEOUT_MS,
+    ),
+  )
+  let results: Awaited<typeof loadPromise>
+  try {
+    results = await Promise.race([loadPromise, timeoutPromise])
+  } catch (err) {
+    console.error("[retrieval] knowledge base load failed or timed out", err)
+    // Serve an empty (but valid) KB so the conversation can still produce
+    // a safe reply via the KB-aware fallback. We do NOT throw — the chat
+    // must never go blank because of a slow DB.
+    const fallback: KnowledgeBundle = {
+      services: [],
+      faqs: [],
+      guardrails: [],
+      widget: FALLBACK_WIDGET,
+      extendedKb: { ...emptyKnowledgeBase(), source: "empty" },
+      fetchedAt: now,
+    }
+    return fallback
+  }
+  const [servicesRes, faqsRes, guardrailsRes, widgetRes] = results
 
   // Surface any partial failure (RLS denial, missing table, etc.) so the
   // operator can see it in logs instead of getting a silent empty KB
@@ -97,20 +134,29 @@ export async function loadKnowledge(): Promise<KnowledgeBundle> {
     console.error("[retrieval] widget_config fetch failed", widgetRes.error)
   }
 
-  const services = (servicesRes.data ?? []).map((r) =>
-    mapKnowledgeService(r as Record<string, unknown>),
+  // Defensive defaults: never assume the rows exist. A null/empty result
+  // becomes an empty array so downstream code can iterate safely.
+  const services = (Array.isArray(servicesRes.data) ? servicesRes.data : []).map(
+    (r) => mapKnowledgeService(r as Record<string, unknown>),
   )
-  const faqs = (faqsRes.data ?? []).map((r) =>
+  const faqs = (Array.isArray(faqsRes.data) ? faqsRes.data : []).map((r) =>
     mapKnowledgeFaq(r as Record<string, unknown>),
   )
-  const guardrails = (guardrailsRes.data ?? []).map((r) =>
-    mapKnowledgeGuardrail(r as Record<string, unknown>),
+  const guardrails = (Array.isArray(guardrailsRes.data) ? guardrailsRes.data : []).map(
+    (r) => mapKnowledgeGuardrail(r as Record<string, unknown>),
   )
   const widget = widgetRes.data
     ? mapWidgetConfig(widgetRes.data as Record<string, unknown>)
     : FALLBACK_WIDGET
 
   const extendedKb = parseExtendedKb(widget.extendedKb)
+
+  console.log("[retrieval] knowledge base loaded", {
+    services: services.length,
+    faqs: faqs.length,
+    guardrails: guardrails.length,
+    brand: widget.brandName,
+  })
 
   cache = { services, faqs, guardrails, widget, extendedKb, fetchedAt: now }
   return cache

@@ -423,6 +423,7 @@ export function ChatFrame({
     if (!trimmed) return
     setInput("")
     setError(null)
+    console.log("[chat-widget] sending message", { length: trimmed.length })
 
     const userMsg: UiMessage = {
       id: makeId(),
@@ -445,16 +446,51 @@ export function ChatFrame({
       content: m.content,
     }))
 
-    // Try streaming first (much faster TTFT). Fall back to buffered JSON if
-    // the browser/network refuses streaming for any reason.
+    // Single source of truth for the final text the visitor sees. We
+    // populate this through streaming, buffered fallback, or hardcoded
+    // catch-all so the bubble is NEVER blank.
+    let finalText = ""
+
+    const ensureNonBlank = () => {
+      if (!finalText.trim()) {
+        finalText =
+          "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === aiMsgId ? { ...m, content: finalText } : m,
+          ),
+        )
+        console.warn("[chat-widget] response was blank, applied hard fallback")
+      }
+    }
+
     try {
-      const streamed = await streamChatReply(aiMsgId, trimmed, history)
-      if (!streamed) await bufferedChatReply(aiMsgId, trimmed, history)
+      // Try streaming first (much faster TTFT). Fall back to buffered JSON if
+      // the browser/network refuses streaming for any reason.
+      const streamed = await streamChatReply(aiMsgId, trimmed, history, (text) => {
+        finalText = text
+      })
+      if (!streamed) {
+        const buffered = await bufferedChatReply(aiMsgId, trimmed, history)
+        finalText = buffered
+      }
     } catch (e) {
+      console.error("[chat-widget] chat request failed", e)
       setError(e instanceof Error ? e.message : "Something went wrong")
+      finalText =
+        "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === aiMsgId ? { ...m, content: finalText } : m,
+        ),
+      )
     } finally {
+      ensureNonBlank()
       setSending(false)
       inputRef.current?.focus()
+      console.log("[chat-widget] Rendering response", {
+        finalTextLength: finalText.length,
+      })
     }
   }
 
@@ -462,6 +498,7 @@ export function ChatFrame({
     aiMsgId: string,
     trimmed: string,
     history: { role: "user" | "assistant"; content: string }[],
+    onFinalText: (text: string) => void,
   ): Promise<boolean> {
     if (typeof fetch === "undefined" || !("ReadableStream" in window)) {
       return false
@@ -490,15 +527,18 @@ export function ChatFrame({
             phone: lead.phone || undefined,
             service: lead.service || undefined,
             preferredTime: lead.preferredTime || undefined,
+            notes: lead.notes || undefined,
           },
         }),
       })
-    } catch {
+    } catch (err) {
+      console.warn("[chat-widget] stream fetch failed, falling back to buffered", err)
       return false
     }
     if (!res.ok || !res.body) {
       // Fall back to buffered JSON for any error response so the visitor
       // still gets a useful reply.
+      console.warn("[chat-widget] stream returned non-OK, falling back to buffered", res.status)
       return false
     }
 
@@ -544,6 +584,7 @@ export function ChatFrame({
           let payload: {
             text?: string
             message?: string
+            reply?: string
           } = {}
           try {
             payload = JSON.parse(dataStr) as typeof payload
@@ -558,23 +599,59 @@ export function ChatFrame({
               payload.message ||
                 "I'm having a quick moment — could you rephrase that?",
             )
+          } else if (currentEvent === "done" && typeof payload.reply === "string") {
+            // Server confirmed the final reply in case streaming missed
+            // any chunks (think-stripping, partial SSE). Sync our state
+            // with the authoritative server reply so the bubble is never
+            // blank if the SSE chunk stream had gaps.
+            if (!fullText.trim() && payload.reply.trim()) {
+              fullText = payload.reply
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === aiMsgId ? { ...m, content: fullText } : m,
+                ),
+              )
+            }
           }
-          // "done" carries the lead info; leadId isn't sent in the streaming
-          // path because it's resolved in the background.
         }
       }
-    } catch {
+    } catch (err) {
+      console.warn("[chat-widget] stream read error", err)
       // Network blip mid-stream: keep what we already got, surface an error
       // banner if we got nothing useful.
       if (!fullText.trim()) {
+        const fallback =
+          "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === aiMsgId ? { ...m, content: fallback } : m,
+          ),
+        )
+        fullText = fallback
         setError("Connection dropped. Please try again.")
       }
+      onFinalText(fullText)
       return true
+    }
+
+    // Final blank guard: if the server returned no usable chunks AND no
+    // "done" reply, force a fallback so the bubble is never blank.
+    if (!fullText.trim()) {
+      console.warn("[chat-widget] stream ended with no text, applying fallback")
+      const fallback =
+        "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === aiMsgId ? { ...m, content: fallback } : m,
+        ),
+      )
+      fullText = fallback
     }
 
     if (errored && !fullText.trim()) {
       setError("Something went wrong. Please try again.")
     }
+    onFinalText(fullText)
     return true
   }
 
@@ -582,38 +659,56 @@ export function ChatFrame({
     aiMsgId: string,
     trimmed: string,
     history: { role: "user" | "assistant"; content: string }[],
-  ): Promise<void> {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        spaId,
-        sessionId,
-        message: trimmed,
-        history,
-        consentGiven: consent,
-        sourceUrl:
-          parentUrl ||
-          (typeof window !== "undefined" ? window.location.href : undefined),
-        language,
-        lead: {
-          name: lead.name || undefined,
-          email: lead.email || undefined,
-          phone: lead.phone || undefined,
-          service: lead.service || undefined,
-          preferredTime: lead.preferredTime || undefined,
-        },
-      }),
-    })
+  ): Promise<string> {
+    const FALLBACK =
+      "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
+    let res: Response
+    try {
+      res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          spaId,
+          sessionId,
+          message: trimmed,
+          history,
+          consentGiven: consent,
+          sourceUrl:
+            parentUrl ||
+            (typeof window !== "undefined" ? window.location.href : undefined),
+          language,
+          lead: {
+            name: lead.name || undefined,
+            email: lead.email || undefined,
+            phone: lead.phone || undefined,
+            service: lead.service || undefined,
+            preferredTime: lead.preferredTime || undefined,
+            notes: lead.notes || undefined,
+          },
+        }),
+      })
+    } catch (err) {
+      console.warn("[chat-widget] buffered fetch failed", err)
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === aiMsgId ? { ...m, content: FALLBACK } : m,
+        ),
+      )
+      return FALLBACK
+    }
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as {
         error?: string
         reason?: string
+        reply?: string
       }
-      throw new Error(
-        (data && (data as { error?: string }).error) ||
-          `Request failed (${res.status})`,
+      const reply = (data?.reply ?? "").trim() || FALLBACK
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === aiMsgId ? { ...m, content: reply } : m,
+        ),
       )
+      return reply
     }
     const data = (await res.json()) as {
       reply: string
@@ -621,7 +716,7 @@ export function ChatFrame({
       leadId?: string
       error?: string
     }
-    const reply = (data.reply ?? "").trim() || "Sorry — could you rephrase that?"
+    const reply = (data.reply ?? "").trim() || FALLBACK
     if (data.leadId && !chatId) setChatId(data.leadId)
     if (data.leadSaved) setLeadSubmitted(true)
     setMessages((prev) =>
@@ -629,6 +724,7 @@ export function ChatFrame({
         m.id === aiMsgId ? { ...m, content: reply } : m,
       ),
     )
+    return reply
   }
 
   async function submitLead(e: React.FormEvent) {
