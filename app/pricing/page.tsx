@@ -66,7 +66,7 @@ const plans: Plan[] = [
       "AI answers from your approved knowledge base",
       "Lead capture (name, phone, email, service, time)",
       "Email notifications to staff",
-      "Up to 600 conversations / month",
+      "Up to 300 conversations / month",
       "Basic lead dashboard with status",
       "Standard widget branding (logo + colors)",
       "AI conversation analytics & CSAT ratings",
@@ -78,7 +78,7 @@ const plans: Plan[] = [
       "HIPAA-aware PII handling",
     ],
     highlights: [
-      { label: "Conversations", value: "600 / mo" },
+      { label: "Conversations", value: "300 / mo" },
       { label: "Locations", value: "1" },
       { label: "Calendar", value: "Add-on" },
     ],
@@ -96,7 +96,7 @@ const plans: Plan[] = [
     accent: "#E2E54B",
     features: [
       "Everything in Starter",
-      "Up to 3,000 conversations / month",
+      "Up to 1,500 conversations / month",
       "Full conversation history & transcripts",
       "Advanced widget customisation: position, greeting, tone, avatar, theme & per-page rules",
       "Service-specific routing & hot-lead alerts",
@@ -111,7 +111,7 @@ const plans: Plan[] = [
       "Priority onboarding (under 24h)",
     ],
     highlights: [
-      { label: "Conversations", value: "3,000 / mo" },
+      { label: "Conversations", value: "1,500 / mo" },
       { label: "Locations", value: "1–2" },
       { label: "Languages", value: "12 incl. RTL" },
     ],
@@ -129,7 +129,7 @@ const plans: Plan[] = [
     features: [
       "Everything in Growth",
       "Up to 5 locations & unlimited widgets",
-      "Up to 10,000 conversations / month",
+      "Up to 5,000 conversations / month",
       "Advanced analytics (conversion, after-hours, SLA, cohort)",
       "White-label widget (hide AivaSpa branding, your colors, your logo)",
       "Custom domain (e.g. chat.yourspa.com) — map up to 3 of your own domains with DNS verification",
@@ -144,7 +144,7 @@ const plans: Plan[] = [
       "24/7 priority support + dedicated account manager",
     ],
     highlights: [
-      { label: "Conversations", value: "10,000 / mo" },
+      { label: "Conversations", value: "5,000 / mo" },
       { label: "Locations", value: "Up to 5" },
       { label: "White-label", value: "Custom domain" },
     ],
@@ -165,7 +165,7 @@ const comparisonRows: { feature: string; starter: string; growth: string; pro: s
   { feature: "Widget branding & customisation", starter: "Standard (logo + colors)", growth: "Advanced (position, greeting, tone, avatar, theme, per-page rules)", pro: "White-label (hide AivaSpa branding + your custom domain)" },
   { feature: "Lead scoring, tagging & custom fields", starter: "✓", growth: "✓ + AI-powered", pro: "✓ + AI-powered + custom models" },
   { feature: "A/B testing & funnels", starter: "—", growth: "✓", pro: "✓" },
-  { feature: "Monthly conversations", starter: "600", growth: "3,000", pro: "10,000" },
+  { feature: "Monthly conversations", starter: "300", growth: "1,500", pro: "5,000" },
   { feature: "Analytics dashboard", starter: "AI analytics + CSAT", growth: "Conversion funnels + cohorts", pro: "SLA, after-hours, cohort & custom reports" },
   { feature: "Role-based access", starter: "—", growth: "—", pro: "Owner / Manager / Staff / Receptionist" },
   { feature: "Audit log & data retention", starter: "30 days", growth: "90 days", pro: "1 year + custom retention" },
