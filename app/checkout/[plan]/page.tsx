@@ -5,7 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { Logo } from "@/components/logo";
 
 import { CheckoutForm } from "./checkout-form";
-import { PLANS, type PlanId, formatPrice } from "@/lib/subscription/plans";
+import { PLANS, type PlanId } from "@/lib/subscription/plans";
 import {
   ensureTrialSubscription,
   getCurrentSubscription,
@@ -227,8 +227,6 @@ function PriceTag({
   trialEndsAtIso: string | null;
 }) {
   const plan = PLANS[planId];
-  const monthly = formatPrice(plan, "monthly");
-  const yearly = formatPrice(plan, "yearly");
 
   if (trialMode) {
     const endsLabel = trialEndsAtIso
@@ -261,15 +259,13 @@ function PriceTag({
   return (
     <div className="text-right">
       <p className="text-3xl font-bold tracking-tight text-[#F7F8F8]">
-        {monthly.display}
-        {monthly.suffix ? (
-          <span className="ml-1 text-sm font-medium text-[#8A8F98]">
-            {monthly.suffix}
-          </span>
-        ) : null}
+        ${plan.priceMonthly}
+        <span className="ml-1 text-sm font-medium text-[#8A8F98]">
+          /month
+        </span>
       </p>
       <p className="text-[11px] text-[#62666D]">
-        or {yearly.display}/mo billed yearly
+        Billed monthly. Cancel anytime.
       </p>
     </div>
   );

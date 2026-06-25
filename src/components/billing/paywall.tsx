@@ -81,7 +81,9 @@ export function Paywall({ spaName }: PaywallProps) {
                   className="mt-4 h-9 rounded-lg text-xs font-semibold text-[#08090A]"
                   style={{ backgroundColor: plan.accent }}
                 >
-                  <Link href={`/checkout/${id}`}>Choose {plan.name}</Link>
+                  <Link href={plan.ctaHref}>
+                    {id === "pro" ? "Book demo" : id === "growth" ? "Start free trial" : `Choose ${plan.name}`}
+                  </Link>
                 </Button>
               </div>
             );

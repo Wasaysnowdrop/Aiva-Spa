@@ -24,7 +24,6 @@ export function CheckoutForm({
   mode,
   trialEndsAtIso,
 }: CheckoutFormProps) {
-  const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -53,7 +52,7 @@ export function CheckoutForm({
 
     const formData = new FormData(event.currentTarget);
     formData.set("plan", planId);
-    formData.set("interval", interval);
+    formData.set("interval", "monthly");
 
     startTransition(async () => {
       const result = await fakeCheckout(formData);
@@ -133,30 +132,6 @@ export function CheckoutForm({
 
   return (
     <form onSubmit={onSubmit} className="mt-6 space-y-4">
-      <div className="grid grid-cols-2 gap-2 rounded-xl border border-[#23252A] bg-[#121316] p-1 text-sm">
-        <button
-          type="button"
-          onClick={() => setInterval("monthly")}
-          className={`rounded-lg px-3 py-2 font-semibold transition ${
-            interval === "monthly"
-              ? "bg-[#1A1B1E] text-[#F7F8F8]"
-              : "text-[#8A8F98] hover:text-[#F7F8F8]"
-          }`}
-        >
-          Monthly
-        </button>
-        <button
-          type="button"
-          onClick={() => setInterval("yearly")}
-          className={`rounded-lg px-3 py-2 font-semibold transition ${
-            interval === "yearly"
-              ? "bg-[#1A1B1E] text-[#F7F8F8]"
-              : "text-[#8A8F98] hover:text-[#F7F8F8]"
-          }`}
-        >
-          Yearly <span className="text-[10px] text-[#4CB782]">save 20%</span>
-        </button>
-      </div>
 
       <div className="space-y-2">
         <Label htmlFor="cardName">Name on card</Label>

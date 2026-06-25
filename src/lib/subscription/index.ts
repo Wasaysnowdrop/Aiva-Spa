@@ -6,8 +6,8 @@ import {
   TRIAL_PLAN_ID,
   TRIAL_QUOTA,
   getPlan,
-  type PlanFeature,
   type PlanId,
+  type PlanPermissions,
   planAllowsFeature,
 } from "./plans"
 
@@ -48,7 +48,7 @@ export type SubscriptionSnapshot = {
   quota: number
   used: number
   remaining: number
-  hasAccess: (feature: PlanFeature) => boolean
+  hasAccess: (feature: keyof PlanPermissions) => boolean
 }
 
 type RawSubscription = {

@@ -5,13 +5,14 @@ export type PlanDefinition = {
   name: string
   tagline: string
   priceMonthly: number
-  priceYearly: number
   monthlyQuota: number
   maxWidgets: number
   maxLocations: number
+  maxStaffEmails: number
   accent: string
   features: string[]
   cta: string
+  ctaHref: string
   whiteLabel: boolean
   maxCustomDomains: number
 }
@@ -23,92 +24,83 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
   starter: {
     id: "starter",
     name: "Starter",
-    tagline: "For a single med spa",
-    priceMonthly: 50,
-    priceYearly: 50 * 12 * 0.8,
+    tagline: "For single-location med spas",
+    priceMonthly: 79,
     monthlyQuota: 300,
     maxWidgets: 1,
     maxLocations: 1,
+    maxStaffEmails: 1,
     accent: "#22D3EE",
-    cta: "Start with Starter",
+    cta: "Choose Starter",
+    ctaHref: "/checkout/starter",
     whiteLabel: false,
     maxCustomDomains: 0,
     features: [
-      "1 website widget, 1 location",
-      "AI answers from your approved knowledge base",
-      "Lead capture (name, phone, email, service, time)",
+      "AI chat widget for your website",
+      "Answers from your approved knowledge base",
+      "Lead capture: name, phone, email, service, preferred time",
       "Email notifications to staff",
-      "Up to 300 conversations / month",
-      "Basic lead dashboard with status",
-      "Standard widget branding (logo + colors)",
-      "AI conversation analytics & CSAT ratings",
-      "Visitor intelligence (geo, device, referrer)",
-      "Lead scoring, tagging & custom fields",
-      "Daily summary email reports",
-      "Auto-responder rules & quick replies",
-      "Team activity log (30 days)",
-      "HIPAA-aware PII handling",
+      "Basic leads dashboard",
+      "Standard widget branding and colors",
+      "Basic FAQ and service answers",
+      "Safe fallback for medical questions",
+      "Done-for-you setup included",
     ],
   },
   growth: {
     id: "growth",
     name: "Growth",
     tagline: "For active med spas",
-    priceMonthly: 100,
-    priceYearly: 100 * 12 * 0.8,
+    priceMonthly: 149,
     monthlyQuota: 1500,
     maxWidgets: 2,
     maxLocations: 2,
+    maxStaffEmails: 3,
     accent: "#E2E54B",
-    cta: "Choose Growth",
+    cta: "Start 7-day free trial",
+    ctaHref: "/checkout/growth",
     whiteLabel: false,
     maxCustomDomains: 0,
     features: [
       "Everything in Starter",
-      "Up to 1,500 conversations / month",
-      "Full conversation history & transcripts",
-      "Advanced widget customisation: position, greeting, tone, avatar, theme & per-page rules",
-      "Service-specific routing & hot-lead alerts",
-      "AI-powered lead scoring & smart reply suggestions",
+      "Up to 1,500 conversations/month",
+      "Full conversation history and transcripts",
+      "Lead scoring, tagging, and custom lead fields",
+      "Service-specific routing and hot-lead alerts",
+      "Calendar booking link support",
       "Conversion funnel analytics",
-      "A/B testing for greetings & CTAs",
-      "Slack & Microsoft Teams notifications",
-      "URL scraper for Knowledge Base (paste your site URL — services, FAQs & hours auto-fill in seconds)",
-      "Built-in calendar with live booking slots & SMS/email reminders (no Google OAuth required)",
-      "Multi-language widget — 12 languages with auto-detect, RTL support & visitor language switcher",
-      "Email template library & saved replies",
-      "Priority onboarding (under 24h)",
+      "Visitor intelligence: location, device, referrer",
+      "Custom widget colors and greeting",
+      "Slack and Microsoft Teams notifications",
+      "Multi-language widget support",
     ],
   },
   pro: {
     id: "pro",
     name: "Pro",
     tagline: "For multi-location groups",
-    priceMonthly: 210,
-    priceYearly: 210 * 12 * 0.8,
+    priceMonthly: 299,
     monthlyQuota: 5000,
-    maxWidgets: 5,
+    maxWidgets: Number.MAX_SAFE_INTEGER,
     maxLocations: 5,
+    maxStaffEmails: 10,
     accent: "#FF77E9",
-    cta: "Choose Pro",
+    cta: "Book demo",
+    ctaHref: "mailto:sales@aivaspa.com?subject=Book%20a%20demo",
     whiteLabel: true,
-    maxCustomDomains: 3,
+    maxCustomDomains: 5,
     features: [
       "Everything in Growth",
-      "Up to 5 locations & unlimited widgets",
-      "Up to 5,000 conversations / month",
-      "Advanced analytics (conversion, after-hours, SLA, cohort)",
-      "White-label widget (hide AivaSpa branding, your colors, your logo)",
-      "Custom domain — map up to 3 of your own domains (e.g. chat.yourspa.com)",
-      "Role-based access (owner / manager / staff / receptionist)",
-      "Audit log & extended data retention (1 year)",
-      "Custom data residency & retention policies",
-      "Priority AI inference (faster first response)",
-      "Dedicated AI model fine-tuning per brand",
-      "All 12 languages + priority custom-locale requests",
-      "Multi-location custom calendar with team routing",
-      "Compliance & HIPAA audit reports",
-      "24/7 priority support + dedicated account manager",
+      "Up to 5 locations and unlimited widgets",
+      "Up to 5,000 conversations/month",
+      "White-label widget: hide AivaSpa branding",
+      "Custom domain support",
+      "Role-based access: owner, manager, staff, receptionist",
+      "Multi-location calendar routing",
+      "Advanced analytics",
+      "Audit log and HIPAA compliance reports",
+      "Dedicated account manager",
+      "White-glove setup included",
     ],
   },
 }
@@ -122,40 +114,111 @@ export function getPlan(id: string | null | undefined): PlanDefinition {
   return PLANS.starter
 }
 
-export function formatPrice(plan: PlanDefinition, interval: "monthly" | "yearly") {
-  if (interval === "yearly") {
-    const monthly = plan.priceYearly / 12
-    return {
-      display: `$${Math.round(monthly)}`,
-      suffix: "/mo · billed yearly",
-    }
-  }
+export function formatPrice(plan: PlanDefinition) {
   return { display: `$${plan.priceMonthly}`, suffix: "/month" }
 }
 
-export function planAllowsFeature(planId: PlanId, feature: PlanFeature): boolean {
-  const rank: Record<PlanId, number> = {
-    starter: 1,
-    growth: 2,
-    pro: 3,
-  }
-  const required: Record<PlanFeature, number> = {
-    basic: 1,
-    sms: 2,
-    calendar: 2,
-    analytics: 3,
-    multiLocation: 3,
-    api: 3,
-    sso: 3,
-  }
-  return rank[planId] >= required[feature]
+// ── Feature permissions map ──────────────────────────────────────────
+
+export type PlanPermissions = {
+  can_use_widget: boolean
+  max_conversations: number
+  max_locations: number
+  max_staff_emails: number
+  conversation_history: boolean
+  lead_scoring: boolean
+  lead_tagging: boolean
+  custom_fields: boolean
+  calendar_support: boolean
+  sms_reminders: boolean
+  analytics: "basic" | "growth" | "advanced"
+  visitor_intelligence: boolean
+  slack_notifications: boolean
+  teams_notifications: boolean
+  multi_language: boolean
+  white_label: boolean
+  custom_domain: boolean
+  role_based_access: boolean
+  audit_logs: boolean
+  dedicated_manager: boolean
 }
 
-export type PlanFeature =
-  | "basic"
-  | "sms"
-  | "calendar"
-  | "analytics"
-  | "multiLocation"
-  | "api"
-  | "sso"
+const PERMISSIONS: Record<PlanId, PlanPermissions> = {
+  starter: {
+    can_use_widget: true,
+    max_conversations: 300,
+    max_locations: 1,
+    max_staff_emails: 1,
+    conversation_history: false,
+    lead_scoring: false,
+    lead_tagging: false,
+    custom_fields: false,
+    calendar_support: false,
+    sms_reminders: false,
+    analytics: "basic",
+    visitor_intelligence: false,
+    slack_notifications: false,
+    teams_notifications: false,
+    multi_language: false,
+    white_label: false,
+    custom_domain: false,
+    role_based_access: false,
+    audit_logs: false,
+    dedicated_manager: false,
+  },
+  growth: {
+    can_use_widget: true,
+    max_conversations: 1500,
+    max_locations: 2,
+    max_staff_emails: 3,
+    conversation_history: true,
+    lead_scoring: true,
+    lead_tagging: true,
+    custom_fields: true,
+    calendar_support: true,
+    sms_reminders: true,
+    analytics: "growth",
+    visitor_intelligence: true,
+    slack_notifications: true,
+    teams_notifications: true,
+    multi_language: true,
+    white_label: false,
+    custom_domain: false,
+    role_based_access: false,
+    audit_logs: false,
+    dedicated_manager: false,
+  },
+  pro: {
+    can_use_widget: true,
+    max_conversations: 5000,
+    max_locations: 5,
+    max_staff_emails: 10,
+    conversation_history: true,
+    lead_scoring: true,
+    lead_tagging: true,
+    custom_fields: true,
+    calendar_support: true,
+    sms_reminders: true,
+    analytics: "advanced",
+    visitor_intelligence: true,
+    slack_notifications: true,
+    teams_notifications: true,
+    multi_language: true,
+    white_label: true,
+    custom_domain: true,
+    role_based_access: true,
+    audit_logs: true,
+    dedicated_manager: true,
+  },
+}
+
+export function getFeaturePermissions(planId: PlanId): PlanPermissions {
+  return PERMISSIONS[planId]
+}
+
+export function planAllowsFeature(
+  planId: PlanId,
+  feature: keyof PlanPermissions,
+): boolean {
+  return Boolean(PERMISSIONS[planId]?.[feature])
+}

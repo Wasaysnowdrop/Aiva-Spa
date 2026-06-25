@@ -22,7 +22,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { cancelSubscription } from "@/app/actions/subscription";
-import { PLANS, type PlanId, formatPrice } from "@/lib/subscription/plans";
+import { PLANS, type PlanId, getFeaturePermissions } from "@/lib/subscription/plans";
 
 export type BillingViewProps = {
   planId: PlanId;
@@ -81,7 +81,6 @@ export function BillingView(props: BillingViewProps) {
     planId,
     planName,
     status,
-    billingInterval,
     monthlyQuota,
     used,
     periodStart,
@@ -98,7 +97,6 @@ export function BillingView(props: BillingViewProps) {
 
   const meta = STATUS_META[status];
   const plan = PLANS[planId];
-  const price = formatPrice(plan, billingInterval);
 
   const pct = isUnlimited
     ? 5
@@ -174,15 +172,13 @@ export function BillingView(props: BillingViewProps) {
             </div>
             <div className="text-right">
               <p className="text-2xl font-bold tracking-tight text-[#F7F8F8]">
-                {price.display}
-                {price.suffix ? (
-                  <span className="ml-1 text-xs font-medium text-[#8A8F98]">
-                    {price.suffix}
-                  </span>
-                ) : null}
+                ${plan.priceMonthly}
+                <span className="ml-1 text-xs font-medium text-[#8A8F98]">
+                  /month
+                </span>
               </p>
               <p className="text-[10px] uppercase tracking-wider text-[#62666D]">
-                {status === "trialing" ? "After trial" : billingInterval}
+                {status === "trialing" ? "After trial" : "Monthly"}
               </p>
             </div>
           </div>
@@ -484,5 +480,5 @@ function isUpgrade(current: PlanId, target: PlanId) {
 }
 
 function planAllowsSms(id: PlanId) {
-  return id === "growth" || id === "pro"
+  return getFeaturePermissions(id).sms_reminders
 }

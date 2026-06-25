@@ -6,7 +6,7 @@ import { Check, Clock, Sparkles, Star, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { dismissTrialPopupAction } from "@/app/actions/subscription";
-import { PLANS, type PlanId, formatPrice } from "@/lib/subscription/plans";
+import { PLANS, type PlanId } from "@/lib/subscription/plans";
 
 type TrialPopupProps = {
   planName: string;
@@ -159,7 +159,6 @@ export function TrialPopup({ planName, daysRemaining, endsAtIso }: TrialPopupPro
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {(["starter", "growth", "pro"] as const).map((id) => {
                   const plan = PLANS[id];
-                  const monthly = formatPrice(plan, "monthly");
                   const isHighlight = hovered === id || (!hovered && id === "growth");
                   return (
                     <div
@@ -168,7 +167,7 @@ export function TrialPopup({ planName, daysRemaining, endsAtIso }: TrialPopupPro
                       onMouseLeave={() => setHovered(null)}
                       className={`relative flex flex-col rounded-2xl border bg-[#121316] p-4 transition ${
                         isHighlight
-                          ? "border-[#E2E54B]/60 shadow-[0_8px_30px_-12px_rgba(226,229,75,0.35)]"
+                          ? "border-[#E2E54B]/60"
                           : "border-[#23252A] hover:border-[#3A3D44]"
                       }`}
                     >
@@ -200,12 +199,10 @@ export function TrialPopup({ planName, daysRemaining, endsAtIso }: TrialPopupPro
 
                       <div className="mt-3">
                         <p className="text-2xl font-bold tracking-tight text-[#F7F8F8]">
-                          {monthly.display}
-                          {monthly.suffix ? (
-                            <span className="ml-1 text-xs font-medium text-[#8A8F98]">
-                              {monthly.suffix}
-                            </span>
-                          ) : null}
+                          ${plan.priceMonthly}
+                          <span className="ml-1 text-xs font-medium text-[#8A8F98]">
+                            /month
+                          </span>
                         </p>
                       <p className="mt-0.5 text-[11px] text-[#62666D]">
                         {`${plan.monthlyQuota.toLocaleString()} conversations / month`}
@@ -242,8 +239,8 @@ export function TrialPopup({ planName, daysRemaining, endsAtIso }: TrialPopupPro
                           border: isHighlight ? "none" : "1px solid #23252A",
                         }}
                       >
-                        <Link href={`/checkout/${id}`}>
-                          Choose {plan.name}
+                        <Link href={plan.ctaHref}>
+                          {id === "pro" ? "Book demo" : id === "growth" ? "Start free trial" : `Choose ${plan.name}`}
                         </Link>
                       </Button>
                     </div>

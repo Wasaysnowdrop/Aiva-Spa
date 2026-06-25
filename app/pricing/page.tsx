@@ -1,16 +1,7 @@
-import {
-  ArrowRight,
-  Check,
-  ChevronRight,
-  Layers,
-  Sparkles,
-  Star,
-  Zap,
-} from "lucide-react";
+import { ArrowRight, Check, ChevronRight, Sparkles, Star } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { AnimatedClosingCta } from "@/components/landing/animated-closing-cta";
 import { AnimatedFaq, type FaqItem } from "@/components/landing/animated-faq";
 import { FloatingShapes } from "@/components/landing/floating-shapes";
 import { MarqueeLogos } from "@/components/landing/marquee-logos";
@@ -26,7 +17,7 @@ import { createClient } from "@/lib/supabase/server";
 export const metadata: Metadata = {
   title: "Pricing | AivaSpa",
   description:
-    "Simple, fair pricing for the AivaSpa 24/7 AI receptionist. Plans for single-location med spas, growing practices, and multi-location groups — with a 7-day free trial on the Growth plan.",
+    "Simple, fair pricing for the AivaSpa 24/7 AI receptionist. Plans for single-location med spas, growing practices, and multi-location groups.",
 };
 
 const navLinks = [
@@ -41,7 +32,6 @@ type Plan = {
   label: string;
   price: string;
   period: string;
-  suffix?: string;
   description: string;
   cta: { label: string; href: string };
   featured?: boolean;
@@ -53,62 +43,52 @@ type Plan = {
 const plans: Plan[] = [
   {
     name: "Starter",
-    label: "For a single med spa",
-    price: "$50",
+    label: "For single-location med spas",
+    price: "$79",
     period: "/month",
-    suffix: "billed monthly",
     description:
-      "Everything a single-location med spa needs to greet visitors, answer FAQs, and capture consultation leads 24/7 — with AI analytics, lead scoring, and HIPAA-aware handling baked in. Upgrade to Growth to add the built-in calendar, URL-scraper onboarding, and multi-language widget.",
+      "Everything a small med spa needs to answer visitor questions, capture leads, and notify staff.",
     cta: { label: "Choose Starter", href: "/checkout/starter" },
     accent: "#22D3EE",
     features: [
-      "1 website widget, 1 location",
-      "AI answers from your approved knowledge base",
-      "Lead capture (name, phone, email, service, time)",
+      "AI chat widget for your website",
+      "Answers from your approved knowledge base",
+      "Lead capture: name, phone, email, service, preferred time",
       "Email notifications to staff",
-      "Up to 300 conversations / month",
-      "Basic lead dashboard with status",
-      "Standard widget branding (logo + colors)",
-      "AI conversation analytics & CSAT ratings",
-      "Visitor intelligence (geo, device, referrer)",
-      "Lead scoring, tagging & custom fields",
-      "Daily summary email reports",
-      "Auto-responder rules & quick replies",
-      "Team activity log (30 days)",
-      "HIPAA-aware PII handling",
+      "Basic leads dashboard",
+      "Standard widget branding and colors",
+      "Basic FAQ and service answers",
+      "Safe fallback for medical questions",
+      "Done-for-you setup included",
     ],
     highlights: [
       { label: "Conversations", value: "300 / mo" },
+      { label: "Widgets", value: "1" },
       { label: "Locations", value: "1" },
-      { label: "Calendar", value: "Add-on" },
     ],
   },
   {
     name: "Growth",
     label: "For active med spas",
-    price: "$100",
+    price: "$149",
     period: "/month",
-    suffix: "billed monthly · save 20% yearly",
     description:
-      "Built for med spas booking 40+ consultations a month. Unlock advanced widget customisation, service-specific routing, AI lead scoring, conversion funnels, and multi-language support.",
+      "Built for med spas that want more bookings, smarter lead handling, and better follow-up automation.",
     cta: { label: "Start 7-day free trial", href: "/checkout/growth" },
     featured: true,
     accent: "#E2E54B",
     features: [
       "Everything in Starter",
-      "Up to 1,500 conversations / month",
-      "Full conversation history & transcripts",
-      "Advanced widget customisation: position, greeting, tone, avatar, theme & per-page rules",
-      "Service-specific routing & hot-lead alerts",
-      "AI-powered lead scoring & smart reply suggestions",
+      "Up to 1,500 conversations/month",
+      "Full conversation history and transcripts",
+      "Lead scoring, tagging, and custom lead fields",
+      "Service-specific routing and hot-lead alerts",
+      "Calendar booking link support",
       "Conversion funnel analytics",
-      "A/B testing for greetings & CTAs",
-      "Slack & Microsoft Teams notifications",
-      "URL scraper for Knowledge Base (paste your site URL — services, FAQs, and hours auto-fill in seconds)",
-      "Built-in calendar with live booking slots & SMS/email reminders (no Google OAuth required)",
-      "Multi-language widget — 12 languages with auto-detect, RTL support & visitor language switcher",
-      "Email template library & saved replies",
-      "Priority onboarding (under 24h)",
+      "Visitor intelligence: location, device, referrer",
+      "Custom widget colors and greeting",
+      "Slack and Microsoft Teams notifications",
+      "Multi-language widget support",
     ],
     highlights: [
       { label: "Conversations", value: "1,500 / mo" },
@@ -119,29 +99,24 @@ const plans: Plan[] = [
   {
     name: "Pro",
     label: "For multi-location groups",
-    price: "$210",
+    price: "From $299",
     period: "/month",
-    suffix: "billed monthly · save 20% yearly",
     description:
-      "For med spa groups that need multi-location routing, a white-label widget with a custom domain, role-based access, dedicated AI model fine-tuning, and 24/7 priority support.",
-    cta: { label: "Choose Pro", href: "/checkout/pro" },
+      "For med spa groups that need multi-location routing, white-label branding, custom setup, and priority support.",
+    cta: { label: "Book demo", href: "mailto:sales@aivaspa.com?subject=Book%20a%20demo" },
     accent: "#FF77E9",
     features: [
       "Everything in Growth",
-      "Up to 5 locations & unlimited widgets",
-      "Up to 5,000 conversations / month",
-      "Advanced analytics (conversion, after-hours, SLA, cohort)",
-      "White-label widget (hide AivaSpa branding, your colors, your logo)",
-      "Custom domain (e.g. chat.yourspa.com) — map up to 3 of your own domains with DNS verification",
-      "Role-based access (owner / manager / staff / receptionist)",
-      "Audit log & extended data retention (1 year)",
-      "Custom data residency & retention policies",
-      "Priority AI inference (faster first response)",
-      "Dedicated AI model fine-tuning per brand",
-      "All 12 languages + priority custom-locale requests",
-      "Multi-location custom calendar with team routing",
-      "Compliance & HIPAA audit reports",
-      "24/7 priority support + dedicated account manager",
+      "Up to 5 locations and unlimited widgets",
+      "Up to 5,000 conversations/month",
+      "White-label widget: hide AivaSpa branding",
+      "Custom domain support",
+      "Role-based access: owner, manager, staff, receptionist",
+      "Multi-location calendar routing",
+      "Advanced analytics",
+      "Audit log and HIPAA compliance reports",
+      "Dedicated account manager",
+      "White-glove setup included",
     ],
     highlights: [
       { label: "Conversations", value: "5,000 / mo" },
@@ -152,28 +127,25 @@ const plans: Plan[] = [
 ];
 
 const comparisonRows: { feature: string; starter: string; growth: string; pro: string }[] = [
-  { feature: "Website widget", starter: "1", growth: "2", pro: "Unlimited" },
+  { feature: "AI chat widget", starter: "1 website", growth: "2 websites", pro: "Unlimited" },
   { feature: "Locations", starter: "1", growth: "1–2", pro: "Up to 5" },
-  { feature: "AI knowledge-base answers", starter: "✓", growth: "✓", pro: "✓" },
-  { feature: "URL scraper for Knowledge Base", starter: "—", growth: "✓ (1-click KB autofill)", pro: "✓ (1-click KB autofill)" },
-  { feature: "Built-in calendar & booking reminders", starter: "—", growth: "✓ (no Google OAuth)", pro: "✓ Multi-location" },
-  { feature: "Multi-language widget", starter: "—", growth: "12 languages (auto-detect + RTL)", pro: "All 12 + custom locale requests" },
-  { feature: "Custom domain (white-label)", starter: "—", growth: "—", pro: "Up to 3 (e.g. chat.yourspa.com)" },
-  { feature: "Lead capture & dashboard", starter: "Basic", growth: "Standard", pro: "Advanced" },
-  { feature: "Conversation history", starter: "Last 30 days", growth: "Full history", pro: "Full history + 1yr retention" },
-  { feature: "Notifications", starter: "Email + daily summary", growth: "Email + Slack/Teams", pro: "Email + Slack/Teams + custom routing" },
-  { feature: "Widget branding & customisation", starter: "Standard (logo + colors)", growth: "Advanced (position, greeting, tone, avatar, theme, per-page rules)", pro: "White-label (hide AivaSpa branding + your custom domain)" },
-  { feature: "Lead scoring, tagging & custom fields", starter: "✓", growth: "✓ + AI-powered", pro: "✓ + AI-powered + custom models" },
-  { feature: "A/B testing & funnels", starter: "—", growth: "✓", pro: "✓" },
   { feature: "Monthly conversations", starter: "300", growth: "1,500", pro: "5,000" },
-  { feature: "Analytics dashboard", starter: "AI analytics + CSAT", growth: "Conversion funnels + cohorts", pro: "SLA, after-hours, cohort & custom reports" },
-  { feature: "Role-based access", starter: "—", growth: "—", pro: "Owner / Manager / Staff / Receptionist" },
-  { feature: "Audit log & data retention", starter: "30 days", growth: "90 days", pro: "1 year + custom retention" },
-  { feature: "Compliance & HIPAA reports", starter: "—", growth: "—", pro: "✓" },
+  { feature: "Knowledge base answers", starter: "Basic", growth: "Full", pro: "Full" },
+  { feature: "Lead capture", starter: "Name, phone, email, service, time", growth: "✓ + custom fields", pro: "✓ + custom fields" },
+  { feature: "Email notifications", starter: "1 staff email", growth: "3 staff emails", pro: "10 staff emails" },
+  { feature: "Conversation history", starter: "—", growth: "Full history", pro: "Full history" },
+  { feature: "Lead scoring and tagging", starter: "—", growth: "✓", pro: "✓" },
+  { feature: "Calendar booking support", starter: "—", growth: "✓", pro: "Multi-location" },
+  { feature: "SMS and email reminders", starter: "—", growth: "✓ if configured", pro: "✓ if configured" },
+  { feature: "Visitor intelligence", starter: "—", growth: "Location, device, referrer", pro: "Location, device, referrer" },
+  { feature: "Custom widget colors", starter: "Standard", growth: "Custom", pro: "White-label" },
+  { feature: "Slack and Teams notifications", starter: "—", growth: "✓", pro: "✓" },
+  { feature: "Multi-language widget", starter: "—", growth: "12 languages", pro: "12 + custom locales" },
+  { feature: "Custom domain", starter: "—", growth: "—", pro: "✓" },
+  { feature: "Role-based access", starter: "—", growth: "—", pro: "Owner, manager, staff, receptionist" },
+  { feature: "Audit log and HIPAA reports", starter: "—", growth: "—", pro: "✓" },
   { feature: "Dedicated account manager", starter: "—", growth: "—", pro: "✓" },
-  { feature: "Uptime SLA", starter: "99.9%", growth: "99.9%", pro: "99.95%" },
-  { feature: "Support", starter: "Email", growth: "Priority", pro: "24/7 priority + Slack" },
-  { feature: "Onboarding", starter: "Self-guided", growth: "Priority setup", pro: "Guided rollout + AI fine-tuning" },
+  { feature: "Setup", starter: "Done-for-you", growth: "Priority onboarding", pro: "White-glove" },
 ];
 
 const trustSignals = [
@@ -185,52 +157,24 @@ const trustSignals = [
 
 const faqItems: FaqItem[] = [
   {
-    q: "How does AivaSpa's pricing work?",
-    a: "Plans are flat monthly subscriptions based on conversation volume, locations, and team features. You can pay monthly or save 20% with annual billing. Every plan includes the core widget, AI Q&A, lead capture, and dashboard — you only pay more when you need higher conversation limits, SMS, or multi-location routing.",
+    q: "Do I need technical knowledge?",
+    a: "No. We set up the AI receptionist for you. Just paste one script tag on your website and we handle the rest — knowledge base, branding, and configuration included.",
   },
   {
-    q: "What counts as a conversation?",
-    a: "A conversation is a single visitor session with the chat widget, even if it has many back-and-forth messages. If the same visitor returns later, that's a new conversation. Internal staff messages and bot configuration tests are not counted.",
+    q: "Can I change my plan later?",
+    a: "Yes. You can upgrade or downgrade anytime from your dashboard. Upgrades take effect immediately; downgrades apply at the start of the next billing cycle.",
   },
   {
-    q: "Is there a free trial?",
-    a: "Yes. The Growth plan starts with a 7-day free trial — no credit card required. You can install the widget, upload your FAQs, and capture real leads before you decide. After the trial you can keep Growth, switch to Starter, upgrade to Pro, or cancel anytime in one click.",
+    q: "What happens if I reach my conversation limit?",
+    a: "The widget keeps safe fallback behavior so your visitors still get helpful responses. The dashboard will ask you to upgrade for more capacity.",
   },
   {
-    q: "Can I switch plans later?",
-    a: "Of course. You can upgrade or downgrade from your dashboard at any time. Upgrades take effect immediately and are pro-rated; downgrades take effect at the start of the next billing cycle.",
+    q: "Is setup included?",
+    a: "Yes. Done-for-you setup is included for early customers. We configure your AI receptionist with your services, FAQs, and branding so you can go live in under 24 hours.",
   },
   {
-    q: "Do you sign a HIPAA Business Associate Agreement?",
-    a: "AivaSpa is HIPAA-aware by default on every plan and includes a signed Business Associate Agreement at no extra cost. Pro also includes compliance & HIPAA audit reports.",
-  },
-  {
-    q: "What happens if I go over my conversation limit?",
-    a: "We'll never cut off a live chat. If you exceed your monthly limit, we email you a heads-up and add 1,000-conversation packs at $29 each. You can also set a hard cap from your dashboard if you prefer.",
-  },
-  {
-    q: "Do I need Google Calendar or any third-party to take bookings?",
-    a: "No. AivaSpa includes its own built-in calendar with working hours, buffer time, and email/SMS reminders — no Google OAuth, no extra account, no extra cost. Available from the Growth plan and up.",
-  },
-  {
-    q: "How does the URL scraper work?",
-    a: "On Growth and Pro, paste your med spa's website URL and AivaSpa auto-extracts your services, prices, durations, FAQs, working hours, and brand voice into the knowledge base. You review, tweak, and save — onboarding takes minutes, not days.",
-  },
-  {
-    q: "Can the widget speak my visitors' language?",
-    a: "Yes — Growth includes 12 languages (English, Spanish, French, German, Italian, Portuguese, Dutch, Polish, Turkish, Arabic, Chinese, Japanese) with browser auto-detect, a manual switcher, and full RTL support for Arabic. The AI itself replies in the same language, and the entire UI (form labels, errors, consent text) is translated.",
-  },
-  {
-    q: "What does \"white-label\" actually mean on Pro?",
-    a: "Two things. First, the chat widget runs under your own brand — no \"Powered by AivaSpa\" footer, your logo, your colors. Second, you can map up to 3 of your own domains (e.g. chat.yourspa.com) so the chat loads from your infrastructure. Pro agencies use this to offer AivaSpa to their med spa clients as their own product.",
-  },
-  {
-    q: "Will the AI invent pricing or make medical claims?",
-    a: "No. AivaSpa answers strictly from your approved knowledge base, never invents pricing, and never makes medical or outcome guarantees. A disclaimer is shown to every visitor, and treatment suitability is always deferred to a licensed provider during consultation.",
-  },
-  {
-    q: "Do you offer annual billing or discounts?",
-    a: "Yes — annual billing saves you 20% on Growth and Pro. We also offer volume discounts for med spa groups with 3+ locations. Contact sales@aivaspa.com for a custom quote.",
+    q: "Can I use my own branding?",
+    a: "White-label branding is available on the Pro plan. You can hide all AivaSpa branding, use your own logo and colors, and map a custom domain like chat.yourspa.com.",
   },
 ];
 
@@ -260,19 +204,12 @@ const footerColumns = [
 const socials = [
   { label: "f", color: "#E2E54B" },
   { label: "in", color: "#22D3EE" },
-  { label: "𝕏", color: "#F7F8F8" },
-  { label: "◎", color: "#FF77E9" },
-  { label: "▶", color: "#EB5757" },
+  { label: "X", color: "#F7F8F8" },
+  { label: "O", color: "#FF77E9" },
+  { label: "P", color: "#EB5757" },
 ] as const;
 
 function PriceNumber({ plan }: { plan: Plan }) {
-  if (plan.price === "Custom") {
-    return (
-      <p className="mt-5 flex items-baseline gap-2">
-        <span className="text-5xl font-bold tracking-tight text-[#F7F8F8]">Custom</span>
-      </p>
-    );
-  }
   return (
     <p className="mt-5 flex items-baseline gap-1.5">
       <span className="text-5xl font-bold tracking-tight text-[#F7F8F8]">{plan.price}</span>
@@ -290,7 +227,7 @@ function PlanCard({ plan }: { plan: Plan }) {
     >
       {isFeatured ? (
         <span
-          className="absolute -top-3.5 left-1/2 z-20 inline-flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-[#E2E54B]/60 px-3.5 py-1 text-[11px] font-semibold uppercase tracking-wider shadow-[0_4px_20px_-4px_rgba(226,229,75,0.45)]"
+          className="absolute -top-3.5 left-1/2 z-20 inline-flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-[#E2E54B]/60 px-3.5 py-1 text-[11px] font-semibold uppercase tracking-wider"
           style={{ backgroundColor: "#E2E54B", color: "#08090A" }}
         >
           <Star className="size-3 fill-current" />
@@ -298,27 +235,12 @@ function PlanCard({ plan }: { plan: Plan }) {
         </span>
       ) : null}
       <article
-        className={`relative flex h-full flex-col overflow-hidden rounded-3xl border p-7 transition-colors ${isFeatured
-          ? "border-[#E2E54B]/50 bg-gradient-to-b from-[#1A1B1E] to-[#121316]"
-          : "border-[#23252A] bg-[#121316] hover:border-[#3A3D44]"
-          }`}
+        className={`relative flex h-full flex-col rounded-3xl border p-7 transition-colors ${
+          isFeatured
+            ? "border-[#E2E54B] bg-[#1A1B1E]"
+            : "border-[#23252A] bg-[#121316] hover:border-[#3A3D44]"
+        }`}
       >
-        {isFeatured ? (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -inset-px rounded-3xl"
-            style={{
-              background:
-                "linear-gradient(180deg, rgba(226,229,75,0.18) 0%, rgba(226,229,75,0) 60%)",
-              mask: "linear-gradient(#000,#000) content-box, linear-gradient(#000,#000)",
-              WebkitMask: "linear-gradient(#000,#000) content-box, linear-gradient(#000,#000)",
-              WebkitMaskComposite: "xor",
-              maskComposite: "exclude",
-              padding: 1,
-            }}
-          />
-        ) : null}
-
         <div className="flex items-center gap-2">
           <span
             className="inline-flex size-9 items-center justify-center rounded-xl border"
@@ -340,16 +262,17 @@ function PlanCard({ plan }: { plan: Plan }) {
 
         <h3 className="mt-5 text-2xl font-bold tracking-tight text-[#F7F8F8]">{plan.name}</h3>
         <PriceNumber plan={plan} />
-        {plan.suffix ? <p className="mt-1 text-xs text-[#62666D]">{plan.suffix}</p> : null}
+        <p className="mt-1 text-xs text-[#62666D]">Billed monthly. Cancel anytime.</p>
 
         <p className="mt-5 min-h-16 text-sm leading-6 text-[#8A8F98]">{plan.description}</p>
 
         <a
           href={plan.cta.href}
-          className={`mt-6 inline-flex w-full items-center justify-center gap-1.5 rounded-xl px-5 py-3.5 text-sm font-semibold transition ${isFeatured
-            ? "bg-[#E2E54B] text-[#08090A] hover:bg-[#E2E54B]/90"
-            : "border border-[#23252A] bg-[#1A1B1E] text-[#F7F8F8] hover:border-[#E2E54B] hover:text-[#E2E54B]"
-            }`}
+          className={`mt-6 inline-flex w-full items-center justify-center gap-1.5 rounded-xl px-5 py-3.5 text-sm font-semibold transition ${
+            isFeatured
+              ? "bg-[#E2E54B] text-[#08090A] hover:bg-[#E2E54B]/90"
+              : "border border-[#23252A] bg-[#1A1B1E] text-[#F7F8F8] hover:border-[#E2E54B] hover:text-[#E2E54B]"
+          }`}
         >
           {plan.cta.label}
           <ChevronRight className="size-4" />
@@ -409,8 +332,7 @@ export default async function PricingPage() {
               <a
                 key={link.label}
                 href={link.href}
-                className={`transition hover:text-[#F7F8F8] ${link.label === "Pricing" ? "text-[#F7F8F8]" : ""
-                  }`}
+                className={`transition hover:text-[#F7F8F8] ${link.label === "Pricing" ? "text-[#F7F8F8]" : ""}`}
               >
                 {link.label}
               </a>
@@ -445,9 +367,7 @@ export default async function PricingPage() {
           </div>
           <MobileMenu
             links={navLinks}
-            brand={
-              <Logo className="size-8" />
-            }
+            brand={<Logo className="size-8" />}
             rightSlot={
               user ? (
                 <Link
@@ -476,18 +396,23 @@ export default async function PricingPage() {
           <div className="mx-auto max-w-3xl text-center">
             <Reveal>
               <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-[#E2E54B]/40 bg-[#E2E54B]/10 px-3.5 py-1.5 text-xs font-semibold text-[#E2E54B]">
-                <Zap className="size-3.5" />
-                Simple, fair pricing · 7-day free trial on Growth
+                <Sparkles className="size-3.5" />
+                Simple, fair pricing
               </div>
             </Reveal>
             <Reveal>
               <h1 className="mt-7 text-5xl font-bold leading-[1.05] tracking-tight text-[#F7F8F8] md:text-6xl lg:text-7xl">
-                Pay for results, not seats.
+                Your AI receptionist, <br />set up for you.
               </h1>
             </Reveal>
             <Reveal>
               <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-[#8A8F98]">
-                One flat monthly price per med spa — based on conversation volume, locations, and team features. No per-lead fees, no surprise SMS charges, no developer required.
+                No technical setup required. We set up your AI receptionist for you within 24 hours.
+              </p>
+            </Reveal>
+            <Reveal>
+              <p className="mt-3 text-base font-semibold text-[#E2E54B]">
+                Free done-for-you setup included for early customers.
               </p>
             </Reveal>
             <Reveal>
@@ -507,16 +432,6 @@ export default async function PricingPage() {
                 </a>
               </div>
             </Reveal>
-            <Reveal>
-              <p className="mt-5 flex items-center justify-center gap-2 text-xs text-[#62666D]">
-                <span className="flex gap-1">
-                  <span className="size-1 rounded-full bg-[#E2E54B]" />
-                  <span className="size-1 rounded-full bg-[#E2E54B]" />
-                  <span className="size-1 rounded-full bg-[#FF77E9]" />
-                </span>
-                No credit card · Cancel anytime · Save 20% on annual plans
-              </p>
-            </Reveal>
           </div>
 
           {/* Trust strip */}
@@ -527,7 +442,7 @@ export default async function PricingPage() {
             {trustSignals.map((signal) => (
               <RevealItem
                 key={signal.label}
-                className="rounded-2xl border border-[#23252A] bg-[#121316]/70 p-4 text-center backdrop-blur"
+                className="rounded-2xl border border-[#23252A] bg-[#121316]/70 p-4 text-center"
               >
                 <p className="text-2xl font-bold text-[#F7F8F8] md:text-3xl">{signal.value}</p>
                 <p className="mt-1 text-[11px] font-medium uppercase tracking-wider text-[#62666D]">
@@ -562,10 +477,10 @@ export default async function PricingPage() {
                 Plans
               </div>
               <h2 className="mt-4 text-4xl font-bold tracking-tight text-[#F7F8F8] md:text-5xl">
-                Three plans, built around your med spa.
+                Built for every med spa.
               </h2>
               <p className="mt-5 text-lg leading-8 text-[#8A8F98]">
-                Start with what you need today. Upgrade the moment you need more locations, SMS, or advanced analytics.
+                No technical setup required. We set up your AI receptionist for you within 24 hours.
               </p>
             </div>
           </Reveal>
@@ -578,12 +493,6 @@ export default async function PricingPage() {
               <PlanCard key={plan.name} plan={plan} />
             ))}
           </RevealStagger>
-
-          <Reveal>
-            <p className="mx-auto mt-10 max-w-3xl text-center text-sm leading-6 text-[#62666D]">
-              Growth includes a 7-day free trial &mdash; start using AivaSpa today, pick a paid plan only when you&apos;re ready. Annual billing saves 20% on Growth and Pro.
-            </p>
-          </Reveal>
         </div>
       </section>
 
@@ -593,14 +502,14 @@ export default async function PricingPage() {
           <Reveal>
             <div className="mx-auto mb-12 max-w-2xl text-center">
               <div className="inline-flex items-center gap-2 rounded-full border border-[#22D3EE]/40 bg-[#22D3EE]/10 px-3 py-1 text-xs font-semibold text-[#22D3EE]">
-                <Layers className="size-3" />
+                <Sparkles className="size-3" />
                 Compare
               </div>
               <h2 className="mt-4 text-4xl font-bold tracking-tight text-[#F7F8F8] md:text-5xl">
                 Every feature, side by side.
               </h2>
               <p className="mt-5 text-lg leading-8 text-[#8A8F98]">
-                No fine print. Pick the row that matches your med spa today and the column you want to grow into.
+                Pick the plan that fits your med spa today.
               </p>
             </div>
           </Reveal>
@@ -622,8 +531,9 @@ export default async function PricingPage() {
               {comparisonRows.map((row, i) => (
                 <div
                   key={row.feature}
-                  className={`grid grid-cols-[1.6fr_1fr_1fr_1fr] items-center gap-3 px-6 py-4 text-sm ${i % 2 === 0 ? "bg-[#121316]" : "bg-[#0F1012]"
-                    } ${i !== 0 ? "border-t border-[#23252A]/60" : ""}`}
+                  className={`grid grid-cols-[1.6fr_1fr_1fr_1fr] items-center gap-3 px-6 py-4 text-sm ${
+                    i % 2 === 0 ? "bg-[#121316]" : "bg-[#0F1012]"
+                  } ${i !== 0 ? "border-t border-[#23252A]/60" : ""}`}
                 >
                   <span className="font-medium text-[#F7F8F8]">{row.feature}</span>
                   <span className="text-center text-[#8A8F98]">{row.starter}</span>
@@ -636,6 +546,31 @@ export default async function PricingPage() {
         </div>
       </section>
 
+      {/* Not sure which plan fits */}
+      <section className="relative border-t border-[#23252A]/60 py-24 lg:py-32">
+        <div className="mx-auto max-w-3xl px-5 text-center lg:px-8">
+          <Reveal>
+            <h2 className="text-4xl font-bold tracking-tight text-[#F7F8F8] md:text-5xl">
+              Not sure which plan fits?
+            </h2>
+          </Reveal>
+          <Reveal>
+            <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-[#8A8F98]">
+              Start with Growth if you want more bookings and follow-up automation. Choose Starter if you only need basic lead capture. Book a demo for multi-location teams.
+            </p>
+          </Reveal>
+          <Reveal>
+            <a
+              href="mailto:sales@aivaspa.com?subject=Free%20setup%20call"
+              className="mt-8 inline-flex items-center gap-2 rounded-xl bg-[#E2E54B] px-6 py-3.5 text-sm font-semibold text-[#08090A] transition hover:bg-[#E2E54B]/90"
+            >
+              Book a free setup call
+              <ArrowRight className="size-4" />
+            </a>
+          </Reveal>
+        </div>
+      </section>
+
       {/* FAQ */}
       <section className="relative border-t border-[#23252A]/60 py-24 lg:py-32">
         <div className="mx-auto max-w-5xl px-5 lg:px-8">
@@ -643,7 +578,7 @@ export default async function PricingPage() {
             <div className="mx-auto max-w-2xl text-center">
               <div className="inline-flex items-center gap-2 rounded-full border border-[#E2E54B]/40 bg-[#E2E54B]/10 px-3 py-1 text-xs font-semibold text-[#E2E54B]">
                 <span className="size-1.5 rounded-full bg-[#E2E54B]" />
-                Pricing FAQ
+                FAQ
               </div>
               <h2 className="mt-4 text-4xl font-bold tracking-tight text-[#F7F8F8] md:text-5xl">
                 Questions med spa owners ask.
@@ -651,13 +586,6 @@ export default async function PricingPage() {
             </div>
           </Reveal>
           <AnimatedFaq items={faqItems} />
-        </div>
-      </section>
-
-      {/* Closing CTA */}
-      <section className="relative py-24 lg:py-32">
-        <div className="mx-auto max-w-6xl px-5 lg:px-8">
-          <AnimatedClosingCta />
         </div>
       </section>
 
@@ -687,7 +615,7 @@ export default async function PricingPage() {
             <div className="grid grid-cols-2 gap-8 sm:grid-cols-4">
               {footerColumns.map((col) => (
                 <div key={col.title}>
-                  <h3 className="text-sm font-semibold text-[#F7F8F8] flex items-center gap-2">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-[#F7F8F8]">
                     <span className="size-1.5 rounded-full" style={{ backgroundColor: col.color }} />
                     {col.title}
                   </h3>
@@ -706,7 +634,7 @@ export default async function PricingPage() {
           </div>
 
           <div className="mt-14 flex flex-col items-start justify-between gap-4 border-t border-[#23252A]/60 pt-6 text-xs text-[#62666D] md:flex-row md:items-center">
-            <p>© 2026 AivaSpa, Inc. All rights reserved.</p>
+            <p>&copy; 2026 AivaSpa, Inc. All rights reserved.</p>
             <div className="flex items-center gap-5">
               <Link href="/legal/privacy" className="hover:text-[#F7F8F8]">Privacy</Link>
               <Link href="/legal/terms" className="hover:text-[#F7F8F8]">Terms</Link>
