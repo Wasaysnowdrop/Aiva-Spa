@@ -25,7 +25,7 @@ This file is the source of truth for any AI/agent working in this repo. Read it 
 | Tables | `@tanstack/react-table` | Leads inbox, webhook deliveries. |
 | Toasts | `sonner` | |
 | Backend | **Supabase** (Postgres + Auth + Realtime + RLS) | `src/lib/supabase/{client,server,admin,types}.ts`. |
-| AI | **OpenAI-compatible chat** via `src/lib/ai/llm.ts` | Default base URL `https://api.freemodel.dev/v1`, model `gpt-5.4-mini`. Falls back to a canned-response engine if `OPENAI_API_KEY` is empty. |
+| AI | **Cloudflare Workers AI** via `src/lib/ai/llm.ts` | Uses Cloudflare Workers AI (OpenAI-compatible endpoint). Default model `@cf/meta/llama-3.2-3b-instruct`. Falls back to a canned-response engine if `CLOUDFLARE_API_TOKEN` is empty. |
 | Email | **Resend** (`src/lib/notifications/email.ts`) | Logs to console if no key. |
 | SMS | **Twilio** (`src/lib/notifications/sms.ts`) | Logs to console if no key. |
 | Calendar | **Google Calendar OAuth2** (`src/lib/google/calendar.ts`) | Slots/booking/status/disconnect routes. |
@@ -413,9 +413,8 @@ NEXT_PUBLIC_SITE_URL=
 Optional (each falls back to a stub):
 
 ```bash
-OPENAI_API_KEY=                  # if empty → canned-response engine
-OPENAI_BASE_URL=                 # default https://api.freemodel.dev/v1
-OPENAI_MODEL=                    # default gpt-5.4-mini
+CLOUDFLARE_API_TOKEN=            # if empty → canned-response engine
+CLOUDFLARE_MODEL=                # default @cf/meta/llama-3.2-3b-instruct
 RESEND_API_KEY=                  # if empty → console.log
 EMAIL_FROM=
 TWILIO_ACCOUNT_SID=              # if empty → console.log
@@ -482,7 +481,7 @@ When you add a new feature, add a vitest spec under `tests/`.
 
 **Add a new dashboard page** → drop it under `app/dashboard/<feature>/page.tsx` and link it in `dashboard-sidebar.tsx`. The `dashboard/layout.tsx` already enforces auth.
 
-**Change the AI prompt** → edit `src/lib/ai/prompt.ts`. To bypass LLM and use canned responses, leave `OPENAI_API_KEY` empty.
+**Change the AI prompt** → edit `src/lib/ai/prompt.ts`. To bypass LLM and use canned responses, leave `CLOUDFLARE_API_TOKEN` empty.
 
 **Tune widget access rules** → `src/lib/widget/access.ts` and the `widget_installs` table.
 

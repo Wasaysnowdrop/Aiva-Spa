@@ -25,7 +25,7 @@ export type ConversationTurnInput = {
 export type ConversationTurnResult = {
   reply: string
   model: string
-  provider: "openai" | "mock" | "deterministic"
+  provider: "cloudflare" | "mock" | "deterministic"
   isFirstReply: boolean
   afterHours: boolean
   durationMs: number
@@ -104,7 +104,7 @@ export async function runConversationTurn(
     messageCount: messages.length,
     temperature: 0.7,
   })
-  const result = await llmChat({ messages, options: { temperature: 0.7, maxTokens: 800, timeoutMs: 12_000 } })
+  const result = await llmChat({ messages, options: { temperature: 0.7, maxTokens: 800, timeoutMs: 20_000 } })
   console.log("[chat] AI response received", {
     model: result.model,
     provider: result.provider,
@@ -163,12 +163,12 @@ function applyThinkStrippingIncremental(
   pending: string,
   inThink: boolean,
 ): { emit: string; inThink: boolean; remaining: string } {
-  // Some OpenAI-compatible gateways (TokenRouter serving MiniMax-M3) emit
-  // the model's chain-of-thought wrapped in HTML-encoded tags inside the
-  // JSON string value — `&lt;think&gt;` / `&lt;/think&gt;` instead of
-  // the literal `<think>` / `</think>`. The downstream JSON parser gives
-  // us the raw string back (HTML entities are NOT unescaped by JSON), so
-  // we have to recognize both shapes here.
+  // Some OpenAI-compatible gateways emit the model's chain-of-thought
+  // wrapped in HTML-encoded tags inside the JSON string value —
+  // `&lt;think&gt;` / `&lt;/think&gt;` instead of the literal `<think>` /
+  // `</think>`. The downstream JSON parser gives us the raw string back
+  // (HTML entities are NOT unescaped by JSON), so we have to recognize
+  // both shapes here.
   const THINK_OPEN_LITERAL = "<think>"
   const THINK_CLOSE_LITERAL = "</think>"
   const THINK_OPEN_ENCODED = "&lt;think&gt;"
@@ -276,7 +276,7 @@ export async function streamConversationTurn(
   let pending = ""
   let inThink = false
   let modelName = "unknown"
-  let providerName: "openai" | "mock" | "deterministic" = "openai"
+  let providerName: "cloudflare" | "mock" | "deterministic" = "cloudflare"
   let streamed = false
   let fallbackInjected = false
 
@@ -297,7 +297,7 @@ export async function streamConversationTurn(
   try {
     for await (const ev of streamLlmChat({
       messages,
-      options: { temperature: 0.7, maxTokens: 800, timeoutMs: 12_000 },
+      options: { temperature: 0.7, maxTokens: 800, timeoutMs: 20_000 },
     })) {
       if (ev.type === "chunk") {
         pending += ev.text
@@ -375,7 +375,7 @@ export async function streamConversationTurn(
 // Deterministic canned reply used when the LLM is unavailable. KB-aware:
 // looks up the visitor's actual message against the spa's services + FAQs
 // (using the same retrieval the LLM would use), so even when the model is
-// down or `OPENAI_API_KEY` is empty the visitor gets a relevant answer —
+// down or `CLOUDFLARE_API_TOKEN` is empty the visitor gets a relevant answer —
 // or a polite, grounded refusal if the question is clearly out of scope.
 // All this runs synchronously against the cached KB (60s TTL), so the reply
 // is delivered instantly with no model latency.

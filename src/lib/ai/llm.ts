@@ -27,42 +27,44 @@ export type LlmChatResult = {
   content: string
   model: string
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number }
-  provider: "openai" | "mock"
+  provider: "cloudflare" | "mock"
 }
 
-export type LlmProvider = "openai" | "mock"
+export type LlmProvider = "cloudflare" | "mock"
 
-const DEFAULT_OPENAI_BASE_URL = "https://api.tokenrouter.com/v1"
-const DEFAULT_OPENAI_MODEL = "MiniMax-M3"
+// Koi API token nahi hai to yeh wrong hoga — but Cloudflare pe account ID fix hai
+const CLOUDFLARE_ACCOUNT_ID = "0c5413cf333f59befff997713951733a"
+const CLOUDFLARE_API_BASE = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1`
+const DEFAULT_CLOUDFLARE_MODEL = "@cf/meta/llama-3.2-3b-instruct"
 const DEFAULT_MOCK_MODEL = "aiva-mock-1"
 // Tight per-request timeouts: chat UX must feel snappy. The LLM usually
-// finishes in ~1-3s; anything beyond ~12s is treated as a failure and we
-// serve a canned fallback reply rather than make the visitor wait.
-const DEFAULT_REQUEST_TIMEOUT_MS = 12_000
-const FALLBACK_TIMEOUT_MS = 8_000
-// Only one model exposed on the current TokenRouter key, so the "fallback" is
-// the same model — we still retry with a fresh AbortController / shorter
-// timeout to recover from transient gateway failures.
-const FALLBACK_MODEL = "MiniMax-M3"
+// finishes in ~1-3s on fast models; GLM-5.2 with CoT can take 8-15s,
+// so we use a conservative budget before falling back to the canned reply.
+const DEFAULT_REQUEST_TIMEOUT_MS = 20_000
+const FALLBACK_TIMEOUT_MS = 15_000
+const FALLBACK_MODEL = "@cf/meta/llama-3.2-3b-instruct"
 
 export function resolveLlmProvider(): LlmProvider {
-  const key = process.env.OPENAI_API_KEY
-  return key && key.trim().length > 0 ? "openai" : "mock"
+  const token = process.env.CLOUDFLARE_API_TOKEN
+  if (token && token.trim().length > 0) {
+    return "cloudflare"
+  }
+  return "mock"
 }
 
-function getOpenAiConfig() {
+function getCloudflareConfig() {
   return {
-    apiKey: process.env.OPENAI_API_KEY,
-    baseUrl: process.env.OPENAI_BASE_URL || DEFAULT_OPENAI_BASE_URL,
-    model: process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL,
+    apiToken: process.env.CLOUDFLARE_API_TOKEN,
+    baseUrl: CLOUDFLARE_API_BASE,
+    model: process.env.CLOUDFLARE_MODEL || DEFAULT_CLOUDFLARE_MODEL,
   }
 }
 
 export async function llmChat(input: LlmChatInput): Promise<LlmChatResult> {
   const provider = resolveLlmProvider()
-  if (provider === "openai") {
+  if (provider === "cloudflare") {
     try {
-      const result = await callOpenAiWithFallback(input)
+      const result = await callCloudflareWithFallback(input)
       if (!result.content || !result.content.trim()) {
         console.warn("LLM returned empty content, serving canned reply")
         return gracefulFallback(input)
@@ -131,28 +133,24 @@ function gracefulFallback(input: LlmChatInput): Promise<LlmChatResult> {
     }))
 }
 
-async function callOpenAiWithFallback(input: LlmChatInput): Promise<LlmChatResult> {
-  const cfg = getOpenAiConfig()
-  if (!cfg.apiKey) throw new Error("OPENAI_API_KEY is not set")
+async function callCloudflareWithFallback(input: LlmChatInput): Promise<LlmChatResult> {
+  const cfg = getCloudflareConfig()
+  if (!cfg.apiToken) throw new Error("CLOUDFLARE_API_TOKEN is not set")
 
   const requestedModel = input.options?.model || cfg.model
   const timeoutMs = input.options?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
 
   try {
-    return await callOpenAi(input, requestedModel, timeoutMs)
+    return await callCloudflare(input, requestedModel, timeoutMs)
   } catch (err) {
     const isTimeout = err instanceof Error && /aborted|timeout/i.test(err.message)
     if (!isTimeout || requestedModel === FALLBACK_MODEL) {
       throw err
     }
-    // Primary model timed out — try the smaller fallback model for a faster
-    // reply. Pass a fresh AbortSignal (the previous controller is already
-    // aborted, which would cancel the retry) and a shorter timeout — the
-    // small model should respond well under the primary budget.
     console.warn(
       `LLM call to ${requestedModel} failed (${err instanceof Error ? err.message : "unknown"}), retrying with ${FALLBACK_MODEL}`,
     )
-    return callOpenAi(
+    return callCloudflare(
       { ...input, options: { ...input.options, signal: undefined } },
       FALLBACK_MODEL,
       FALLBACK_TIMEOUT_MS,
@@ -160,12 +158,12 @@ async function callOpenAiWithFallback(input: LlmChatInput): Promise<LlmChatResul
   }
 }
 
-async function callOpenAi(
+async function callCloudflare(
   input: LlmChatInput,
   modelName: string,
   timeoutMs: number,
 ): Promise<LlmChatResult> {
-  const cfg = getOpenAiConfig()
+  const cfg = getCloudflareConfig()
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
   const signal = input.options?.signal ?? controller.signal
@@ -187,7 +185,7 @@ async function callOpenAi(
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${cfg.apiKey}`,
+        authorization: `Bearer ${cfg.apiToken}`,
       },
       body: JSON.stringify(body),
       signal,
@@ -195,16 +193,31 @@ async function callOpenAi(
 
     if (!res.ok) {
       const err = await res.text().catch(() => "")
-      throw new Error(`OpenAI request failed (${res.status}): ${err.slice(0, 200)}`)
+      throw new Error(`Cloudflare API request failed (${res.status}): ${err.slice(0, 200)}`)
     }
 
     const data = (await res.json()) as {
-      choices?: { message?: { content?: string } }[]
+      result?: {
+        response?: string
+        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+      }
+      choices?: { message?: { content?: string; reasoning_content?: string } }[]
       model?: string
       usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
     }
 
-    const content = stripThinkBlocks(data.choices?.[0]?.message?.content ?? "")
+    // Cloudflare Workers AI can return in three shapes:
+    // 1. OpenAI-compatible { choices: [{ message: { content } }] }
+    // 2. Native Workers AI { result: { response } }
+    // 3. GLM-5.2 style { choices: [{ message: { content, reasoning_content } }] }
+    let content = ""
+    if (data.choices?.[0]?.message?.content) {
+      content = data.choices[0].message.content
+    } else if (data.choices?.[0]?.message?.reasoning_content) {
+      content = data.choices[0].message.reasoning_content
+    } else if (data.result?.response) {
+      content = data.result.response
+    }
     return {
       content,
       model: data.model || modelName,
@@ -215,27 +228,11 @@ async function callOpenAi(
             totalTokens: data.usage.total_tokens ?? 0,
           }
         : undefined,
-      provider: "openai",
+      provider: "cloudflare",
     }
   } finally {
     clearTimeout(timeout)
   }
-}
-
-// MiniMax-style models emit a hidden chain-of-thought before the
-// user-visible reply. The tags may come through the OpenAI-compatible
-// gateway either literally (`<think>...</think>`) or HTML-encoded
-// (`&lt;think&gt;...&lt;/think&gt;`) — TokenRouter / MiniMax-M3 has been
-// observed returning the encoded form. Strip both shapes so the visitor
-// never sees the model's reasoning, and fall back to the trimmed raw
-// text if nothing is left (better to show a partial answer than nothing).
-function stripThinkBlocks(raw: string): string {
-  if (!raw) return raw
-  // Decode HTML-encoded think tags first so the regex below can match them.
-  const decoded = raw
-    .replace(/&lt;\/?think&gt;/gi, (m) => (m.includes("/") ? "</think>" : "<think>"))
-  const cleaned = decoded.replace(/<think>[\s\S]*?<\/think>/gi, "").trimStart()
-  return cleaned.length > 0 ? cleaned : raw.trim()
 }
 
 function callMock(input: LlmChatInput): Promise<LlmChatResult> {
@@ -278,7 +275,7 @@ function callMock(input: LlmChatInput): Promise<LlmChatResult> {
   }
 
   // Everything else: route through the KB-aware fallback. This guarantees
-  // that even when `OPENAI_API_KEY` is empty (so `callMock` is the entire
+  // that even when `CLOUDFLARE_API_TOKEN` is empty (so `callMock` is the entire
   // engine) the visitor gets a relevant answer from the spa's knowledge
   // base — or a polite, KB-grounded refusal if the question is off-topic.
   return loadKnowledge()
@@ -308,18 +305,18 @@ export type StreamOptions = Omit<LlmOptions, "maxTokens"> & {
 
 export type StreamEvent =
   | { type: "chunk"; text: string }
-  | { type: "done"; model: string; provider: "openai" | "mock" }
+  | { type: "done"; model: string; provider: "cloudflare" | "mock" }
   | { type: "error"; message: string }
 
 export type LlmStreamHandle = AsyncIterable<StreamEvent>
 
 export async function* streamLlmChat(input: LlmChatInput): LlmStreamHandle {
-  const cfg = getOpenAiConfig()
+  const cfg = getCloudflareConfig()
   const provider = resolveLlmProvider()
   const modelName = input.options?.model || cfg.model
   const timeoutMs = input.options?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
 
-  if (provider !== "openai" || !cfg.apiKey) {
+  if (provider !== "cloudflare" || !cfg.apiToken) {
     const r = callMock(input)
     const text = (await r).content
     yield { type: "chunk", text }
@@ -337,7 +334,7 @@ export async function* streamLlmChat(input: LlmChatInput): LlmStreamHandle {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${cfg.apiKey}`,
+        authorization: `Bearer ${cfg.apiToken}`,
       },
       body: JSON.stringify({
         model: modelName,
@@ -366,7 +363,7 @@ export async function* streamLlmChat(input: LlmChatInput): LlmStreamHandle {
     const errText = await res.text().catch(() => "")
     yield {
       type: "error",
-      message: `OpenAI stream failed (${res.status}): ${errText.slice(0, 200)}`,
+      message: `Cloudflare stream failed (${res.status}): ${errText.slice(0, 200)}`,
     }
     return
   }
@@ -395,16 +392,8 @@ export async function* streamLlmChat(input: LlmChatInput): LlmStreamHandle {
           }
           const chunk = json.choices?.[0]?.delta?.content
           if (chunk) {
-            // Some gateways (TokenRouter / MiniMax-M3) emit think tags with
-            // HTML entities (`&lt;think&gt;`). Decode them inline so the
-            // conversation engine's incremental think-stripper can match
-            // them. We only touch the encoded tags — every other character
-            // passes through untouched.
-            const decoded = chunk
-              .replace(/&lt;think&gt;/gi, "<think>")
-              .replace(/&lt;\/think&gt;/gi, "</think>")
             sawAnyChunk = true
-            yield { type: "chunk", text: decoded }
+            yield { type: "chunk", text: chunk }
           }
         } catch {
           // ignore malformed SSE lines
@@ -426,5 +415,5 @@ export async function* streamLlmChat(input: LlmChatInput): LlmStreamHandle {
     yield { type: "error", message: "empty stream" }
     return
   }
-  yield { type: "done", model: modelName, provider: "openai" }
+  yield { type: "done", model: modelName, provider: "cloudflare" }
 }

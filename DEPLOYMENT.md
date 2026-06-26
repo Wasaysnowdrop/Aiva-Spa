@@ -10,9 +10,8 @@ Set these in your hosting provider (Vercel → Project → Settings → Environm
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public | Yes | Anon key, RLS-protected |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server | Yes | Service role, never expose |
 | `NEXT_PUBLIC_SITE_URL` | Public | Yes | https://your-domain.com |
-| `OPENAI_API_KEY` | Server | Optional | Empty = canned response engine |
-| `OPENAI_BASE_URL` | Server | Optional | Default: https://api.openai.com/v1 |
-| `OPENAI_MODEL` | Server | Optional | Default: gpt-4o-mini |
+| `CLOUDFLARE_API_TOKEN` | Server | Optional | Empty = canned response engine |
+| `CLOUDFLARE_MODEL` | Server | Optional | Default: @cf/meta/llama-3.2-3b-instruct |
 | `RESEND_API_KEY` | Server | Optional | Empty = console.log emails |
 | `EMAIL_FROM` | Server | Optional | Default: AivaSpa <alerts@your-domain.com> |
 | `TWILIO_ACCOUNT_SID` | Server | Optional | Empty = console.log SMS |

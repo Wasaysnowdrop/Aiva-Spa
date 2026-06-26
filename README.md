@@ -81,7 +81,7 @@ npm run domains:setup      # one-time: add *.aivaspa.online to Vercel
 5. **Deploy.** Vercel will run `npm run build` and assign the wildcard
    certificate automatically.
 
-Optional env to enable advanced features: `OPENAI_API_KEY`, `RESEND_API_KEY`,
+Optional env to enable advanced features: `CLOUDFLARE_API_TOKEN`, `RESEND_API_KEY`,
 Twilio vars, Google OAuth, `EMBED_ALLOWED_ORIGINS`, `CORS_ALLOWED_ORIGINS`.
 
 ### Verifying the deploy
@@ -111,7 +111,8 @@ See [`.env.example`](./.env.example) for the full annotated list. Quick map:
 | `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Server-only service role |
 | `NEXT_PUBLIC_SITE_URL` | recommended | Absolute site URL for emails, OAuth, OG |
 | `CRON_SECRET` | recommended | Gates `/api/cron/*` |
-| `OPENAI_API_KEY` | optional | AI replies (fallback if empty) |
+| `CLOUDFLARE_API_TOKEN` | optional | AI replies (fallback if empty) |
+| `CLOUDFLARE_MODEL` | optional | Default: @cf/meta/llama-3.2-3b-instruct |
 | `RESEND_API_KEY` | optional | Email notifications (console if empty) |
 | `TWILIO_*` | optional | SMS notifications (console if empty) |
 | `GOOGLE_OAUTH_*` | optional | Google Calendar integration |

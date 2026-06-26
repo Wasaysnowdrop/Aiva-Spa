@@ -54,7 +54,7 @@ export default async function AdminOverviewPage() {
   const errorRate = lastValue(health.trends.errorRate)
 
   const integrations = [
-    { key: "openai", label: "OpenAI", ok: health.openaiConfigured },
+    { key: "cloudflare", label: "Cloudflare AI", ok: health.cloudflareConfigured },
     { key: "resend", label: "Resend email", ok: health.resendConfigured },
     { key: "twilio", label: "Twilio SMS", ok: health.twilioConfigured },
     { key: "calendar", label: "Custom Calendar", ok: health.customCalendarConfigured },

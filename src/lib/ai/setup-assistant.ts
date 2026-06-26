@@ -31,7 +31,7 @@ export type SetupAssistantTurnResult = {
   draft: KnowledgeBase
   pendingFields: string[]
   durationMs: number
-  provider: "openai" | "mock"
+  provider: "cloudflare" | "mock"
   model: string
 }
 
@@ -302,7 +302,7 @@ export async function runSetupAssistantTurn(
 
   let raw: SetupAssistantRawResponse | null = null
   let model = "aiva-mock-1"
-  let provider: "openai" | "mock" = "mock"
+  let provider: "cloudflare" | "mock" = "mock"
 
   try {
     const result = await llmChat({

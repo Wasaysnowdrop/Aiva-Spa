@@ -40,8 +40,8 @@ export default async function AdminLlmPage() {
           />
           <KpiCard
             label="Provider"
-            value={health.openaiConfigured ? "OpenAI" : "Mock"}
-            tone={health.openaiConfigured ? "success" : "warn"}
+            value={health.cloudflareConfigured ? "Cloudflare" : "Mock"}
+            tone={health.cloudflareConfigured ? "success" : "warn"}
           />
         </section>
 
@@ -79,7 +79,7 @@ export default async function AdminLlmPage() {
           <ul className="mt-2 space-y-1.5 text-xs text-[#8A8F98]">
             <li>· Stats derive from <code className="font-mono text-[#E2E54B]">chat_sessions.last_message_at</code> and <code className="font-mono text-[#E2E54B]">updated_at</code> deltas.</li>
             <li>· Add a <code className="font-mono text-[#E2E54B]">llm_usage</code> table to record exact prompt/completion tokens per turn for accurate billing.</li>
-            <li>· Set <code className="font-mono text-[#E2E54B]">OPENAI_API_KEY</code> in <code className="font-mono text-[#E2E54B]">.env.local</code> to enable real provider. Empty = canned-response engine.</li>
+            <li>· Set <code className="font-mono text-[#E2E54B]">CLOUDFLARE_API_TOKEN</code> + <code className="font-mono text-[#E2E54B]">CLOUDFLARE_ACCOUNT_ID</code> in <code className="font-mono text-[#E2E54B]">.env.local</code> to enable Cloudflare Workers AI. Missing = canned-response engine.</li>
           </ul>
         </section>
       </div>
