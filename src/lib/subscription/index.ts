@@ -158,7 +158,7 @@ export function deriveSnapshot(
       row.monthlyQuota === Number.MAX_SAFE_INTEGER
         ? Number.MAX_SAFE_INTEGER
         : Math.max(0, row.monthlyQuota - row.conversationsUsed),
-    hasAccess: (feature: PlanFeature) =>
+    hasAccess: (feature: keyof PlanPermissions) =>
       isActive && planAllowsFeature(plan.id, feature),
   }
 }
