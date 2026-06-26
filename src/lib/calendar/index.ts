@@ -527,7 +527,7 @@ export async function cancelBooking(
 export function planHasCalendar(planId: string | null | undefined): boolean {
   if (!planId) return false
   if (!isKnownPlanId(planId)) return true
-  return planAllowsFeature(planId, "calendar")
+  return planAllowsFeature(planId, "calendar_support")
 }
 
 function isKnownPlanId(planId: string): planId is PlanId {
