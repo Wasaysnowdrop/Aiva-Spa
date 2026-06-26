@@ -1,6 +1,8 @@
 import * as React from "react";
 import { redirect } from "next/navigation";
 
+export const dynamic = "force-dynamic";
+
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { DashboardDrawerProvider } from "@/components/dashboard/dashboard-drawer-context";
 import { MobileSidebarDrawer } from "@/components/dashboard/dashboard-sidebar";
