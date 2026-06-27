@@ -101,29 +101,19 @@ export async function POST(request: NextRequest) {
     if (body.spaId) {
       const access = await checkEmbedAccess(body.spaId)
       if (!access.ok) {
+        // Access denied (expired subscription / inactive install / not found).
+        // We DO NOT block the API — the embed page already gates the widget
+        // iframe. Blocking here would leave the visitor staring at a hardcoded
+        // client-side fallback instead of a useful AI reply. Instead we log
+        // the denial and continue with a null userId so the AI still responds
+        // without tracking quota or firing webhooks.
         console.warn(
-          `[chat] embed access denied for spaId=${body.spaId} reason=${access.reason}`,
+          `[chat] embed access denied for spaId=${body.spaId} reason=${access.reason} — continuing without userId`,
         )
-        const deniedReplies: Record<string, string> = {
-          expired:
-            "This chat has expired. Please contact the spa owner to renew the subscription.",
-          inactive_install:
-            "The widget is not active for this spa. Please check your widget settings.",
-          not_found:
-            "Chat is not available for this spa. Please check your setup.",
-        }
-        return Response.json(
-          {
-            error: "Chat is currently unavailable.",
-            reason: access.reason,
-            reply:
-              deniedReplies[access.reason] ??
-              "Chat is not available at the moment. Please try again later.",
-          },
-          { status: 403, headers: cors(request) },
-        )
+        accessUserId = null
+      } else {
+        accessUserId = access.userId
       }
-      accessUserId = access.userId
     } else {
       return Response.json(
         { error: "spaId is required." },
