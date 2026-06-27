@@ -7,6 +7,8 @@ import { DashboardHeader } from "@/components/dashboard/dashboard-header"
 import { LeadDetail } from "@/components/dashboard/lead-detail"
 import { getLead } from "@/lib/leads"
 
+export const dynamic = "force-dynamic"
+
 interface LeadDetailPageProps {
   params: Promise<{ id: string }>
 }

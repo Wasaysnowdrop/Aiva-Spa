@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import Link from "next/link"
+import { connection } from "next/server"
 
 import { Bell } from "lucide-react"
 
@@ -10,12 +11,18 @@ import { getLeads } from "@/lib/leads"
 import { getNotificationChannelsServer } from "@/lib/db/notifications.server"
 import { createClient } from "@/lib/supabase/server"
 
-export const metadata: Metadata = {
-  title: "Leads | AivaSpa Dashboard",
-  description: "All captured leads, transcripts, and follow-up status.",
+export const dynamic = "force-dynamic"
+
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: "Leads | AivaSpa Dashboard",
+    description: "All captured leads, transcripts, and follow-up status.",
+  }
 }
 
 export default async function LeadsPage() {
+  await connection()
+
   let leads: Awaited<ReturnType<typeof getLeads>> = []
   let emailConfigured = false
 
