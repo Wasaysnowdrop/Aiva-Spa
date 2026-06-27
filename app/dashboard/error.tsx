@@ -1,20 +1,28 @@
 "use client"
 
 import * as React from "react"
-import { AlertTriangle, RotateCw } from "lucide-react"
+import { AlertTriangle, Home, RotateCw } from "lucide-react"
+import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
 
 export default function DashboardError({
   error,
-  unstable_retry,
+  reset,
 }: {
   error: Error & { digest?: string }
-  unstable_retry: () => void
+  reset: () => void
 }) {
   React.useEffect(() => {
     console.error("[aivaspa] dashboard error:", error)
   }, [error])
+
+  const errorMessage =
+    error.message?.includes("fetch") || error.message?.includes("network") || error.message?.includes("connect")
+      ? "We couldn't reach our servers. This is usually a temporary network glitch."
+      : error.message?.includes("permission") || error.message?.includes("policy")
+        ? "There seems to be a permissions issue. Your session may have expired."
+        : "Your account, knowledge base, and leads are safe. This was a rendering hiccup — please try again."
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-4">
@@ -29,8 +37,7 @@ export default function DashboardError({
           Something went wrong loading this page
         </h1>
         <p className="mt-2 text-sm leading-6 text-[#8A8F98]">
-          Your account, knowledge base, and leads are safe. This was a rendering
-          hiccup — please try again.
+          {errorMessage}
         </p>
         {error.digest ? (
           <p className="mt-3 text-[11px] text-[#62666D]">
@@ -39,11 +46,17 @@ export default function DashboardError({
         ) : null}
         <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
           <Button
-            onClick={() => unstable_retry()}
+            onClick={() => reset()}
             className="bg-[#E2E54B] text-[#08090A] hover:bg-[#E2E54B]/90"
           >
             <RotateCw className="size-4" />
             Try again
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href="/dashboard">
+              <Home className="size-4" />
+              Go home
+            </Link>
           </Button>
         </div>
       </div>

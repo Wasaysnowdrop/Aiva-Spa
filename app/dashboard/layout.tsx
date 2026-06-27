@@ -14,7 +14,9 @@ import { PricingModal } from "@/components/billing/pricing-modal";
 import {
   getCurrentSubscription,
   shouldShowTrialPopup,
+  deriveSnapshot,
 } from "@/lib/subscription";
+import type { SubscriptionSnapshot } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -23,16 +25,26 @@ export default async function DashboardLayout({ children }: { children: React.Re
     data: { user },
   } = await supabase.auth.getUser();
 
+  if (!user) {
+    redirect("/login?redirectTo=%2Fdashboard");
+  }
+
   // Defense in depth: the proxy.ts should already have blocked banned
   // users before this runs, but if a banned user lands here via a
   // server action or cached page, sign them out and bounce them to
   // the login screen with a clear message.
-  if (user && (user.app_metadata as { banned?: boolean } | null)?.banned) {
+  if ((user.app_metadata as { banned?: boolean } | null)?.banned) {
     await supabase.auth.signOut().catch(() => null);
     redirect("/login?error=banned");
   }
 
-  const subscription = await getCurrentSubscription();
+  let subscription: SubscriptionSnapshot
+  try {
+    subscription = await getCurrentSubscription()
+  } catch (e) {
+    console.error("[dashboard-layout] getCurrentSubscription failed:", e)
+    subscription = deriveSnapshot(null)
+  }
 
   const sidebarUser = {
     fullName:

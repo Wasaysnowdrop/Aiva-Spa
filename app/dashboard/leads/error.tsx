@@ -8,10 +8,10 @@ import { Button } from "@/components/ui/button"
 
 export default function LeadsError({
   error,
-  unstable_retry,
+  reset,
 }: {
   error: Error & { digest?: string }
-  unstable_retry: () => void
+  reset: () => void
 }) {
   React.useEffect(() => {
     console.error("[aivaspa] /dashboard/leads error:", error)
@@ -45,7 +45,7 @@ export default function LeadsError({
         ) : null}
         <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
           <Button
-            onClick={() => unstable_retry()}
+            onClick={() => reset()}
             className="bg-[#E2E54B] text-[#08090A] hover:bg-[#E2E54B]/90"
           >
             <RotateCw className="size-4" />

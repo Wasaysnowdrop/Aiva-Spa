@@ -39,10 +39,14 @@ export const metadata: Metadata = {
 }
 
 export default async function DashboardOverviewPage() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  let user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> } | null = null
+  try {
+    const supabase = await createClient()
+    const result = await supabase.auth.getUser()
+    user = result.data.user
+  } catch (e) {
+    console.error("[dashboard-overview] auth getUser failed:", e)
+  }
 
   const fullName =
     (user?.user_metadata?.full_name as string | undefined) ??
