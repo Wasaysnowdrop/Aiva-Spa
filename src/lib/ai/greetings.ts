@@ -62,7 +62,6 @@ const FIRST_TURN_FOLLOWUPS = [
 const RETURNING_FOLLOWUPS = [
   "Anything else I can help with?",
   "What else is on your mind?",
-  "Want me to set up a consult?",
 ]
 
 const FOLLOWUP_OPENERS_REGULAR = [

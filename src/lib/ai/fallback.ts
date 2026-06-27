@@ -111,7 +111,7 @@ export function kbAwareFallback(
     const svc = top.service
     const desc = svc.description ? ` ${svc.description}` : ""
     return sanitizeReply(
-      `Yes — ${svc.name} is one of our treatments.${desc} Pricing and what's right for you get confirmed during a consultation by a licensed provider. Want me to submit a consultation request so the team can confirm details?`,
+      `Yes — ${svc.name} is one of our treatments.${desc} Pricing is confirmed at consultation by a licensed provider. Let me know if you'd like pricing information or have any other questions about it!`,
     )
   }
 
@@ -122,7 +122,7 @@ export function kbAwareFallback(
 
   // 7. Pricing intent.
   if (PRICING_RE.test(text)) {
-    return "Pricing varies by treatment and individual needs — a licensed provider confirms exact pricing during your consultation. Want me to submit a consultation request so the team can confirm?"
+    return "Pricing varies by treatment and individual needs — a licensed provider confirms exact pricing during your consultation. Let me know if you'd like to request a consultation or have other questions."
   }
 
   // 8. Hours intent — pull from the spa's actual working hours, never hardcode.
@@ -133,7 +133,7 @@ export function kbAwareFallback(
       const dayLines = open.map((d) => `${d.day} ${d.from}–${d.to}`)
       if (dayLines.length > 0) {
         const tz = wh.tz ? ` (${wh.tz})` : ""
-        return `We're open ${dayLines.join(", ")}${tz}. Want to submit a consultation request so the team can confirm a time?`
+        return `We're open ${dayLines.join(", ")}${tz}. Feel free to stop by or let me know if you'd like to request a consultation.`
       }
     }
     return "Hours vary — drop your details and our team will confirm a time that works for you."
@@ -152,7 +152,7 @@ export function kbAwareFallback(
           : names.length === 2
             ? `${names[0]} and ${names[1]}`
             : `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`
-      return `We offer ${list}. Want me to tell you more about any of these, or would you like to submit a consultation request?`
+      return `We offer ${list}. I'd be happy to tell you more about any of these or share pricing information.`
     }
     return "I'd be happy to help you explore our services. What are you looking for?"
   }
@@ -198,14 +198,14 @@ function buildOffTopicReply(kb: KnowledgeBundle): string {
         : names.length === 2
           ? `${names[0]} and ${names[1]}`
           : `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`
-  return `That's outside what we do at ${brand} — I'm not able to recommend medicines or give medical advice. We focus on ${list}. Want to submit a consultation request so the team can help?`
+  return `That's outside what we do at ${brand} — I'm not able to recommend medicines or give medical advice. We focus on ${list}. Let me know if you're interested in exploring any of those.`
 }
 
 // Refuse exact-unit / dosing requests politely. Never invent a number; defer
 // to the provider at consultation.
 function buildExactUnitRefusal(kb: KnowledgeBundle): string {
   const brand = kb.widget.brandName
-  return `I can't recommend specific units or amounts — that's something a licensed provider decides based on your anatomy and goals at the consultation. Want me to submit a consultation request so ${brand} can confirm details?`
+  return `I can't recommend specific units or amounts — that's something a licensed provider decides based on your anatomy and goals at the consultation. Let me know if you'd like to request a consultation so the team can discuss what's best for you.`
 }
 
 // Pregnancy / breastfeeding / TTC — general safety, no medical advice.
