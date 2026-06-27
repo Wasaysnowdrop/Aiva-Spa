@@ -39,8 +39,6 @@ const CHAT_LIMIT = LIMITS.chat
 // actually went wrong so we can debug without guesswork.
 const FALLBACK_AI_FAIL =
   "I'm having trouble generating a response right now. Please try again in a moment."
-const FALLBACK_KB_FAIL =
-  "I'm having trouble loading the spa knowledge base right now. Please try again in a moment."
 
 function cors(request: Request) {
   return buildCorsHeaders(request)

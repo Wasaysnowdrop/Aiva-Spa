@@ -31,6 +31,7 @@ export type SubscriptionRow = {
   trialStartedAt: string | null
   trialEndsAt: string | null
   trialPopupDismissedAt: string | null
+  trialUsed: boolean
   canceledAt: string | null
 }
 
@@ -49,6 +50,7 @@ export type SubscriptionSnapshot = {
   used: number
   remaining: number
   hasAccess: (feature: keyof PlanPermissions) => boolean
+  canStartTrial: boolean
 }
 
 type RawSubscription = {
@@ -64,6 +66,7 @@ type RawSubscription = {
   trial_started_at: string | null
   trial_ends_at: string | null
   trial_popup_dismissed_at: string | null
+  trial_used: boolean
   canceled_at: string | null
 }
 
@@ -81,6 +84,7 @@ function mapRow(row: RawSubscription): SubscriptionRow {
     trialStartedAt: row.trial_started_at,
     trialEndsAt: row.trial_ends_at,
     trialPopupDismissedAt: row.trial_popup_dismissed_at,
+    trialUsed: row.trial_used ?? false,
     canceledAt: row.canceled_at,
   }
 }
@@ -111,6 +115,7 @@ export function deriveSnapshot(
       used: 0,
       remaining: 0,
       hasAccess: () => false,
+      canStartTrial: false,
     }
   }
 
@@ -160,6 +165,7 @@ export function deriveSnapshot(
         : Math.max(0, row.monthlyQuota - row.conversationsUsed),
     hasAccess: (feature: keyof PlanPermissions) =>
       isActive && planAllowsFeature(plan.id, feature),
+    canStartTrial: !row.trialUsed && !row.trialStartedAt,
   }
 }
 
@@ -210,6 +216,12 @@ export async function ensureTrialSubscription(
     .maybeSingle()
 
   const raw = existing.data as RawSubscription | null
+
+  // If user already used their trial, never restart it
+  if (raw?.trial_used) {
+    return mapRow(raw)
+  }
+
   const isFreshTrialNeeded =
     !raw ||
     raw.status === "expired" ||
@@ -237,6 +249,7 @@ export async function ensureTrialSubscription(
     trial_started_at: now.toISOString(),
     trial_ends_at: trialEndsAt.toISOString(),
     trial_popup_dismissed_at: null,
+    trial_used: true,
     canceled_at: null,
   }
 

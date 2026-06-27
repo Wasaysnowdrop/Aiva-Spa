@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import {
   BarChart3,
   BookOpen,
@@ -317,13 +317,29 @@ export function SidebarBody({
         </ul>
       </nav>
 
-      <div className="border-t border-[#23252A] p-3">
+      <div className="border-t border-[#23252A] p-3 space-y-2">
+        <SeePlansButton planStatus={user.planStatus ?? null} />
+        <SeePlansButton />
         <ButtonUpgrade
           planStatus={user.planStatus ?? null}
           planId={user.planId ?? null}
         />
       </div>
     </>
+  )
+}
+
+function SeePlansButton() {
+  const router = useRouter()
+  return (
+    <button
+      type="button"
+      onClick={() => router.push("/dashboard?plans=true")}
+      className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#23252A] bg-[#121316] px-3 py-2.5 text-sm font-semibold text-[#F7F8F8] transition hover:bg-[#1A1B1E] hover:border-[#3A3D44]"
+    >
+      <Sparkles className="size-4" />
+      See plans
+    </button>
   )
 }
 

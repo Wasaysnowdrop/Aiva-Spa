@@ -137,7 +137,7 @@ async function run() {
   })
 
   console.log("\nStep 7: Sign in as the user, then SELECT (simulates the browser client after login)…")
-  const { data: signIn, error: signInErr } = await anon.auth.signInWithPassword({
+  const { error: signInErr } = await anon.auth.signInWithPassword({
     email: user.email,
     password: process.env.TEST_USER_PASSWORD || "wrong-password",
   })
@@ -159,7 +159,7 @@ async function run() {
   }
 
   console.log("\nStep 8: Verify rows are STILL present after the anon reads (persistence proof)…")
-  const { count: after, error: afterErr } = await admin
+  const { count: after } = await admin
     .from("knowledge_services")
     .select("*", { count: "exact", head: true })
     .eq("user_id", user.id)

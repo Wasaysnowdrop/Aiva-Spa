@@ -2,28 +2,34 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Check, Clock, Sparkles, Star, X } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Check, Sparkles, Star, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { dismissTrialPopupAction } from "@/app/actions/subscription";
 import { PLANS, type PlanId } from "@/lib/subscription/plans";
+import type { SubscriptionSnapshot } from "@/lib/subscription";
 
-type TrialPopupProps = {
-  planName: string;
-  daysRemaining: number;
-  endsAtIso: string;
-  trialUsed?: boolean;
+type PricingModalProps = {
+  subscription: SubscriptionSnapshot;
 };
 
-export function TrialPopup({ planName, daysRemaining, endsAtIso, trialUsed = false }: TrialPopupProps) {
-  const [open, setOpen] = React.useState(true);
-  const [submitting, setSubmitting] = React.useState(false);
+export function PricingModal({ subscription }: PricingModalProps) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [hovered, setHovered] = React.useState<PlanId | null>(null);
 
+  const isOpen = searchParams.get("plans") === "true";
+
+  const handleClose = React.useCallback(() => {
+    router.replace("/dashboard", { scroll: false });
+  }, [router]);
+
   React.useEffect(() => {
-    if (!open) return;
+    if (!isOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") void handleClose();
+      if (e.key === "Escape") {
+        router.replace("/dashboard", { scroll: false });
+      }
     };
     window.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
@@ -31,48 +37,53 @@ export function TrialPopup({ planName, daysRemaining, endsAtIso, trialUsed = fal
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = "";
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [isOpen, router]);
 
-  const endsLabel = React.useMemo(() => {
-    try {
-      return new Date(endsAtIso).toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      });
-    } catch {
-      return "in 7 days";
-    }
-  }, [endsAtIso]);
+  const canStartTrial = subscription.canStartTrial;
 
-  async function handleClose() {
-    if (submitting) return;
-    setSubmitting(true);
-    try {
-      await dismissTrialPopupAction();
-    } catch {
-      // best-effort
-    } finally {
-      setSubmitting(false);
-      setOpen(false);
+  function getCtaText(planId: PlanId): string {
+    if (planId === "pro") return "Book demo";
+    if (planId === "growth") {
+      if (canStartTrial) return "Start free trial";
+      if (subscription.planId === "growth" && subscription.isActive) return "Current plan";
+      return "Choose Growth";
     }
+    if (planId === "starter") {
+      if (subscription.planId === "starter" && subscription.isActive) return "Current plan";
+      return "Choose Starter";
+    }
+    return `Choose ${PLANS[planId].name}`;
   }
 
-  if (!open) return null;
+  function getCtaHref(planId: PlanId): string {
+    if (planId === "pro") return PLANS[planId].ctaHref;
+    if (planId === "growth" && canStartTrial) return "/checkout/growth";
+    if (planId === "growth" && subscription.planId === "growth" && subscription.isActive) return "#";
+    if (planId === "starter" && subscription.planId === "starter" && subscription.isActive) return "#";
+    return `/checkout/${planId}`;
+  }
+
+  function isCurrentPlan(planId: PlanId): boolean {
+    return subscription.planId === planId && subscription.isActive;
+  }
+
+  function isDisabled(planId: PlanId): boolean {
+    return isCurrentPlan(planId) && planId !== "pro";
+  }
+
+  if (!isOpen) return null;
 
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-labelledby="trial-popup-title"
+      aria-labelledby="pricing-modal-title"
       className="fixed inset-0 z-[100] flex items-center justify-center px-3 py-6 sm:px-6 sm:py-10"
     >
-      {/* Backdrop — heavy blur so the dashboard is visibly blurred behind */}
       <button
         type="button"
-        aria-label="Close trial popup"
-        onClick={() => void handleClose()}
+        aria-label="Close pricing modal"
+        onClick={handleClose}
         className="absolute inset-0 cursor-default bg-[#04050a]/75 backdrop-blur-xl"
         style={{
           backgroundImage:
@@ -82,7 +93,6 @@ export function TrialPopup({ planName, daysRemaining, endsAtIso, trialUsed = fal
 
       <div className="relative z-10 w-full max-w-7xl">
         <div className="relative max-h-[calc(100vh-40px)] overflow-y-auto rounded-3xl border border-[#23252A] bg-[#0B0C0E] shadow-[0_30px_120px_-20px_rgba(0,0,0,0.7)]">
-          {/* Subtle accent gradient */}
           <div
             aria-hidden
             className="pointer-events-none absolute inset-0 opacity-90"
@@ -92,83 +102,66 @@ export function TrialPopup({ planName, daysRemaining, endsAtIso, trialUsed = fal
             }}
           />
           <div className="relative">
-            {/* Header */}
             <div className="flex items-start justify-between gap-4 border-b border-[#23252A] px-6 py-5 sm:px-8 sm:py-6">
               <div>
                 <div className="inline-flex items-center gap-2 rounded-full border border-[#E2E54B]/40 bg-[#E2E54B]/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#E2E54B]">
                   <Sparkles className="size-3" />
-                  Growth 7-day trial · live now
+                  {subscription.status === "expired" || subscription.status === "canceled" || subscription.status === "none"
+                    ? "Choose a plan"
+                    : "Upgrade your plan"}
                 </div>
                 <h2
-                  id="trial-popup-title"
+                  id="pricing-modal-title"
                   className="mt-3 text-2xl font-bold tracking-tight text-[#F7F8F8] sm:text-3xl"
                 >
-                  Your free trial is active
+                  {subscription.status === "expired" || subscription.status === "canceled"
+                    ? "Your trial has ended"
+                    : subscription.status === "none"
+                      ? "Pick your plan"
+                      : "Explore plans"}
                 </h2>
                 <p className="mt-1.5 max-w-2xl text-sm leading-6 text-[#8A8F98]">
-                  You have full access to the {planName} plan for {daysRemaining} more
-                  day{daysRemaining === 1 ? "" : "s"} (ends {endsLabel}). Pick a
-                  plan below to keep your access after the trial — or close this
-                  popup and explore on your own.
+                  {subscription.status === "expired" || subscription.status === "canceled"
+                    ? "Choose a plan below to unlock the full dashboard. Your data, knowledge base, and leads are safe and waiting for you."
+                    : "Find the plan that fits your med spa. All plans include AI chat, lead capture, and done-for-you setup."}
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => void handleClose()}
-                disabled={submitting}
+                onClick={handleClose}
                 aria-label="Close"
-                className="group inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-[#23252A] bg-[#121316] text-[#8A8F98] transition hover:border-[#EB5757]/60 hover:bg-[#1A1B1E] hover:text-[#F7F8F8] disabled:opacity-50"
+                className="group inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-[#23252A] bg-[#121316] text-[#8A8F98] transition hover:border-[#EB5757]/60 hover:bg-[#1A1B1E] hover:text-[#F7F8F8]"
               >
                 <X className="size-5 transition group-hover:scale-110" />
               </button>
             </div>
 
-            {/* Trial counter strip */}
-            <div className="grid grid-cols-2 gap-3 border-b border-[#23252A] bg-[#08090A]/60 px-6 py-4 sm:grid-cols-3 sm:px-8">
-              <StatChip
-                icon={<Clock className="size-3.5" />}
-                label="Days remaining"
-                value={String(daysRemaining)}
-                accent="#E2E54B"
-              />
-              <StatChip
-                icon={<Sparkles className="size-3.5" />}
-                label="Trial ends"
-                value={endsLabel}
-                accent="#5E6AD2"
-              />
-              <StatChip
-                icon={<Star className="size-3.5" />}
-                label="Current plan"
-                value={planName}
-                accent="#22D3EE"
-                className="col-span-2 sm:col-span-1"
-              />
-            </div>
-
-            {/* All 4 plans with full features */}
             <div className="px-6 py-6 sm:px-8 sm:py-7">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#62666D]">
-                  Choose a plan to continue after your trial
-                </p>
-                {!trialUsed ? (
+              {canStartTrial ? (
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#62666D]">
+                    Start your 7-day free trial
+                  </p>
                   <span className="hidden text-[10px] font-semibold uppercase tracking-wider text-[#4CB782] sm:inline">
                     7 days free · cancel anytime
                   </span>
-                ) : null}
-              </div>
+                </div>
+              ) : null}
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {(["starter", "growth", "pro"] as const).map((id) => {
                   const plan = PLANS[id];
                   const isHighlight = hovered === id || (!hovered && id === "growth");
+                  const disabled = isDisabled(id);
+                  const ctaText = getCtaText(id);
+                  const ctaHref = getCtaHref(id);
+
                   return (
                     <div
                       key={id}
                       onMouseEnter={() => setHovered(id)}
                       onMouseLeave={() => setHovered(null)}
-                      className={`relative flex flex-col rounded-2xl border bg-[#121316] p-4 transition ${
+                      className={`relative flex flex-col rounded-2xl border bg-[#121316] p-5 transition ${
                         isHighlight
                           ? "border-[#E2E54B]/60"
                           : "border-[#23252A] hover:border-[#3A3D44]"
@@ -207,9 +200,9 @@ export function TrialPopup({ planName, daysRemaining, endsAtIso, trialUsed = fal
                             /month
                           </span>
                         </p>
-                      <p className="mt-0.5 text-[11px] text-[#62666D]">
-                        {`${plan.monthlyQuota.toLocaleString()} conversations / month`}
-                      </p>
+                        <p className="mt-0.5 text-[11px] text-[#62666D]">
+                          {`${plan.monthlyQuota.toLocaleString()} conversations / month`}
+                        </p>
                       </div>
 
                       <ul className="mt-4 flex-1 space-y-1.5">
@@ -233,24 +226,22 @@ export function TrialPopup({ planName, daysRemaining, endsAtIso, trialUsed = fal
                       </ul>
 
                       <Button
-                        asChild
+                        asChild={!disabled}
                         size="sm"
+                        disabled={disabled}
                         className="mt-4 h-9 rounded-lg text-[11px] font-semibold text-[#08090A]"
                         style={{
                           backgroundColor: isHighlight ? plan.accent : "#1A1B1E",
                           color: isHighlight ? "#08090A" : "#F7F8F8",
                           border: isHighlight ? "none" : "1px solid #23252A",
+                          opacity: disabled ? 0.5 : 1,
                         }}
                       >
-                        <Link href={plan.ctaHref}>
-                          {id === "pro"
-                            ? "Book demo"
-                            : id === "growth"
-                              ? trialUsed
-                                ? "Choose Growth"
-                                : "Start free trial"
-                              : `Choose ${plan.name}`}
-                        </Link>
+                        {disabled ? (
+                          <span>{ctaText}</span>
+                        ) : (
+                          <Link href={ctaHref}>{ctaText}</Link>
+                        )}
                       </Button>
                     </div>
                   );
@@ -258,15 +249,13 @@ export function TrialPopup({ planName, daysRemaining, endsAtIso, trialUsed = fal
               </div>
             </div>
 
-            {/* Footer */}
             <div className="flex flex-col items-stretch gap-3 border-t border-[#23252A] bg-[#08090A]/60 px-6 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-8">
               <button
                 type="button"
-                onClick={() => void handleClose()}
-                disabled={submitting}
-                className="inline-flex items-center justify-center gap-1.5 text-sm font-semibold text-[#8A8F98] underline-offset-4 transition hover:text-[#F7F8F8] hover:underline disabled:opacity-50"
+                onClick={handleClose}
+                className="inline-flex items-center justify-center gap-1.5 text-sm font-semibold text-[#8A8F98] underline-offset-4 transition hover:text-[#F7F8F8] hover:underline"
               >
-                Remind me later — keep exploring the dashboard
+                {subscription.isActive ? "Keep exploring the dashboard" : "Go back to dashboard"}
               </button>
               <div className="flex items-center gap-2">
                 <Button
@@ -277,55 +266,19 @@ export function TrialPopup({ planName, daysRemaining, endsAtIso, trialUsed = fal
                 >
                   <Link href="/pricing">Compare all features</Link>
                 </Button>
-                <Button
-                  asChild
-                  size="sm"
-                  className="h-10 rounded-xl bg-[#E2E54B] px-4 text-xs font-semibold text-[#08090A] hover:bg-[#E2E54B]/90"
-                >
-                  <Link href="/checkout/growth">Upgrade now</Link>
-                </Button>
+                {canStartTrial ? (
+                  <Button
+                    asChild
+                    size="sm"
+                    className="h-10 rounded-xl bg-[#E2E54B] px-4 text-xs font-semibold text-[#08090A] hover:bg-[#E2E54B]/90"
+                  >
+                    <Link href="/checkout/growth">Start free trial</Link>
+                  </Button>
+                ) : null}
               </div>
             </div>
           </div>
         </div>
-
-        <p className="mt-3 text-center text-[11px] text-[#8A8F98]">
-          This popup can be closed with the X button, the Escape key, or by
-          clicking outside.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function StatChip({
-  icon,
-  label,
-  value,
-  accent,
-  className = "",
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  accent: string;
-  className?: string;
-}) {
-  return (
-    <div
-      className={`flex items-center gap-3 rounded-xl border border-[#23252A] bg-[#0B0C0E] px-3 py-2.5 ${className}`}
-    >
-      <span
-        className="flex size-7 items-center justify-center rounded-md"
-        style={{ backgroundColor: `${accent}1A`, color: accent }}
-      >
-        {icon}
-      </span>
-      <div className="min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-[#62666D]">
-          {label}
-        </p>
-        <p className="truncate text-sm font-semibold text-[#F7F8F8]">{value}</p>
       </div>
     </div>
   );

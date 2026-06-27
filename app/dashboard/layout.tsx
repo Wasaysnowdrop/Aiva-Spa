@@ -1,5 +1,6 @@
 import * as React from "react";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,7 @@ import { MobileSidebarDrawer } from "@/components/dashboard/dashboard-sidebar";
 import { Paywall } from "@/components/billing/paywall";
 import { QuotaBanner } from "@/components/billing/quota-banner";
 import { TrialPopup } from "@/components/billing/trial-popup";
+import { PricingModal } from "@/components/billing/pricing-modal";
 import {
   getCurrentSubscription,
   shouldShowTrialPopup,
@@ -69,9 +71,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
               planName={subscription.planName}
               daysRemaining={subscription.trialDaysRemaining}
               endsAtIso={subscription.row.trialEndsAt ?? ""}
+              trialUsed={subscription.row.trialUsed ?? false}
             />
           ) : null}
-          {showPaywall ? <Paywall spaName={sidebarUser.spaName ?? ""} /> : null}
+          {showPaywall ? <Paywall spaName={sidebarUser.spaName ?? ""} trialUsed={subscription.row?.trialUsed ?? true} /> : null}
+          <Suspense fallback={null}>
+            <PricingModal subscription={subscription} />
+          </Suspense>
         </div>
       </div>
     </DashboardDrawerProvider>

@@ -8,16 +8,13 @@ import {
   Bot,
   Check,
   CheckCircle2,
-  ChevronRight,
   CircleDashed,
   Clock,
   FileText,
   Loader2,
-  LogOut,
   Sparkles,
   Trash2,
 } from "lucide-react"
-import { toast } from "sonner"
 import { Logo } from "@/components/logo"
 
 import { Button } from "@/components/ui/button"

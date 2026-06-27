@@ -4,15 +4,25 @@ import { Lock, Star } from "lucide-react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
-import { PLANS } from "@/lib/subscription/plans";
+import { PLANS, type PlanId } from "@/lib/subscription/plans";
 
 type PaywallProps = {
   spaName: string;
+  trialUsed?: boolean;
 };
 
-export function Paywall({ spaName }: PaywallProps) {
+export function Paywall({ spaName, trialUsed = true }: PaywallProps) {
+  function getCtaText(planId: PlanId): string {
+    if (planId === "pro") return "Book demo";
+    if (planId === "growth") {
+      if (!trialUsed) return "Start free trial";
+      return "Choose Growth";
+    }
+    return `Choose ${PLANS[planId].name}`;
+  }
+
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-[#08090A]/95 px-4 py-10 backdrop-blur-md">
+    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-[#08090A]/95 px-4 py-6 backdrop-blur-md sm:py-10">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 opacity-90"
@@ -21,12 +31,12 @@ export function Paywall({ spaName }: PaywallProps) {
             "radial-gradient(circle at top, rgba(226,229,75,0.18), transparent 55%), radial-gradient(circle at bottom right, rgba(94,106,210,0.18), transparent 60%)",
         }}
       />
-      <div className="relative z-10 w-full max-w-3xl rounded-3xl border border-[#23252A] bg-[#0B0C0E] p-8 shadow-2xl shadow-black/40">
+      <div className="relative z-10 my-auto w-full max-w-7xl rounded-3xl border border-[#23252A] bg-[#0B0C0E] p-5 shadow-2xl shadow-black/40 sm:p-6 lg:p-8">
         <div className="inline-flex items-center gap-2 rounded-full border border-[#EB5757]/40 bg-[#EB5757]/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#EB5757]">
           <Lock className="size-3" />
           Subscription required
         </div>
-        <h1 className="mt-4 text-3xl font-bold tracking-tight md:text-4xl">
+        <h1 className="mt-4 text-2xl font-bold tracking-tight md:text-4xl">
           Your 7-day trial has ended, {spaName ? spaName : "friend"}.
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-7 text-[#8A8F98]">
@@ -35,7 +45,7 @@ export function Paywall({ spaName }: PaywallProps) {
           are safe and waiting for you.
         </p>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {(["starter", "growth", "pro"] as const).map((id) => {
             const plan = PLANS[id];
             return (
@@ -82,7 +92,7 @@ export function Paywall({ spaName }: PaywallProps) {
                   style={{ backgroundColor: plan.accent }}
                 >
                   <Link href={plan.ctaHref}>
-                    {id === "pro" ? "Book demo" : id === "growth" ? "Start free trial" : `Choose ${plan.name}`}
+                    {getCtaText(id)}
                   </Link>
                 </Button>
               </div>

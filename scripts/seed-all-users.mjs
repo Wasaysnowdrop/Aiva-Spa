@@ -50,7 +50,9 @@ async function run() {
 
     console.log(`\n→ Cloning ${sourceServices.length} services for ${user.email}...`)
     for (const svc of sourceServices) {
-      const { id, created_at, ...rest } = svc
+      const rest = Object.assign({}, svc)
+      delete rest.id
+      delete rest.created_at
       const { error } = await admin
         .from("knowledge_services")
         .insert({ ...rest, user_id: user.id })
@@ -70,7 +72,9 @@ async function run() {
     for (const user of realUsers) {
       if (faqUserIds.has(user.id)) continue
       for (const faq of sourceFaqs) {
-        const { id, created_at, ...rest } = faq
+        const rest = Object.assign({}, faq)
+        delete rest.id
+        delete rest.created_at
         await admin.from("knowledge_faqs").insert({ ...rest, user_id: user.id })
       }
     }
@@ -84,7 +88,9 @@ async function run() {
     for (const user of realUsers) {
       if (grdUserIds.has(user.id)) continue
       for (const grd of sourceGrds) {
-        const { id, created_at, ...rest } = grd
+        const rest = Object.assign({}, grd)
+        delete rest.id
+        delete rest.created_at
         await admin.from("knowledge_guardrails").insert({ ...rest, user_id: user.id })
       }
     }

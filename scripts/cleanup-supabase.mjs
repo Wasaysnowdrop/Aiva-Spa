@@ -95,7 +95,7 @@ async function run() {
     try {
       const { count } = await supabase.from(t).select("*", { count: "exact", head: true });
       console.log(`  ${t}: ${count ?? 0} rows`);
-    } catch (e) {
+    } catch {
       console.log(`  ${t}: SKIP`);
     }
   }

@@ -84,7 +84,7 @@ export function kbAwareFallback(
 
   // 2. Exact-unit / dosing medical request → refuse.
   if (EXACT_UNIT_REQUESTS.some((re) => re.test(text))) {
-    return buildExactUnitRefusal(kb)
+    return buildExactUnitRefusal()
   }
 
   // 3. Pregnancy / breastfeeding → no medical advice, defer to provider.
@@ -203,8 +203,7 @@ function buildOffTopicReply(kb: KnowledgeBundle): string {
 
 // Refuse exact-unit / dosing requests politely. Never invent a number; defer
 // to the provider at consultation.
-function buildExactUnitRefusal(kb: KnowledgeBundle): string {
-  const brand = kb.widget.brandName
+function buildExactUnitRefusal(): string {
   return `I can't recommend specific units or amounts — that's something a licensed provider decides based on your anatomy and goals at the consultation. Let me know if you'd like to request a consultation so the team can discuss what's best for you.`
 }
 

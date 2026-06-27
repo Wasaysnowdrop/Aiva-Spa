@@ -38,6 +38,7 @@ describe("subscription/ensureTrialSubscription", () => {
         trial_started_at: nowIso,
         trial_ends_at: futureEnd,
         trial_popup_dismissed_at: null,
+        trial_used: true,
         canceled_at: null,
       },
       error: null,
@@ -76,6 +77,7 @@ describe("subscription/ensureTrialSubscription", () => {
         trial_started_at: new Date(Date.now() - 4 * DAY_MS).toISOString(),
         trial_ends_at: futureEnd,
         trial_popup_dismissed_at: null,
+        trial_used: false,
         canceled_at: null,
       },
       error: null,
@@ -107,6 +109,7 @@ describe("subscription/ensureTrialSubscription", () => {
         trial_started_at: new Date(Date.now() - 8 * DAY_MS).toISOString(),
         trial_ends_at: pastEnd,
         trial_popup_dismissed_at: "2026-06-15T00:00:00Z",
+        trial_used: false,
         canceled_at: null,
       },
       error: null,
@@ -158,6 +161,7 @@ describe("subscription/ensureTrialSubscription", () => {
         trial_started_at: null,
         trial_ends_at: null,
         trial_popup_dismissed_at: null,
+        trial_used: false,
         canceled_at: "2026-01-15T00:00:00Z",
       },
       error: null,
@@ -190,6 +194,72 @@ describe("subscription/ensureTrialSubscription", () => {
     expect(row.canceledAt).toBeNull()
   })
 
+  it("does NOT reset an expired row when trial_used is true", async () => {
+    const { server } = installSupabaseMocks()
+    const pastEnd = new Date(Date.now() - DAY_MS).toISOString()
+    server.setResult("subscriptions", "select", {
+      data: {
+        id: "sub_expired_used",
+        user_id: "user_1",
+        plan: "growth",
+        status: "expired",
+        billing_interval: "monthly",
+        monthly_quota: 1500,
+        conversations_used: 5,
+        period_start: new Date(Date.now() - 10 * DAY_MS).toISOString(),
+        period_end: pastEnd,
+        trial_started_at: new Date(Date.now() - 10 * DAY_MS).toISOString(),
+        trial_ends_at: pastEnd,
+        trial_popup_dismissed_at: "2026-06-10T00:00:00Z",
+        trial_used: true,
+        canceled_at: null,
+      },
+      error: null,
+    })
+
+    const { ensureTrialSubscription } = await import("@/lib/subscription")
+    const row = await ensureTrialSubscription("user_1", server.client as never)
+
+    expect(row.id).toBe("sub_expired_used")
+    expect(row.status).toBe("expired")
+    expect(row.trialUsed).toBe(true)
+    // Should NOT have updated or inserted — the guard prevents reset
+    expect(server.callsFor("subscriptions", "update").length).toBe(0)
+    expect(server.callsFor("subscriptions", "insert").length).toBe(0)
+  })
+
+  it("does NOT reset a canceled row when trial_used is true", async () => {
+    const { server } = installSupabaseMocks()
+    server.setResult("subscriptions", "select", {
+      data: {
+        id: "sub_canceled_used",
+        user_id: "user_1",
+        plan: "growth",
+        status: "canceled",
+        billing_interval: "monthly",
+        monthly_quota: 1500,
+        conversations_used: 3,
+        period_start: "2026-01-01T00:00:00Z",
+        period_end: "2026-02-01T00:00:00Z",
+        trial_started_at: "2026-01-01T00:00:00Z",
+        trial_ends_at: "2026-01-08T00:00:00Z",
+        trial_popup_dismissed_at: null,
+        trial_used: true,
+        canceled_at: "2026-01-15T00:00:00Z",
+      },
+      error: null,
+    })
+
+    const { ensureTrialSubscription } = await import("@/lib/subscription")
+    const row = await ensureTrialSubscription("user_1", server.client as never)
+
+    expect(row.id).toBe("sub_canceled_used")
+    expect(row.status).toBe("canceled")
+    expect(row.trialUsed).toBe(true)
+    expect(server.callsFor("subscriptions", "update").length).toBe(0)
+    expect(server.callsFor("subscriptions", "insert").length).toBe(0)
+  })
+
   it("does NOT reset an active paid subscription", async () => {
     const { server } = installSupabaseMocks()
     const futureEnd = new Date(Date.now() + 15 * DAY_MS).toISOString()
@@ -207,6 +277,7 @@ describe("subscription/ensureTrialSubscription", () => {
         trial_started_at: null,
         trial_ends_at: null,
         trial_popup_dismissed_at: null,
+        trial_used: false,
         canceled_at: null,
       },
       error: null,

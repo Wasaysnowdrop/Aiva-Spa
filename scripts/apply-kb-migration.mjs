@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { createClient } from "@supabase/supabase-js"
 
@@ -47,7 +47,7 @@ async function inspect() {
       `,
     })
     console.log("\nknowledge_services columns:", { data: rpc, error: rpcErr })
-  } catch (e) {
+  } catch {
     console.log("\n(rpc exec_sql not available — try direct introspection)")
   }
 

@@ -41,6 +41,18 @@ export async function startTrial(): Promise<CheckoutResult> {
   if (!user) {
     redirect("/login")
   }
+
+  // Check that user hasn't already used their trial
+  const { data: existing } = await supabase
+    .from("subscriptions")
+    .select("trial_used")
+    .eq("user_id", user.id)
+    .maybeSingle()
+
+  if (existing && (existing as { trial_used?: boolean }).trial_used) {
+    return { ok: false, error: "Trial already used." }
+  }
+
   try {
     await ensureTrialSubscription(user.id)
   } catch (error) {

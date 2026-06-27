@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Sparkles } from "lucide-react";
 import { Logo } from "@/components/logo";
 
 import { ForgotPasswordForm } from "@/components/auth/forgot-password-form";
