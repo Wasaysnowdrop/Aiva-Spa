@@ -104,10 +104,21 @@ export async function POST(request: NextRequest) {
         console.warn(
           `[chat] embed access denied for spaId=${body.spaId} reason=${access.reason}`,
         )
+        const deniedReplies: Record<string, string> = {
+          expired:
+            "This chat has expired. Please contact the spa owner to renew the subscription.",
+          inactive_install:
+            "The widget is not active for this spa. Please check your widget settings.",
+          not_found:
+            "Chat is not available for this spa. Please check your setup.",
+        }
         return Response.json(
           {
             error: "Chat is currently unavailable.",
             reason: access.reason,
+            reply:
+              deniedReplies[access.reason] ??
+              "Chat is not available at the moment. Please try again later.",
           },
           { status: 403, headers: cors(request) },
         )

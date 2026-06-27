@@ -596,7 +596,7 @@ export function ChatFrame({
             errored = true
             appendChunk(
               payload.message ||
-                "I'm having a quick moment — could you rephrase that?",
+                "I didn't quite catch that — could you rephrase it?",
             )
           } else if (currentEvent === "done" && typeof payload.reply === "string") {
             // Server confirmed the final reply. The server is the single
@@ -674,7 +674,7 @@ export function ChatFrame({
     history: { role: "user" | "assistant"; content: string }[],
   ): Promise<string> {
     const FALLBACK =
-      "I'm having a quick moment — could you try again, or ask me about a treatment, hours, or booking?"
+      "I'm here to help! Feel free to ask me about treatments, hours, or booking a consultation."
     let res: Response
     try {
       res = await fetch("/api/chat", {

@@ -139,7 +139,25 @@ export function kbAwareFallback(
     return "Hours vary — drop your details and our team will confirm a time that works for you."
   }
 
-  // 9. Generic — anchor to the first active service so the reply feels grounded.
+  // 9. Visitor is asking about available services / treatments / offerings.
+  const WHAT_SERVICES_RE =
+    /\b(what (services|treatments|offering|do you (offer|have|do))|list (your )?(services|treatments)|all (the )?(services|treatments|offerings)|whats? (available|offered))\b/i
+  if (WHAT_SERVICES_RE.test(text)) {
+    const activeServices = kb.services.filter((s) => s.active)
+    if (activeServices.length > 0) {
+      const names = activeServices.map((s) => s.name)
+      const list =
+        names.length === 1
+          ? names[0]!
+          : names.length === 2
+            ? `${names[0]} and ${names[1]}`
+            : `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`
+      return `We offer ${list}. Want me to tell you more about any of these, or would you like to submit a consultation request?`
+    }
+    return "I'd be happy to help you explore our services. What are you looking for?"
+  }
+
+  // 10. Generic — anchor to the first active service so the reply feels grounded.
   const topService = kb.services.find((s) => s.active)?.name
   if (topService) {
     return `Happy to help — we focus on treatments like ${topService}. What's on your mind?`

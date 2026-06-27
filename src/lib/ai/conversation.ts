@@ -386,9 +386,19 @@ function gracefulCannedReply(
   const last = [...messages].reverse().find((m) => m.role === "user")
   const userText = (last?.content || "").trim()
 
-  if (/^(hi|hey|hello|hola|howdy|yo|good\s+(morning|afternoon|evening|night))[\s.!?]*$/i.test(userText)) {
+  const PURE_GREETING =
+    /^(hi|hey|hello|hola|howdy|yo|good\s+(morning|afternoon|evening|night))[\s.!?]*$/i
+  if (PURE_GREETING.test(userText)) {
     return "Hi there! What brings you in today?"
   }
+
+  // Messages starting with a greeting but continuing with content.
+  const GREETING_LEAD =
+    /^(hi|hey|hello|hola|howdy|yo|good\s+(morning|afternoon|evening|night))[\s.!?,\-;:)][\s\S]/i
+  if (GREETING_LEAD.test(userText)) {
+    return "Hey! " + kbAwareFallback(userText, kb)
+  }
+
   if (/^(thanks|thank you|thx|ty)\b/i.test(userText)) {
     return "Anytime! Let me know if anything else comes up."
   }

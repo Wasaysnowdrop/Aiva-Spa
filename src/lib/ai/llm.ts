@@ -90,11 +90,9 @@ function gracefulFallback(input: LlmChatInput): Promise<LlmChatResult> {
   // Greetings — warm opener, no lead-capture, no treatment push.
   // Short-circuited so we never answer a greeting with a service
   // recommendation or a refusal.
-  if (
-    /^(hi|hey|hello|hola|howdy|yo|good\s+(morning|afternoon|evening|night))[\s.!?]*$/i.test(
-      userText,
-    )
-  ) {
+  const PURE_GREETING =
+    /^(hi|hey|hello|hola|howdy|yo|good\s+(morning|afternoon|evening|night))[\s.!?]*$/i
+  if (PURE_GREETING.test(userText)) {
     const openers = [
       "Hi there! What brings you in today?",
       "Hey — glad you stopped by. Anything specific you're thinking about, or just looking around?",
@@ -105,6 +103,26 @@ function gracefulFallback(input: LlmChatInput): Promise<LlmChatResult> {
       model: "aiva-fallback",
       provider: "mock",
     })
+  }
+
+  // Greeting + more content — "Hi, what services do you offer?"
+  // The pure-greeting regex above requires the entire message to be only the
+  // greeting. These messages START with a greeting, so we route through
+  // kbAwareFallback but prefix with a warm greeting so it never feels robotic.
+  const GREETING_LEAD =
+    /^(hi|hey|hello|hola|howdy|yo|good\s+(morning|afternoon|evening|night))[\s.!?,\-;:)][\s\S]/i
+  if (GREETING_LEAD.test(userText)) {
+    return loadKnowledge()
+      .then((kb) => ({
+        content: `Hey! ${kbAwareFallback(userText, kb)}`,
+        model: "aiva-fallback",
+        provider: "mock" as const,
+      }))
+      .catch(() => ({
+        content: "Hey! What can I help you with today?",
+        model: "aiva-fallback",
+        provider: "mock" as const,
+      }))
   }
 
   if (/^(thanks|thank you|thx|ty)\b/i.test(userText)) {
@@ -239,11 +257,9 @@ function callMock(input: LlmChatInput): Promise<LlmChatResult> {
   const last = [...input.messages].reverse().find((m) => m.role === "user")
   const userText = (last?.content || "").trim()
 
-  if (
-    /^(hi|hey|hello|hola|howdy|yo|good\s+(morning|afternoon|evening|night))[\s.!?]*$/i.test(
-      userText,
-    )
-  ) {
+  const PURE_GREETING =
+    /^(hi|hey|hello|hola|howdy|yo|good\s+(morning|afternoon|evening|night))[\s.!?]*$/i
+  if (PURE_GREETING.test(userText)) {
     const openers = [
       "Hi there! What brings you in today?",
       "Hey — glad you stopped by. Anything specific you're thinking about, or just looking around?",
@@ -255,6 +271,23 @@ function callMock(input: LlmChatInput): Promise<LlmChatResult> {
       model: DEFAULT_MOCK_MODEL,
       provider: "mock",
     })
+  }
+
+  // Greeting + more content — "Hi, what services do you offer?"
+  const GREETING_LEAD =
+    /^(hi|hey|hello|hola|howdy|yo|good\s+(morning|afternoon|evening|night))[\s.!?,\-;:)][\s\S]/i
+  if (GREETING_LEAD.test(userText)) {
+    return loadKnowledge()
+      .then((kb) => ({
+        content: `Hey! ${kbAwareFallback(userText, kb)}`,
+        model: DEFAULT_MOCK_MODEL,
+        provider: "mock" as const,
+      }))
+      .catch(() => ({
+        content: "Hey! What can I help you with today?",
+        model: DEFAULT_MOCK_MODEL,
+        provider: "mock" as const,
+      }))
   }
 
   if (/^(thanks|thank you|thx|ty)\b/i.test(userText)) {
