@@ -318,7 +318,6 @@ export function SidebarBody({
       </nav>
 
       <div className="border-t border-[#23252A] p-3 space-y-2">
-        <SeePlansButton planStatus={user.planStatus ?? null} />
         <SeePlansButton />
         <ButtonUpgrade
           planStatus={user.planStatus ?? null}

@@ -18,6 +18,7 @@ type RawSubscription = {
   period_end: string
   trial_started_at: string | null
   trial_ends_at: string | null
+  trial_used: boolean
   trial_popup_dismissed_at: string | null
   canceled_at: string | null
 }
@@ -36,6 +37,7 @@ function mapSubscription(row: RawSubscription): SubscriptionRow {
     periodEnd: row.period_end,
     trialStartedAt: row.trial_started_at,
     trialEndsAt: row.trial_ends_at,
+    trialUsed: row.trial_used,
     trialPopupDismissedAt: row.trial_popup_dismissed_at,
     canceledAt: row.canceled_at,
   }

@@ -52,6 +52,7 @@ export function PricingModal({ subscription }: PricingModalProps) {
       if (subscription.planId === "starter" && subscription.isActive) return "Current plan";
       return "Choose Starter";
     }
+    return `Choose ${PLANS[planId as PlanId].name}`;
   }
 
   function getCtaHref(planId: PlanId): string {
