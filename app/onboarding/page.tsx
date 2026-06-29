@@ -58,22 +58,20 @@ export default async function OnboardingPage() {
   const spaName = (user.user_metadata?.spa_name as string | undefined) ?? ""
 
   const firstName = fullName.split(" ")[0] || ""
-  const greetingMessage =
-    initialDraft && Object.keys(initialDraft).length > 1
-      ? `Welcome back${firstName ? `, ${firstName}` : ""}. I have your draft saved — let's keep going with the **${initialSection.replace("_", " ")}** section. Tell me anything new, or say "continue" to repeat the last question.`
-      : ""
+  const hasDraft = initialDraft && Object.keys(initialDraft).length > 1
+  const greetingMessage = hasDraft
+    ? `Welcome back${firstName ? `, ${firstName}` : ""}. Let\u2019s finish your spa setup. To start, tell me your business name, website, and location. I\u2019ll save everything automatically.`
+    : `Welcome${firstName ? `, ${firstName}` : ""}. Let\u2019s set up your spa. To start, tell me your business name, website, and location. I\u2019ll save everything automatically.`
 
   const welcomeAt = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
-  const initialHistory = greetingMessage
-    ? [
-        {
-          id: "m_welcome_resume",
-          role: "assistant" as const,
-          content: greetingMessage,
-          at: welcomeAt,
-        },
-      ]
-    : []
+  const initialHistory = [
+    {
+      id: "m_welcome_resume",
+      role: "assistant" as const,
+      content: greetingMessage,
+      at: welcomeAt,
+    },
+  ]
 
   return (
     <SetupAssistantExperience
