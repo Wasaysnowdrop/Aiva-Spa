@@ -403,7 +403,7 @@ export function SetupAssistantExperience({
       })
     } catch {
     }
-    window.location.href = "/dashboard"
+    window.location.href = "/onboarding?resume=1"
   }
 
   async function publish() {
@@ -415,7 +415,7 @@ export function SetupAssistantExperience({
         setFinalizeError(result.error ?? "Failed to publish")
         return
       }
-      window.location.href = "/dashboard"
+    window.location.href = "/onboarding?resume=1"
     } catch (e) {
       setFinalizeError(e instanceof Error ? e.message : "Failed to publish")
     } finally {

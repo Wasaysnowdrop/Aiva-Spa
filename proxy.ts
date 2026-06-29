@@ -148,21 +148,20 @@ export async function proxy(request: NextRequest) {
   }
 
   // Onboarding guard: if a user has not completed onboarding, block
-  // access to /dashboard sub-pages and redirect them to /dashboard so
-  // the page-level guard can show a safe empty state. The root
-  // /dashboard page is allowed through because it has its own guard.
+  // access to /dashboard (including the root page) and redirect them
+  // to /onboarding so they can continue setup. This prevents the 500
+  // crash when workspace/spa_settings don't exist yet.
   const onboardingCompleted =
     (user?.user_metadata as Record<string, unknown> | null | undefined)
       ?.onboarding_completed === true
   if (
     user &&
     !onboardingCompleted &&
-    pathname !== "/dashboard" &&
     pathname.startsWith("/dashboard") &&
     !pathname.startsWith("/dashboard/api")
   ) {
     const redirectUrl = request.nextUrl.clone()
-    redirectUrl.pathname = "/dashboard"
+    redirectUrl.pathname = "/onboarding"
     redirectUrl.search = ""
     return NextResponse.redirect(redirectUrl)
   }
