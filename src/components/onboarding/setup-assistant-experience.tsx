@@ -243,6 +243,8 @@ const SECTION_SUMMARY: Record<SetupAssistantSection, (kb: KnowledgeBase) => stri
   review: (kb) => (kb.status?.complete ? "Ready to publish" : "In review"),
 }
 
+type SavingState = "idle" | "saving" | "saved"
+
 export function SetupAssistantExperience({
   initialDraft,
   initialSection,
@@ -253,10 +255,13 @@ export function SetupAssistantExperience({
   const [messages, setMessages] = React.useState<ChatMessage[]>(initialHistory)
   const [input, setInput] = React.useState("")
   const [sending, setSending] = React.useState(false)
+  const [savingState, setSavingState] = React.useState<SavingState>("idle")
   const [error, setError] = React.useState<string | null>(null)
   const [concerns, setConcerns] = React.useState<string[]>([])
   const [finalizing, setFinalizing] = React.useState(false)
   const [finalizeError, setFinalizeError] = React.useState<string | null>(null)
+  const [showResetConfirm, setShowResetConfirm] = React.useState(false)
+  const [sidebarOpen, setSidebarOpen] = React.useState(false)
 
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const inputRef = React.useRef<HTMLTextAreaElement | null>(null)
@@ -274,11 +279,19 @@ export function SetupAssistantExperience({
     inputRef.current?.focus()
   }, [sending, section])
 
+  React.useEffect(() => {
+    if (savingState === "saved") {
+      const t = setTimeout(() => setSavingState("idle"), 2000)
+      return () => clearTimeout(t)
+    }
+  }, [savingState])
+
   async function send(text?: string) {
     const trimmed = (text ?? input).trim()
     if (!trimmed || sending) return
     setInput("")
     setError(null)
+    setSavingState("saving")
     const userMsg: ChatMessage = {
       id: makeId(),
       role: "user",
@@ -319,6 +332,7 @@ export function SetupAssistantExperience({
       }
       setMessages((prev) => [...prev, aiMsg])
       setDraft(data.draft)
+      setSavingState("saved")
       if (data.concerns && data.concerns.length > 0) {
         setConcerns((prev) => Array.from(new Set([...prev, ...data.concerns])))
       }
@@ -329,6 +343,7 @@ export function SetupAssistantExperience({
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Setup assistant error")
+      setSavingState("idle")
       setMessages((prev) => [
         ...prev,
         {
@@ -350,7 +365,8 @@ export function SetupAssistantExperience({
     }
   }
 
-  async function resetAndRestart() {
+  async function handleResetAndRestart() {
+    setShowResetConfirm(false)
     setMessages([])
     setDraft(emptyKnowledgeBase())
     setSection("business")
@@ -369,8 +385,25 @@ export function SetupAssistantExperience({
         }),
       })
     } catch {
-      // best-effort reset
     }
+  }
+
+  async function handleFinishLater() {
+    setSavingState("saving")
+    try {
+      await fetch("/api/onboarding/setup-assistant", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          history: messages.map((m) => ({ role: m.role, content: m.content })),
+          userMessage: "Finish later.",
+          currentSection: section,
+          draft,
+        }),
+      })
+    } catch {
+    }
+    window.location.href = "/dashboard"
   }
 
   async function publish() {
@@ -397,182 +430,268 @@ export function SetupAssistantExperience({
   const currentStep = SECTION_ORDER.indexOf(section) + 1
   const progressPercent = (completedSections.length / SECTION_ORDER.length) * 100
 
+  const sidebarPanel = (
+    <>
+      <div className="rounded-2xl border border-[#23252A] bg-[#121316] p-4">
+        <div className="flex items-center gap-2">
+          <Bot className="size-4 text-[#5E6AD2]" />
+          <p className="text-sm font-semibold">Sections</p>
+        </div>
+
+        <div className="mt-3">
+          <div className="flex items-center justify-between text-[11px] text-[#8A8F98]">
+            <span>Step {currentStep} of {SECTION_ORDER.length}</span>
+            {completedSections.length > 0 ? (
+              <span>{completedSections.length} completed</span>
+            ) : null}
+          </div>
+          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-[#1A1B1E]">
+            <div
+              className="h-full rounded-full bg-[#5E6AD2] transition-all duration-500"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+        </div>
+
+        <ol className="mt-3 space-y-0.5">
+          {SECTION_ORDER.map((s, idx) => {
+            const done = isSectionDone(draft, s)
+            const active = s === section
+            const isPast = idx + 1 < currentStep && !done
+            return (
+              <li key={s}>
+                <button
+                  type="button"
+                  onClick={() => { setSection(s); setSidebarOpen(false) }}
+                  className={cn(
+                    "group flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-xs font-medium transition",
+                    active
+                      ? "bg-[#1A1B1E] text-[#F7F8F8]"
+                      : "text-[#8A8F98] hover:bg-[#1A1B1E] hover:text-[#F7F8F8]",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex size-5 shrink-0 items-center justify-center rounded-md border",
+                      done
+                        ? "border-[#4CB782]/40 bg-[#4CB782]/15 text-[#4CB782]"
+                        : active
+                          ? "border-[#5E6AD2]/40 bg-[#5E6AD2]/15 text-[#5E6AD2]"
+                          : "border-[#23252A] bg-[#0B0C0E] text-[#62666D]",
+                    )}
+                  >
+                    {done ? (
+                      <Check className="size-3" />
+                    ) : isPast ? (
+                      <Lock className="size-2.5" />
+                    ) : (
+                      <span className="text-[11px] font-mono">{idx + 1}</span>
+                    )}
+                  </span>
+                  <span className="flex-1 truncate">{SECTION_LABEL[s]}</span>
+                  {active ? (
+                    <span className="rounded-full bg-[#5E6AD2] px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                      NOW
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+            )
+          })}
+        </ol>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-[#23252A] bg-[#121316] p-4">
+        <p className="text-xs font-semibold uppercase tracking-wider text-[#62666D]">
+          Setup Guide
+        </p>
+        <div className="mt-3 space-y-2.5 text-[13px] text-[#8A8F98]">
+          <div className="flex items-center gap-2">
+            <Clock className="size-3.5 shrink-0 text-[#5E6AD2]" />
+            <span>~5 minutes to complete</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <CheckCircle2 className="size-3.5 shrink-0 text-[#5E6AD2]" />
+            <span>Auto-saved as you type</span>
+          </div>
+        </div>
+        <div className="mt-3 border-t border-[#23252A] pt-3">
+          <p className="text-xs font-medium text-[#62666D]">What you&apos;ll need:</p>
+          <ul className="mt-1.5 space-y-1 text-[13px] text-[#8A8F98]">
+            <li className="flex items-center gap-1.5">
+              <span className="text-[#5E6AD2]">&bull;</span> Business name &amp; website
+            </li>
+            <li className="flex items-center gap-1.5">
+              <span className="text-[#5E6AD2]">&bull;</span> Operating hours
+            </li>
+            <li className="flex items-center gap-1.5">
+              <span className="text-[#5E6AD2]">&bull;</span> Services &amp; pricing ranges
+            </li>
+            <li className="flex items-center gap-1.5">
+              <span className="text-[#5E6AD2]">&bull;</span> Booking &amp; cancellation policy
+            </li>
+            <li className="flex items-center gap-1.5">
+              <span className="text-[#5E6AD2]">&bull;</span> FAQ answers
+            </li>
+            <li className="flex items-center gap-1.5">
+              <span className="text-[#5E6AD2]">&bull;</span> Notification preferences
+            </li>
+          </ul>
+          <p className="mt-2.5 text-[11px] text-[#62666D]">
+            You can leave and come back anytime. Your progress is saved automatically.
+          </p>
+        </div>
+      </div>
+
+      {concerns.length > 0 ? (
+        <div className="mt-4 rounded-2xl border border-[#EB5757]/30 bg-[#EB5757]/5 p-4 text-xs">
+          <div className="flex items-center gap-2 font-semibold text-[#EB5757]">
+            <AlertTriangle className="size-3.5" />
+            Compliance notes
+          </div>
+          <ul className="mt-2 space-y-1.5 text-[#F7C0C0]">
+            {concerns.map((c, i) => (
+              <li key={i} className="flex gap-1.5">
+                <span className="text-[#EB5757]">&bull;</span>
+                <span>{sanitize(c)}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[11px] text-[#8A8F98]">
+            Saved anyway &mdash; edit in the Knowledge Base before going live.
+          </p>
+        </div>
+      ) : null}
+    </>
+  )
+
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#08090A] text-[#F7F8F8]">
+      {showResetConfirm ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-sm rounded-2xl border border-[#23252A] bg-[#121316] p-6 text-center shadow-2xl">
+            <Trash2 className="mx-auto size-8 text-[#EB5757]" />
+            <h3 className="mt-3 text-base font-semibold text-[#F7F8F8]">Reset all progress?</h3>
+            <p className="mt-2 text-sm text-[#8A8F98]">
+              This will delete everything you&apos;ve entered so far. You&apos;ll start from the beginning.
+            </p>
+            <div className="mt-5 flex items-center justify-center gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setShowResetConfirm(false)}
+                className="rounded-xl text-sm"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void handleResetAndRestart()}
+                className="h-10 rounded-xl bg-[#EB5757] px-5 text-sm font-semibold text-white hover:bg-[#EB5757]/90"
+              >
+                Yes, reset
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <header className="relative z-10 border-b border-[#23252A] bg-[#08090A]">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-8">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-3 lg:px-8 lg:py-4">
           <Link href="/" className="flex items-center gap-2.5" aria-label="AivaSpa home">
             <Logo />
-            <span className="ml-2 hidden rounded-full border border-[#23252A] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#8A8F98] sm:inline-block">
+            <span className="ml-2 rounded-full border border-[#23252A] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-[#8A8F98]">
               Setup Assistant
             </span>
           </Link>
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => void resetAndRestart()}
+              onClick={() => setShowResetConfirm(true)}
               className="hidden text-xs text-[#8A8F98] transition hover:text-[#F7F8F8] sm:inline-flex sm:items-center sm:gap-1"
             >
               <Trash2 className="size-3" /> Start over
             </button>
-            <Link
-              href="/dashboard"
-              className="text-sm text-[#8A8F98] transition hover:text-[#F7F8F8]"
+            <button
+              type="button"
+              onClick={() => void handleFinishLater()}
+              disabled={savingState === "saving"}
+              className="text-sm text-[#8A8F98] transition hover:text-[#F7F8F8] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Skip to dashboard
-            </Link>
+              {savingState === "saving" ? "Saving\u2026" : "Finish later"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="inline-flex size-8 items-center justify-center rounded-lg border border-[#23252A] text-[#8A8F98] lg:hidden"
+              aria-label="Toggle sidebar"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </button>
           </div>
         </div>
       </header>
 
-      <section className="relative z-10 mx-auto grid max-w-7xl gap-6 px-5 py-6 lg:grid-cols-[280px_minmax(0,1fr)] lg:px-8 lg:py-10">
-        <aside className="lg:sticky lg:top-6 lg:self-start">
-          <div className="rounded-2xl border border-[#23252A] bg-[#121316] p-4">
-            <div className="flex items-center gap-2">
-              <Bot className="size-4 text-[#5E6AD2]" />
-              <p className="text-sm font-semibold">Sections</p>
-            </div>
-
-            <div className="mt-3">
-              <div className="flex items-center justify-between text-[10px] text-[#8A8F98]">
-                <span>Step {currentStep} of {SECTION_ORDER.length}</span>
-                {completedSections.length > 0 ? (
-                  <span>{completedSections.length} completed</span>
-                ) : null}
+      <div className="mx-auto flex max-w-7xl gap-6 px-5 py-6 lg:px-8 lg:py-10">
+        {sidebarOpen ? (
+          <div className="fixed inset-0 z-40 overflow-y-auto lg:hidden">
+            <div className="relative z-10 min-h-full bg-[#08090A] p-5 pt-4">
+              <div className="mb-4 flex items-center justify-between">
+                <p className="text-sm font-semibold">Menu</p>
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(false)}
+                  className="text-xs text-[#8A8F98] hover:text-[#F7F8F8]"
+                >
+                  Close
+                </button>
               </div>
-              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-[#1A1B1E]">
-                <div
-                  className="h-full rounded-full bg-[#5E6AD2] transition-all duration-500"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
+              {sidebarPanel}
             </div>
-
-            <ol className="mt-3 space-y-0.5">
-              {SECTION_ORDER.map((s, idx) => {
-                const done = isSectionDone(draft, s)
-                const active = s === section
-                const isPast = idx + 1 < currentStep && !done
-                return (
-                  <li key={s}>
-                    <button
-                      type="button"
-                      onClick={() => setSection(s)}
-                      className={cn(
-                        "group flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-xs font-medium transition",
-                        active
-                          ? "bg-[#1A1B1E] text-[#F7F8F8]"
-                          : "text-[#8A8F98] hover:bg-[#1A1B1E] hover:text-[#F7F8F8]",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "flex size-5 shrink-0 items-center justify-center rounded-md border",
-                          done
-                            ? "border-[#4CB782]/40 bg-[#4CB782]/15 text-[#4CB782]"
-                            : active
-                              ? "border-[#5E6AD2]/40 bg-[#5E6AD2]/15 text-[#5E6AD2]"
-                              : "border-[#23252A] bg-[#0B0C0E] text-[#62666D]",
-                        )}
-                      >
-                        {done ? (
-                          <Check className="size-3" />
-                        ) : isPast ? (
-                          <Lock className="size-2.5" />
-                        ) : (
-                          <span className="text-[10px] font-mono">{idx + 1}</span>
-                        )}
-                      </span>
-                      <span className="flex-1 truncate">{SECTION_LABEL[s]}</span>
-                      {active ? (
-                        <span className="rounded-full bg-[#5E6AD2] px-1.5 py-0.5 text-[9px] font-semibold text-white">
-                          NOW
-                        </span>
-                      ) : null}
-                    </button>
-                  </li>
-                )
-              })}
-            </ol>
+            <div
+              className="fixed inset-0 z-0 bg-black/60"
+              onClick={() => setSidebarOpen(false)}
+            />
           </div>
+        ) : null}
 
-          <div className="mt-4 rounded-2xl border border-[#23252A] bg-[#121316] p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#62666D]">
-              Setup Guide
-            </p>
-            <div className="mt-3 space-y-2.5 text-xs text-[#8A8F98]">
-              <div className="flex items-center gap-2">
-                <Clock className="size-3.5 shrink-0 text-[#5E6AD2]" />
-                <span>~5 minutes to complete</span>
-              </div>
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="size-3.5 shrink-0 text-[#5E6AD2]" />
-                <span>Auto-saved as you type</span>
-              </div>
-            </div>
-            <div className="mt-3 border-t border-[#23252A] pt-3">
-              <p className="text-[11px] font-medium text-[#62666D]">What you&apos;ll need:</p>
-              <ul className="mt-1.5 space-y-1 text-[11px] text-[#8A8F98]">
-                <li className="flex items-center gap-1.5">
-                  <span className="text-[#5E6AD2]">&bull;</span> Business name &amp; website
-                </li>
-                <li className="flex items-center gap-1.5">
-                  <span className="text-[#5E6AD2]">&bull;</span> Operating hours
-                </li>
-                <li className="flex items-center gap-1.5">
-                  <span className="text-[#5E6AD2]">&bull;</span> Services &amp; pricing ranges
-                </li>
-                <li className="flex items-center gap-1.5">
-                  <span className="text-[#5E6AD2]">&bull;</span> Booking &amp; cancellation policy
-                </li>
-                <li className="flex items-center gap-1.5">
-                  <span className="text-[#5E6AD2]">&bull;</span> FAQ answers
-                </li>
-                <li className="flex items-center gap-1.5">
-                  <span className="text-[#5E6AD2]">&bull;</span> Notification preferences
-                </li>
-              </ul>
-              <p className="mt-2.5 text-[10px] text-[#62666D]">
-                You can leave and come back anytime. Your progress is saved automatically.
-              </p>
-            </div>
-          </div>
-
-          {concerns.length > 0 ? (
-            <div className="mt-4 rounded-2xl border border-[#EB5757]/30 bg-[#EB5757]/5 p-4 text-xs">
-              <div className="flex items-center gap-2 font-semibold text-[#EB5757]">
-                <AlertTriangle className="size-3.5" />
-                Compliance notes
-              </div>
-              <ul className="mt-2 space-y-1.5 text-[#F7C0C0]">
-                {concerns.map((c, i) => (
-                  <li key={i} className="flex gap-1.5">
-                    <span className="text-[#EB5757]">&bull;</span>
-                    <span>{sanitize(c)}</span>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 text-[10px] text-[#8A8F98]">
-                Saved anyway &mdash; edit in the Knowledge Base before going live.
-              </p>
-            </div>
-          ) : null}
+        <aside className="hidden shrink-0 lg:sticky lg:top-6 lg:block lg:self-start" style={{ width: 280 }}>
+          {sidebarPanel}
         </aside>
 
-        <div className="flex min-h-[600px] flex-col rounded-2xl border border-[#23252A] bg-[#0B0C0E] shadow-2xl shadow-black/30">
+        <div
+          className={cn(
+            "flex min-h-[600px] flex-1 flex-col rounded-2xl border border-[#23252A] bg-[#0B0C0E] shadow-2xl shadow-black/30",
+            sidebarOpen ? "hidden lg:flex" : "flex",
+          )}
+        >
           <div className="flex items-start justify-between gap-4 border-b border-[#23252A] p-5">
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold uppercase tracking-wider text-[#5E6AD2]">
                 Step {currentStep} of {SECTION_ORDER.length}
               </p>
               <h2 className="mt-1 text-lg font-bold tracking-tight">{SECTION_LABEL[section]}</h2>
-              <p className="mt-0.5 text-xs text-[#8A8F98]">{sectionTip}</p>
+              <p className="mt-0.5 text-[13px] text-[#8A8F98]">{sectionTip}</p>
             </div>
-            {currentSectionDone ? (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#4CB782]/15 px-2 py-0.5 text-[10px] font-semibold text-[#4CB782]">
-                <Check className="size-3" /> Captured
-              </span>
-            ) : null}
+            <div className="flex shrink-0 flex-col items-end gap-1">
+              {currentSectionDone ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#4CB782]/15 px-2 py-0.5 text-[11px] font-semibold text-[#4CB782]">
+                  <Check className="size-3" /> Captured
+                </span>
+              ) : null}
+              {savingState !== "idle" ? (
+                <span className={cn(
+                  "inline-flex items-center gap-1 text-[10px] font-medium",
+                  savingState === "saving" ? "text-[#8A8F98]" : "text-[#4CB782]",
+                )}>
+                  {savingState === "saving" ? (
+                    <><Loader2 className="size-2.5 animate-spin" /> Saving&hellip;</>
+                  ) : (
+                    <><Check className="size-2.5" /> Saved</>
+                  )}
+                </span>
+              ) : null}
+            </div>
           </div>
 
           <div
@@ -596,7 +715,7 @@ export function SetupAssistantExperience({
                   <p className="whitespace-pre-wrap">{sanitize(m.content)}</p>
                   <p
                     className={cn(
-                      "mt-1 text-[10px]",
+                      "mt-1 text-[11px]",
                       m.role === "user" ? "text-[#08090A]/60" : "text-[#62666D]",
                     )}
                   >
@@ -607,7 +726,7 @@ export function SetupAssistantExperience({
             ))}
             {sending ? (
               <div className="flex justify-start">
-                <div className="inline-flex items-center gap-2 rounded-2xl rounded-bl-sm border border-[#23252A] bg-[#121316] px-3 py-2 text-xs text-[#8A8F98]">
+                <div className="inline-flex items-center gap-2 rounded-2xl rounded-bl-sm border border-[#23252A] bg-[#121316] px-3 py-2 text-[13px] text-[#8A8F98]">
                   <Loader2 className="size-3 animate-spin" />
                   Thinking&hellip;
                 </div>
@@ -617,35 +736,35 @@ export function SetupAssistantExperience({
             {messages.length <= 1 && !sending ? (
               <>
                 <div className="mt-4 rounded-xl border border-[#23252A] bg-[#121316] p-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[#62666D]">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-[#62666D]">
                     Example answer
                   </p>
                   <p className="mt-2 text-sm leading-6 text-[#8A8F98]">
                     &quot;Glow Aesthetics, glowaesthetics.com, 123 Main St, San Francisco.&quot;
                   </p>
-                  <p className="mt-2 text-[11px] text-[#62666D]">
+                  <p className="mt-2 text-[13px] text-[#62666D]">
                     Just answer naturally &mdash; I&apos;ll capture the details from your message.
                   </p>
                 </div>
                 <div className="rounded-xl border border-[#23252A] bg-[#121316] p-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[#62666D]">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-[#62666D]">
                     What happens next
                   </p>
-                  <div className="mt-2 space-y-2 text-[11px] text-[#8A8F98]">
+                  <div className="mt-2 space-y-2 text-[13px] text-[#8A8F98]">
                     <p className="flex items-start gap-2">
-                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-[#5E6AD2]/20 text-[9px] text-[#5E6AD2]">1</span>
+                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-[#5E6AD2]/20 text-[10px] text-[#5E6AD2]">1</span>
                       Tell us about your business &mdash; name, website, location
                     </p>
                     <p className="flex items-start gap-2">
-                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-[#5E6AD2]/20 text-[9px] text-[#5E6AD2]">2</span>
+                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-[#5E6AD2]/20 text-[10px] text-[#5E6AD2]">2</span>
                       Add services, hours, and booking preferences
                     </p>
                     <p className="flex items-start gap-2">
-                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-[#5E6AD2]/20 text-[9px] text-[#5E6AD2]">3</span>
+                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-[#5E6AD2]/20 text-[10px] text-[#5E6AD2]">3</span>
                       Set up FAQs, disclaimers, and notifications
                     </p>
                     <p className="flex items-start gap-2">
-                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-[#5E6AD2]/20 text-[9px] text-[#5E6AD2]">4</span>
+                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-[#5E6AD2]/20 text-[10px] text-[#5E6AD2]">4</span>
                       Review and publish your knowledge base
                     </p>
                   </div>
@@ -667,7 +786,7 @@ export function SetupAssistantExperience({
                     className="rounded-xl border border-[#23252A] bg-[#121316] p-3"
                   >
                     <div className="flex items-center justify-between">
-                      <p className="text-[11px] font-semibold uppercase tracking-wider text-[#62666D]">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-[#62666D]">
                         {SECTION_LABEL[s]}
                       </p>
                       {isSectionDone(draft, s) ? (
@@ -676,7 +795,7 @@ export function SetupAssistantExperience({
                         <Clock className="size-3.5 text-[#62666D]" />
                       )}
                     </div>
-                    <p className="mt-1 text-xs text-[#F7F8F8]">
+                    <p className="mt-1 text-[13px] text-[#F7F8F8]">
                       {SECTION_SUMMARY[s](draft)}
                     </p>
                   </div>
@@ -688,7 +807,7 @@ export function SetupAssistantExperience({
                 </div>
               ) : null}
               <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-[#8A8F98]">
+                <p className="text-[13px] text-[#8A8F98]">
                   {draft.status?.pendingFields?.length
                     ? `${draft.status.pendingFields.length} field(s) still pending \u2014 you can publish anyway and edit later.`
                     : "All required fields captured. Ready to publish."}
@@ -727,7 +846,7 @@ export function SetupAssistantExperience({
                     key={s}
                     type="button"
                     onClick={() => void send(s)}
-                    className="max-w-full rounded-full border border-[#3A3D43] bg-[#1A1B1E] px-3.5 py-1.5 text-left text-xs text-[#8A8F98] transition hover:border-[#5E6AD2]/50 hover:bg-[#1A1B1E] hover:text-[#F7F8F8]"
+                    className="max-w-full rounded-full border border-[#3A3D43] bg-[#1A1B1E] px-3.5 py-1.5 text-left text-[13px] text-[#8A8F98] transition hover:border-[#5E6AD2]/50 hover:bg-[#1A1B1E] hover:text-[#F7F8F8]"
                   >
                     {s.length > 80 ? s.slice(0, 80) + "\u2026" : s}
                   </button>
@@ -757,7 +876,12 @@ export function SetupAssistantExperience({
                 type="button"
                 onClick={() => void send()}
                 disabled={sending || input.trim().length === 0 || onReview}
-                className="size-11 shrink-0 rounded-xl bg-[#E2E54B] text-[#08090A] hover:bg-[#E2E54B]/90 disabled:cursor-not-allowed disabled:opacity-40"
+                className={cn(
+                  "size-11 shrink-0 rounded-xl bg-[#E2E54B] text-[#08090A] transition-all",
+                  "hover:bg-[#E2E54B]/90 hover:shadow-lg hover:shadow-[#E2E54B]/20",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E2E54B]/50",
+                  "disabled:cursor-not-allowed disabled:opacity-30 disabled:shadow-none",
+                )}
                 aria-label="Send"
               >
                 {sending ? (
@@ -767,12 +891,12 @@ export function SetupAssistantExperience({
                 )}
               </Button>
             </div>
-            <p className="mt-2 text-[11px] italic text-[#62666D]">
+            <p className="mt-2 text-xs italic text-[#62666D]">
               Example: Glow Aesthetics, glowaesthetics.com, 123 Main St, San Francisco.
             </p>
           </div>
         </div>
-      </section>
+      </div>
     </main>
   )
 }

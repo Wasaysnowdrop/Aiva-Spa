@@ -35,17 +35,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
   // the login screen with a clear message.
   if ((user.app_metadata as { banned?: boolean } | null)?.banned) {
     await supabase.auth.signOut().catch(() => null);
-    redirect("/login?error=banned");
-  }
-
-  // Defense in depth: redirect users who haven't completed onboarding.
-  // proxy.ts should already handle this, but if a user bypasses the
-  // middleware (e.g., via a server action or cached page), catch them here.
-  const onboardingCompleted =
-    (user.user_metadata as Record<string, unknown> | null | undefined)
-      ?.onboarding_completed === true;
-  if (!onboardingCompleted) {
-    redirect("/onboarding");
   }
 
   let subscription: SubscriptionSnapshot

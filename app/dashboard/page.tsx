@@ -63,10 +63,10 @@ export default async function DashboardOverviewPage() {
           <div className="rounded-2xl border border-[#23252A] bg-[#121316] p-8 max-w-md">
             <Sparkles className="mx-auto size-8 text-[#5E6AD2]" />
             <h2 className="mt-4 text-lg font-semibold text-[#F7F8F8]">
-              Finish setup to get started
+              Finish setup to activate your dashboard
             </h2>
             <p className="mt-2 text-sm text-[#8A8F98]">
-              Complete your spa setup to unlock the dashboard. It only takes about 5 minutes.
+              Complete your spa profile so AivaSpa can answer clients correctly and capture leads.
             </p>
             <Button
               asChild
