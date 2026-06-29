@@ -147,6 +147,24 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(redirectUrl)
   }
 
+  // Onboarding guard: if a user has not completed onboarding, block
+  // access to /dashboard and redirect them back to /onboarding.
+  // This prevents the 500 crash when workspace/spa_settings don't exist yet.
+  const onboardingCompleted =
+    (user?.user_metadata as Record<string, unknown> | null | undefined)
+      ?.onboarding_completed === true
+  if (
+    user &&
+    !onboardingCompleted &&
+    pathname.startsWith("/dashboard") &&
+    !pathname.startsWith("/dashboard/api")
+  ) {
+    const redirectUrl = request.nextUrl.clone()
+    redirectUrl.pathname = "/onboarding"
+    redirectUrl.search = ""
+    return NextResponse.redirect(redirectUrl)
+  }
+
   if (isAdminSubdomain) {
     // On the admin subdomain, transparently rewrite every page request
     // to the internal /admin/* routes. The browser stays on

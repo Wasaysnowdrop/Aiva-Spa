@@ -38,6 +38,16 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect("/login?error=banned");
   }
 
+  // Defense in depth: redirect users who haven't completed onboarding.
+  // proxy.ts should already handle this, but if a user bypasses the
+  // middleware (e.g., via a server action or cached page), catch them here.
+  const onboardingCompleted =
+    (user.user_metadata as Record<string, unknown> | null | undefined)
+      ?.onboarding_completed === true;
+  if (!onboardingCompleted) {
+    redirect("/onboarding");
+  }
+
   let subscription: SubscriptionSnapshot
   try {
     subscription = await getCurrentSubscription()

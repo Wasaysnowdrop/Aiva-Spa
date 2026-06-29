@@ -48,6 +48,41 @@ export default async function DashboardOverviewPage() {
     console.error("[dashboard-overview] auth getUser failed:", e)
   }
 
+  // Defense in depth: if onboarding is not completed, show a friendly
+  // "finish setup" state instead of the full dashboard. This should
+  // rarely be reached because proxy.ts and layout.tsx already guard
+  // against this, but it prevents crashes if those guards are bypassed.
+  const onboardingCompleted =
+    (user?.user_metadata as Record<string, unknown> | null | undefined)
+      ?.onboarding_completed === true
+  if (!onboardingCompleted) {
+    return (
+      <>
+        <DashboardHeader title="Overview" />
+        <div className="mx-auto flex min-h-[60vh] w-full max-w-7xl flex-col items-center justify-center px-5 text-center lg:px-8">
+          <div className="rounded-2xl border border-[#23252A] bg-[#121316] p-8 max-w-md">
+            <Sparkles className="mx-auto size-8 text-[#5E6AD2]" />
+            <h2 className="mt-4 text-lg font-semibold text-[#F7F8F8]">
+              Finish setup to get started
+            </h2>
+            <p className="mt-2 text-sm text-[#8A8F98]">
+              Complete your spa setup to unlock the dashboard. It only takes about 5 minutes.
+            </p>
+            <Button
+              asChild
+              className="mt-6 bg-[#E2E54B] text-[#08090A] hover:bg-[#E2E54B]/90"
+            >
+              <Link href="/onboarding">
+                Continue setup
+                <ArrowRight className="size-4" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </>
+    )
+  }
+
   const fullName =
     (user?.user_metadata?.full_name as string | undefined) ??
     (user?.user_metadata?.name as string | undefined) ??

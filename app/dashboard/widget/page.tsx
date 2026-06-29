@@ -36,7 +36,7 @@ export default async function WidgetPage() {
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? `${proto}://${host}`;
 
-  const plan = (await import("@/lib/subscription/plans")).PLANS[subscription.planId];
+  const plan = (await import("@/lib/subscription/plans")).PLANS[subscription.planId] ?? (await import("@/lib/subscription/plans")).PLANS.starter;
   const unlimited = plan.maxWidgets === Number.MAX_SAFE_INTEGER;
   const usedCount = installs.filter((i) => i.active).length;
 
