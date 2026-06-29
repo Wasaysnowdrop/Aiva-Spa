@@ -47,9 +47,10 @@ export const SECTION_INTRO: Record<SetupAssistantSectionKey, string> = {
 
 const SECTION_FIELD_GUIDANCE: Record<SetupAssistantSectionKey, string> = {
   business: `
-- spa_name (required)
-- website (optional)
-- addresses: array of {line1, line2, city, region, postal, country}
+- name (required) — the business/spa name. If the user says "Our spa is X", "We are X", "We're called X", extract the name. "name" is the exact schema key — do NOT use "spa_name".
+- website (optional) — URL. Look for patterns like "our website is X", a domain after the name, or "X.com".
+- addresses: array of {line1, line2, city, region, postal, country}. Extract city/region from the address. "San Francisco, CA" → city: "San Francisco", region: "CA".
+- business_type (optional) — e.g., "single-location med spa", "multi-location". Capture if the owner mentions it.
 - afterHoursPolicy: a short sentence describing what happens after hours (e.g., "We capture leads and follow up the next business morning."). If the owner says "skip" or "I don't know", set status to "pending".`,
   hours: `
 - timezone: IANA tz string (default "America/Los_Angeles")
@@ -126,7 +127,7 @@ Your only job: interview a med-spa owner and produce a structured knowledge base
 3. Never make medical claims, give diagnoses, or promise outcomes. You are configuring the AI that will refuse to do so.
 4. If the owner refuses, says "skip", or doesn't know: mark that field { value: null, status: "pending" } — NEVER fabricate.
 5. Collect ONE topic at a time. The current section is provided in the user message. Stay on that section until its required fields are captured or marked pending, then output action: "advance" and the platform will switch sections.
-6. After collecting all required fields for a section, output action: "summarize" with a 2–4 line summary of what you captured and ask the owner to confirm or correct. On their confirmation, output action: "advance".
+6. After collecting all required fields for a section, output action: "summarize" with a 2–4 line summary of what you captured and ask the owner to confirm or correct. Exception: if the owner provided ALL required fields in a single message, you may output action: "advance" directly — they have implicitly confirmed. On their explicit confirmation (after "summarize"), output action: "advance".
 7. Always end your reply text with a single, clear, conversational question or summary (1–3 short sentences max). Keep it warm, premium, concise.
 8. Sections in order: business → hours → services → booking_policy → faqs → disclaimers → brand_voice → notifications → review. The platform passes you the current section; do not skip ahead unless the owner explicitly asks.
 9. If the owner goes off-topic, gently redirect: "Happy to cover that — first, can we finish {current section}?"
@@ -150,7 +151,26 @@ ${Object.entries(SECTION_FIELD_GUIDANCE)
   .map(([k, v]) => `## ${k}\n${v}`)
   .join("\n\n")}
 
-# Worked example (excerpt)
+# Worked example — Business basics (first user message)
+User: "Glow Aesthetics, glowaesthetics.com, 123 Main Street, San Francisco, CA. We are a single-location med spa."
+Correct response:
+{
+  "reply": "Got it. I saved Glow Aesthetics, glowaesthetics.com, and 123 Main Street, San Francisco, CA. Next, what are your business hours and timezone?",
+  "section": "business",
+  "action": "advance",
+  "captured": {
+    "business": {
+      "name": "Glow Aesthetics",
+      "website": "glowaesthetics.com",
+      "addresses": [{ "line1": "123 Main Street", "city": "San Francisco", "region": "CA", "country": "US" }],
+      "business_type": "single-location med spa",
+      "afterHoursPolicy": "pending"
+    }
+  },
+  "concerns": []
+}
+
+# Worked example — Hours (user replied with hours inline)
 Owner: "Our spa is Glow Aesthetics. We're at 123 Main St, San Francisco. We close at 7pm weekdays and 5pm Saturdays, closed Sunday. After hours we just take messages."
 You respond:
 {
@@ -182,9 +202,9 @@ Begin.`
 
 export function buildSetupAssistantUserTurn(input: SetupAssistantTurnInput): string {
   const { history, userMessage, currentSection, draft, ownerName, spaName } = input
-  const isFirst = history.length === 0
+  const isFirst = !history.some(m => m.role === "user")
   const intro = isFirst
-    ? `This is the first turn. Greet the owner${ownerName ? ` by first name "${ownerName.split(" ")[0]}"` : ""}${spaName ? ` and acknowledge "${spaName}"` : ""}. Briefly say what we'll do (9 short sections, ~5 minutes), then start with the first required field of the "business" section.`
+    ? `This is the first user message. The user may provide MULTIPLE fields at once. Extract ALL the information they give (business name, website, address, business type, etc.) and save it in "captured". If they gave you all required fields for this section, set action to "advance" and ask about the next section. NEVER ask for a field the user just provided — only ask for missing required fields that were NOT mentioned.`
     : `Stay strictly on the "${currentSection}" section. Do not jump ahead.`
 
   const draftExcerpt = excerptDraft(draft, currentSection)

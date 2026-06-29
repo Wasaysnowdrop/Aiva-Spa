@@ -77,6 +77,57 @@ describe("setup assistant prompt", () => {
     })
     expect(turn).toContain("…(truncated)")
   })
+
+  it("detects first user message when history has no user role", () => {
+    const turn = buildSetupAssistantUserTurn({
+      history: [{ role: "assistant", content: "Welcome to setup." }],
+      userMessage: "Glow Aesthetics, glowaesthetics.com",
+      currentSection: "business",
+      draft: emptyKnowledgeBase(),
+    })
+    // Should detect this is the first user message and instruct LLM to extract all fields
+    expect(turn).toContain("first user message")
+    expect(turn).toContain("Extract ALL")
+    expect(turn).toContain("NEVER ask for a field the user just provided")
+    expect(turn).not.toContain("greet the owner")
+  })
+
+  it("does not treat assistant-only history as a prior user turn", () => {
+    // History with only assistant messages should be treated as first turn
+    const turn = buildSetupAssistantUserTurn({
+      history: [
+        { role: "assistant", content: "Welcome!" },
+        { role: "assistant", content: "What's your name?" },
+      ],
+      userMessage: "Glow Aesthetics",
+      currentSection: "business",
+      draft: emptyKnowledgeBase(),
+    })
+    expect(turn).toContain("first user message")
+  })
+
+  it("detects subsequent user messages correctly", () => {
+    const turn = buildSetupAssistantUserTurn({
+      history: [
+        { role: "assistant", content: "Welcome!" },
+        { role: "user", content: "Glow Aesthetics" },
+        { role: "assistant", content: "Got it." },
+      ],
+      userMessage: "San Francisco",
+      currentSection: "business",
+      draft: emptyKnowledgeBase(),
+    })
+    // Should NOT contain first-turn instruction
+    expect(turn).not.toContain("first user message")
+    expect(turn).toContain("Stay strictly")
+  })
+
+  it("includes business field guidance with name not spa_name", () => {
+    const system = buildSetupAssistantSystemPrompt()
+    expect(system).toContain("- name (required)")
+    expect(system).not.toContain("- spa_name (required)")
+    expect(system).toContain("business_type")
+  })
 })
 
 describe("setup assistant KB helpers", () => {

@@ -15,6 +15,7 @@ import {
   Trash2,
 } from "lucide-react"
 import { Logo } from "@/components/logo"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -265,6 +266,10 @@ export function SetupAssistantExperience({
 
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const inputRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const finishingLaterRef = React.useRef(false)
+  const [showResumeBanner, setShowResumeBanner] = React.useState(() =>
+    typeof window !== "undefined" && window.location.search.includes("resume=1"),
+  )
 
   const completedSections = React.useMemo(
     () => SECTION_ORDER.filter((s) => isSectionDone(draft, s)),
@@ -278,6 +283,13 @@ export function SetupAssistantExperience({
   React.useEffect(() => {
     inputRef.current?.focus()
   }, [sending, section])
+
+  React.useEffect(() => {
+    if (showResumeBanner) {
+      const t = setTimeout(() => setShowResumeBanner(false), 6000)
+      return () => clearTimeout(t)
+    }
+  }, [showResumeBanner])
 
   React.useEffect(() => {
     if (savingState === "saved") {
@@ -389,7 +401,10 @@ export function SetupAssistantExperience({
   }
 
   async function handleFinishLater() {
+    if (finishingLaterRef.current) return
+    finishingLaterRef.current = true
     setSavingState("saving")
+    toast.success("Progress saved. You can continue setup anytime.")
     try {
       await fetch("/api/onboarding/setup-assistant", {
         method: "POST",
@@ -631,6 +646,22 @@ export function SetupAssistantExperience({
           </div>
         </div>
       </header>
+
+      {showResumeBanner ? (
+        <div className="mx-auto mt-2 max-w-7xl px-5 lg:px-8">
+          <div className="flex items-center gap-2 rounded-xl border border-[#5E6AD2]/30 bg-[#5E6AD2]/8 px-4 py-2.5 text-sm text-[#C8CCF0] shadow-sm">
+            <CheckCircle2 className="size-4 shrink-0 text-[#5E6AD2]" />
+            <span>Welcome back. Your setup progress was saved. Continue where you left off.</span>
+            <button
+              type="button"
+              onClick={() => setShowResumeBanner(false)}
+              className="ml-auto shrink-0 text-xs text-[#8A8F98] hover:text-[#F7F8F8]"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mx-auto flex max-w-7xl gap-6 px-5 py-6 lg:px-8 lg:py-10">
         {sidebarOpen ? (
