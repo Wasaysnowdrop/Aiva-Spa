@@ -118,7 +118,34 @@ function formatTime(d: Date) {
   return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
 }
 
+function sanitize(str: string): string {
+  return str
+    .replace(/\\u2022/g, "\u2022")
+    .replace(/\\u00b7/g, "\u00b7")
+    .replace(/\\u2014/g, "\u2014")
+    .replace(/\\u2013/g, "\u2013")
+    .replace(/\\u2026/g, "\u2026")
+    .replace(/\\u2019/g, "\u2019")
+    .replace(/\\u0007/g, "")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "")
+}
+
+function isSectionDefaultValue(kb: KnowledgeBase, section: SetupAssistantSection): boolean {
+  const empty = emptyKnowledgeBase()
+  switch (section) {
+    case "booking_policy":
+      return JSON.stringify(kb.booking_policy ?? {}) === JSON.stringify(empty.booking_policy ?? {})
+    case "disclaimers":
+      return JSON.stringify(kb.disclaimers ?? {}) === JSON.stringify(empty.disclaimers ?? {})
+    case "brand_voice":
+      return JSON.stringify(kb.brand_voice ?? {}) === JSON.stringify(empty.brand_voice ?? {})
+    default:
+      return false
+  }
+}
+
 function isSectionDone(kb: KnowledgeBase, section: SetupAssistantSection): boolean {
+  if (isSectionDefaultValue(kb, section)) return false
   switch (section) {
     case "business":
       return Boolean(kb.business?.name)
@@ -283,10 +310,11 @@ export function SetupAssistantExperience({
         concerns: string[]
         draft: KnowledgeBase
       }
+      const cleanReply = sanitize(data.reply || FALLBACK_REPLY)
       const aiMsg: ChatMessage = {
         id: makeId(),
         role: "assistant",
-        content: data.reply || FALLBACK_REPLY,
+        content: cleanReply,
         at: formatTime(new Date()),
       }
       setMessages((prev) => [...prev, aiMsg])
@@ -408,7 +436,9 @@ export function SetupAssistantExperience({
             <div className="mt-3">
               <div className="flex items-center justify-between text-[10px] text-[#8A8F98]">
                 <span>Step {currentStep} of {SECTION_ORDER.length}</span>
-                <span>{completedSections.length} completed</span>
+                {completedSections.length > 0 ? (
+                  <span>{completedSections.length} completed</span>
+                ) : null}
               </div>
               <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-[#1A1B1E]">
                 <div
@@ -484,22 +514,22 @@ export function SetupAssistantExperience({
               <p className="text-[11px] font-medium text-[#62666D]">What you&apos;ll need:</p>
               <ul className="mt-1.5 space-y-1 text-[11px] text-[#8A8F98]">
                 <li className="flex items-center gap-1.5">
-                  <span className="text-[#5E6AD2]">\u2022</span> Business name &amp; website
+                  <span className="text-[#5E6AD2]">&bull;</span> Business name &amp; website
                 </li>
                 <li className="flex items-center gap-1.5">
-                  <span className="text-[#5E6AD2]">\u2022</span> Operating hours
+                  <span className="text-[#5E6AD2]">&bull;</span> Operating hours
                 </li>
                 <li className="flex items-center gap-1.5">
-                  <span className="text-[#5E6AD2]">\u2022</span> Services &amp; pricing ranges
+                  <span className="text-[#5E6AD2]">&bull;</span> Services &amp; pricing ranges
                 </li>
                 <li className="flex items-center gap-1.5">
-                  <span className="text-[#5E6AD2]">\u2022</span> Booking &amp; cancellation policy
+                  <span className="text-[#5E6AD2]">&bull;</span> Booking &amp; cancellation policy
                 </li>
                 <li className="flex items-center gap-1.5">
-                  <span className="text-[#5E6AD2]">\u2022</span> FAQ answers
+                  <span className="text-[#5E6AD2]">&bull;</span> FAQ answers
                 </li>
                 <li className="flex items-center gap-1.5">
-                  <span className="text-[#5E6AD2]">\u2022</span> Notification preferences
+                  <span className="text-[#5E6AD2]">&bull;</span> Notification preferences
                 </li>
               </ul>
               <p className="mt-2.5 text-[10px] text-[#62666D]">
@@ -517,13 +547,13 @@ export function SetupAssistantExperience({
               <ul className="mt-2 space-y-1.5 text-[#F7C0C0]">
                 {concerns.map((c, i) => (
                   <li key={i} className="flex gap-1.5">
-                    <span className="text-[#EB5757]">\u2022</span>
-                    <span>{c}</span>
+                    <span className="text-[#EB5757]">&bull;</span>
+                    <span>{sanitize(c)}</span>
                   </li>
                 ))}
               </ul>
               <p className="mt-2 text-[10px] text-[#8A8F98]">
-                Saved anyway \u2014 edit in the Knowledge Base before going live.
+                Saved anyway &mdash; edit in the Knowledge Base before going live.
               </p>
             </div>
           ) : null}
@@ -563,14 +593,14 @@ export function SetupAssistantExperience({
                       : "rounded-bl-sm border border-[#23252A] bg-[#121316] text-[#F7F8F8]",
                   )}
                 >
-                  <p className="whitespace-pre-wrap">{m.content}</p>
+                  <p className="whitespace-pre-wrap">{sanitize(m.content)}</p>
                   <p
                     className={cn(
                       "mt-1 text-[10px]",
                       m.role === "user" ? "text-[#08090A]/60" : "text-[#62666D]",
                     )}
                   >
-                    {m.role === "user" ? "You" : "Setup Assistant"} \u00b7 {m.at}
+                    {m.role === "user" ? "You" : "Setup Assistant"} &middot; {m.at}
                   </p>
                 </div>
               </div>
@@ -579,23 +609,48 @@ export function SetupAssistantExperience({
               <div className="flex justify-start">
                 <div className="inline-flex items-center gap-2 rounded-2xl rounded-bl-sm border border-[#23252A] bg-[#121316] px-3 py-2 text-xs text-[#8A8F98]">
                   <Loader2 className="size-3 animate-spin" />
-                  Thinking\u2026
+                  Thinking&hellip;
                 </div>
               </div>
             ) : null}
 
             {messages.length <= 1 && !sending ? (
-              <div className="mt-4 rounded-xl border border-[#23252A] bg-[#121316] p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-[#62666D]">
-                  Example answer
-                </p>
-                <p className="mt-2 text-sm leading-6 text-[#8A8F98]">
-                  &quot;Glow Aesthetics, glowaesthetics.com, 123 Main St, San Francisco.&quot;
-                </p>
-                <p className="mt-2 text-[11px] text-[#62666D]">
-                  Just answer naturally \u2014 I&apos;ll capture the details from your message.
-                </p>
-              </div>
+              <>
+                <div className="mt-4 rounded-xl border border-[#23252A] bg-[#121316] p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[#62666D]">
+                    Example answer
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-[#8A8F98]">
+                    &quot;Glow Aesthetics, glowaesthetics.com, 123 Main St, San Francisco.&quot;
+                  </p>
+                  <p className="mt-2 text-[11px] text-[#62666D]">
+                    Just answer naturally &mdash; I&apos;ll capture the details from your message.
+                  </p>
+                </div>
+                <div className="rounded-xl border border-[#23252A] bg-[#121316] p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[#62666D]">
+                    What happens next
+                  </p>
+                  <div className="mt-2 space-y-2 text-[11px] text-[#8A8F98]">
+                    <p className="flex items-start gap-2">
+                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-[#5E6AD2]/20 text-[9px] text-[#5E6AD2]">1</span>
+                      Tell us about your business &mdash; name, website, location
+                    </p>
+                    <p className="flex items-start gap-2">
+                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-[#5E6AD2]/20 text-[9px] text-[#5E6AD2]">2</span>
+                      Add services, hours, and booking preferences
+                    </p>
+                    <p className="flex items-start gap-2">
+                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-[#5E6AD2]/20 text-[9px] text-[#5E6AD2]">3</span>
+                      Set up FAQs, disclaimers, and notifications
+                    </p>
+                    <p className="flex items-start gap-2">
+                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-[#5E6AD2]/20 text-[9px] text-[#5E6AD2]">4</span>
+                      Review and publish your knowledge base
+                    </p>
+                  </div>
+                </div>
+              </>
             ) : null}
           </div>
 
@@ -645,7 +700,7 @@ export function SetupAssistantExperience({
                 >
                   {finalizing ? (
                     <>
-                      <Loader2 className="size-4 animate-spin" /> Publishing\u2026
+                      <Loader2 className="size-4 animate-spin" /> Publishing&hellip;
                     </>
                   ) : (
                     <>
