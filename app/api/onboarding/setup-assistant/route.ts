@@ -28,7 +28,7 @@ const requestSchema = z.object({
   history: z.array(historyItemSchema).max(80).default([]),
   userMessage: z.string().min(1).max(2000),
   currentSection: z.enum(SETUP_ASSISTANT_SECTIONS),
-  draft: knowledgeBaseSchema.partial().optional(),
+  draft: z.record(z.string(), z.unknown()).optional(),
   resume: z.boolean().optional().default(false),
 })
 

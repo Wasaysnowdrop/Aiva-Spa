@@ -241,4 +241,77 @@ describe("runSetupAssistantTurn (mock provider)", () => {
     expect(result.action).toBe("finish")
     expect(result.draft.status?.complete).toBe(true)
   })
+
+  it("extracts timezone and schedule from hours input and advances", async () => {
+    const result = await runSetupAssistantTurn({
+      history: [],
+      userMessage: "We are open Monday to Friday from 10 AM to 6 PM, Saturday from 10 AM to 3 PM, and closed on Sunday. Our timezone is America/Los_Angeles.",
+      currentSection: "hours",
+      draft: emptyKnowledgeBase(),
+    })
+    expect(result.action).toBe("advance")
+    expect(result.nextSection).toBe("services")
+    expect(result.draft.hours?.timezone).toBe("America/Los_Angeles")
+    expect(result.draft.hours?.schedule?.length).toBe(7)
+    expect(result.draft.hours?.schedule?.find(d => d.day === "Sun")?.open).toBe(false)
+    expect(result.draft.hours?.schedule?.find(d => d.day === "Mon")?.from).toBe("10:00")
+    expect(result.draft.hours?.schedule?.find(d => d.day === "Mon")?.to).toBe("18:00")
+    expect(result.draft.hours?.schedule?.find(d => d.day === "Sat")?.from).toBe("10:00")
+    expect(result.draft.hours?.schedule?.find(d => d.day === "Sat")?.to).toBe("15:00")
+    expect(result.reply).toContain("Got it")
+    expect(result.reply).toContain("America/Los_Angeles")
+  })
+
+  it("extracts timezone from PST abbreviation and advances when schedule present", async () => {
+    const result = await runSetupAssistantTurn({
+      history: [],
+      userMessage: "We're open weekdays 9-5 and weekends 10-4, Pacific Time.",
+      currentSection: "hours",
+      draft: emptyKnowledgeBase(),
+    })
+    expect(result.action).toBe("advance")
+    expect(result.draft.hours?.timezone).toBe("America/Los_Angeles")
+  })
+
+  it("accepts website as a bare domain without https:// protocol", () => {
+    const kb = {
+      ...emptyKnowledgeBase(),
+      business: {
+        name: "Glow Aesthetics",
+        website: "glowaesthetics.com",
+        addresses: [{ line1: "123 Main St", city: "San Francisco", region: "CA", country: "US" }],
+        afterHoursPolicy: "pending",
+      },
+    }
+    const parsed = knowledgeBaseSchema.safeParse(kb)
+    expect(parsed.success).toBe(true)
+  })
+
+  it("website field accepts empty string", () => {
+    const kb = {
+      ...emptyKnowledgeBase(),
+      business: {
+        name: "Test Spa",
+        website: "",
+        addresses: [],
+        afterHoursPolicy: "pending",
+      },
+    }
+    const parsed = knowledgeBaseSchema.safeParse(kb)
+    expect(parsed.success).toBe(true)
+  })
+
+  it("rejects invalid business name", () => {
+    const bad = {
+      ...emptyKnowledgeBase(),
+      business: {
+        name: null,
+        website: "",
+        addresses: [],
+        afterHoursPolicy: "pending",
+      },
+    }
+    const parsed = knowledgeBaseSchema.safeParse(bad)
+    expect(parsed.success).toBe(false)
+  })
 })

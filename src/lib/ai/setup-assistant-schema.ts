@@ -21,7 +21,7 @@ const PENDING_OBJ = z
 
 export const businessSchema = z.object({
   name: PENDING_OBJ.optional(),
-  website: z.string().url().or(z.literal("")).or(z.literal("pending")).optional(),
+  website: z.string().max(500).optional().default(""),
   addresses: z
     .array(
       z.object({

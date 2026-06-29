@@ -151,7 +151,7 @@ function isSectionDone(kb: KnowledgeBase, section: SetupAssistantSection): boole
     case "business":
       return Boolean(kb.business?.name)
     case "hours":
-      return Boolean(kb.hours?.schedule && kb.hours.schedule.length > 0)
+      return Boolean(kb.hours?.schedule && kb.hours.schedule.length > 0 && kb.hours?.timezone)
     case "services":
       return Array.isArray(kb.services) && kb.services.length > 0
     case "booking_policy":

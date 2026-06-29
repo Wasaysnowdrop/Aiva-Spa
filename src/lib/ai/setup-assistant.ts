@@ -65,12 +65,101 @@ function normalizeTimezone(tz: string): string {
   const key = tz.toLowerCase().trim()
   const mapped = map[key]
   if (mapped) return mapped
+  // Capitalize IANA-style timezone names (America/New_York, Asia/Karachi, etc.)
+  const ianaMatch = key.match(/^([a-z]+)\/([a-z_]+)$/)
+  if (ianaMatch) {
+    const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
+    const parts = ianaMatch[2].split("_")
+    const region = parts.map(p => cap(p)).join("_")
+    return `${cap(ianaMatch[1])}/${region}`
+  }
   if (/^utc[+-]\d+$/i.test(tz)) {
     const offset = parseInt(tz.replace(/^UTC[+-]/, ""), 10)
     if (offset <= 0) return `Etc/GMT${offset === 0 ? "" : "+" + Math.abs(offset)}`
     return `Etc/GMT-${offset}`
   }
   return tz
+}
+
+type DayEntry = { day: "Mon"|"Tue"|"Wed"|"Thu"|"Fri"|"Sat"|"Sun"; open: boolean; from: string; to: string }
+const DAY_NAMES: DayEntry["day"][] = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+const DAY_ABBREVS = ["mon","tue","wed","thu","fri","sat","sun"]
+
+function parseTime(text: string): string {
+  const m = text.match(/(\d{1,2})\s*(?::(\d{2}))?\s*(am|pm)/i)
+  if (!m) return "09:00"
+  let h = parseInt(m[1], 10)
+  const min = m[2] ? parseInt(m[2], 10) : 0
+  const ampm = (m[3] || "").toLowerCase()
+  if (ampm === "pm" && h < 12) h += 12
+  if (ampm === "am" && h === 12) h = 0
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`
+}
+
+function dayIndex(word: string): number {
+  const w = word.toLowerCase().slice(0, 3)
+  for (let i = 0; i < DAY_ABBREVS.length; i++) {
+    if (DAY_ABBREVS[i] === w) return i
+  }
+  return -1
+}
+
+function buildMockSchedule(text: string): DayEntry[] {
+  const lower = text.toLowerCase()
+  const schedule: DayEntry[] = DAY_NAMES.map((d) => ({ day: d, open: true, from: "09:00", to: "17:00" }))
+
+  // Find "closed on X" patterns
+  const closedMatch = lower.match(/closed\s*(?:on\s*)?(\w+)/)
+  if (closedMatch) {
+    const idx = dayIndex(closedMatch[1])
+    if (idx >= 0) schedule[idx] = { ...schedule[idx], open: false }
+  }
+
+  // Handle "weekdays" shorthand
+  if (/\bweekdays?\b/i.test(lower)) {
+    const weekdays = [0, 1, 2, 3, 4]
+    const range = lower.match(/weekdays?\b[\s\S]*?from\s+(\d[\d:\sampm]*?)\s*(?:[-–to]+\s*)(\d[\d:\sampm]*?)/i)
+    if (range) {
+      const fromTime = parseTime(range[1])
+      const toTime = parseTime(range[2])
+      weekdays.forEach(i => { schedule[i] = { ...schedule[i], from: fromTime, to: toTime } })
+    }
+  }
+
+  // Handle "weekends" shorthand
+  if (/\bweekends?\b/i.test(lower)) {
+    const range = lower.match(/weekends?\b[\s\S]*?from\s+(\d[\d:\sampm]*?)\s*(?:[-–to]+\s*)(\d[\d:\sampm]*?)/i)
+    if (range) {
+      const fromTime = parseTime(range[1])
+      const toTime = parseTime(range[2])
+      ;[5, 6].forEach(i => { schedule[i] = { ...schedule[i], from: fromTime, to: toTime } })
+    }
+  }
+
+  // Find range patterns like "Monday to Friday from 10 AM to 6 PM"
+  const rangeR = /(\w+)\s*(?:\s*[-–to]+\s*|,\s*)(\w+)\s*(?:from|at)?\s*(\d[\d:\sampm]*?)\s*(?:[-–to]+\s*)(\d[\d:\sampm]*?)(?:\s*,|\s*and|$)/gi
+  let m: RegExpExecArray | null
+  while ((m = rangeR.exec(lower)) !== null) {
+    const fromIdx = dayIndex(m[1])
+    const toIdx = dayIndex(m[2])
+    if (fromIdx < 0 || toIdx < 0) continue
+    const openTime = parseTime(m[3])
+    const closeTime = parseTime(m[4])
+    for (let i = fromIdx; i <= toIdx; i++) {
+      schedule[i] = { ...schedule[i], from: openTime, to: closeTime }
+    }
+  }
+
+  // Find single day patterns like "Saturday from 10 AM to 3 PM"
+  const singleR = /(\w+)\s+(?:from|at)\s+(\d[\d:\sampm]*?)\s*(?:[-–to]+\s*)(\d[\d:\sampm]*?)(?:\s*,|\s*and|$)/gi
+  let s: RegExpExecArray | null
+  while ((s = singleR.exec(lower)) !== null) {
+    const idx = dayIndex(s[1])
+    if (idx < 0) continue
+    schedule[idx] = { ...schedule[idx], from: parseTime(s[2]), to: parseTime(s[3]) }
+  }
+
+  return schedule
 }
 
 function isSetupAssistantSection(value: string): value is SetupAssistantSection {
@@ -125,19 +214,20 @@ function fallbackMockResponse(input: SetupAssistantTurnInput): SetupAssistantRaw
     }
   }
   if (section === "hours") {
-    const tzMatch = text.match(/(America\/[A-Za-z_]+|PST|PDT|Pacific\s*Time|EST|EDT|Eastern\s*Time|CST|CDT|Central\s*Time|MST|MDT|Mountain\s*Time|HST|AKST|UTC[+-]\d+)/i)
+    const tzMatch = text.match(/(America\/[A-Za-z_]+|PST|PDT|Pacific\s*Time|EST|EDT|Eastern\s*Time|CST|CDT|Central\s*Time|MST|MDT|Mountain\s*Time|HST|AKST|UTC[+-]\d+|Asia\/[A-Za-z_]+|\+\d{2}:\d{2})/i)
     const timezone = tzMatch
       ? normalizeTimezone(tzMatch[1])
       : "America/Los_Angeles"
-    const hasSchedule = /\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(text)
-    const hasAllFields = hasSchedule && tzMatch
+    const hasSchedule = /\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekdays?|weekends?)\b/i.test(text)
+    const schedule = hasSchedule ? buildMockSchedule(text) : []
+    const hasAllFields = schedule.length > 0 && tzMatch
     return {
       reply: hasAllFields
         ? `Got it. I saved your business hours and timezone (${timezone}). Next, what services do you offer and what are your starting prices?`
         : `Logged those hours. I'll set the timezone to ${timezone} unless you tell me otherwise. Continue?`,
       section,
       action: hasAllFields ? "advance" : "ask",
-      captured: { hours: { timezone } },
+      captured: { hours: { timezone, schedule, open247: false } },
       concerns: [],
     }
   }
