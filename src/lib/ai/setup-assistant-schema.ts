@@ -183,7 +183,7 @@ export type KnowledgeBaseFaq = z.infer<typeof faqSchema>
 
 export const emptyKnowledgeBase = (): KnowledgeBase => ({
   version: 1,
-  business: { name: undefined, website: undefined, addresses: [], afterHoursPolicy: "pending" },
+  business: { name: "", website: "", addresses: [], afterHoursPolicy: "pending" },
   hours: {
     timezone: "America/Los_Angeles",
     schedule: [],
