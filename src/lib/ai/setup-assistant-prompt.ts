@@ -53,7 +53,7 @@ const SECTION_FIELD_GUIDANCE: Record<SetupAssistantSectionKey, string> = {
 - business_type (optional) — e.g., "single-location med spa", "multi-location". Capture if the owner mentions it.
 - afterHoursPolicy: a short sentence describing what happens after hours (e.g., "We capture leads and follow up the next business morning."). If the owner says "skip" or "I don't know", set status to "pending".`,
   hours: `
-- timezone: IANA tz string (default "America/Los_Angeles")
+- timezone: IANA tz string (default "America/Los_Angeles"). Extract timezone from common formats: "PST" / "Pacific Time" → "America/Los_Angeles", "EST" / "Eastern Time" → "America/New_York", "CST" / "Central Time" → "America/Chicago", "MST" / "Mountain Time" → "America/Denver", "HST" → "Pacific/Honolulu", "AKST" → "America/Anchorage". UTC offsets like "UTC-5" → "America/New_York". If the owner explicitly states a timezone, ALWAYS capture it — do NOT ask for it again.
 - open247: boolean (true if the spa is 24/7)
 - schedule: array of exactly 7 entries, one per day Mon..Sun
     { day: "Mon"|"Tue"|...|"Sun", open: boolean, from: "HH:MM", to: "HH:MM" }
@@ -170,25 +170,51 @@ Correct response:
   "concerns": []
 }
 
-# Worked example — Hours (user replied with hours inline)
-Owner: "Our spa is Glow Aesthetics. We're at 123 Main St, San Francisco. We close at 7pm weekdays and 5pm Saturdays, closed Sunday. After hours we just take messages."
-You respond:
+# Worked example — Hours with timezone inline
+User: "We are open Monday to Friday from 10 AM to 6 PM, Saturday from 10 AM to 3 PM, and closed on Sunday. Our timezone is America/Los_Angeles."
+Correct response:
 {
-  "reply": "Got it — Glow Aesthetics in San Francisco, weekdays 9–7 and Saturday 10–5, closed Sunday. What timezone should the AI use?",
+  "reply": "Got it. I saved your business hours and timezone (America/Los_Angeles). Next, what services do you offer and what are your starting prices?",
   "section": "hours",
-  "action": "ask",
+  "action": "advance",
   "captured": {
     "hours": {
+      "timezone": "America/Los_Angeles",
+      "open247": false,
       "schedule": [
-        { "day": "Mon", "open": true,  "from": "09:00", "to": "19:00" },
-        { "day": "Tue", "open": true,  "from": "09:00", "to": "19:00" },
-        { "day": "Wed", "open": true,  "from": "09:00", "to": "19:00" },
-        { "day": "Thu", "open": true,  "from": "09:00", "to": "19:00" },
-        { "day": "Fri", "open": true,  "from": "09:00", "to": "19:00" },
-        { "day": "Sat", "open": true,  "from": "10:00", "to": "17:00" },
+        { "day": "Mon", "open": true, "from": "10:00", "to": "18:00" },
+        { "day": "Tue", "open": true, "from": "10:00", "to": "18:00" },
+        { "day": "Wed", "open": true, "from": "10:00", "to": "18:00" },
+        { "day": "Thu", "open": true, "from": "10:00", "to": "18:00" },
+        { "day": "Fri", "open": true, "from": "10:00", "to": "18:00" },
+        { "day": "Sat", "open": true, "from": "10:00", "to": "15:00" },
         { "day": "Sun", "open": false, "from": "09:00", "to": "17:00" }
-      ],
-      "afterHoursMessage": "We capture leads after hours and follow up the next business morning."
+      ]
+    }
+  },
+  "concerns": []
+}
+
+# Worked example — Timezone in abbreviation format
+User: "We're open weekdays 9-5 and weekends 10-4, Pacific Time."
+Correct response:
+{
+  "reply": "Got it. I saved your hours and timezone (America/Los_Angeles). What services do you offer?",
+  "section": "hours",
+  "action": "advance",
+  "captured": {
+    "hours": {
+      "timezone": "America/Los_Angeles",
+      "open247": false,
+      "schedule": [
+        { "day": "Mon", "open": true, "from": "09:00", "to": "17:00" },
+        { "day": "Tue", "open": true, "from": "09:00", "to": "17:00" },
+        { "day": "Wed", "open": true, "from": "09:00", "to": "17:00" },
+        { "day": "Thu", "open": true, "from": "09:00", "to": "17:00" },
+        { "day": "Fri", "open": true, "from": "09:00", "to": "17:00" },
+        { "day": "Sat", "open": true, "from": "10:00", "to": "16:00" },
+        { "day": "Sun", "open": true, "from": "10:00", "to": "16:00" }
+      ]
     }
   },
   "concerns": []
@@ -204,7 +230,7 @@ export function buildSetupAssistantUserTurn(input: SetupAssistantTurnInput): str
   const { history, userMessage, currentSection, draft, ownerName, spaName } = input
   const isFirst = !history.some(m => m.role === "user")
   const intro = isFirst
-    ? `This is the first user message. The user may provide MULTIPLE fields at once. Extract ALL the information they give (business name, website, address, business type, etc.) and save it in "captured". If they gave you all required fields for this section, set action to "advance" and ask about the next section. NEVER ask for a field the user just provided — only ask for missing required fields that were NOT mentioned.`
+    ? `This is the first user message. The user may provide MULTIPLE fields at once. Extract ALL the information they give (business name, website, address, business type, hours, timezone, etc.) and save it in "captured". If they gave you all required fields for this section, set action to "advance" and ask about the next section. NEVER ask for a field the user just provided — only ask for missing required fields that were NOT mentioned.`
     : `Stay strictly on the "${currentSection}" section. Do not jump ahead.`
 
   const draftExcerpt = excerptDraft(draft, currentSection)

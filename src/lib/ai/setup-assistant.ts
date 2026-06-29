@@ -38,6 +38,41 @@ export type SetupAssistantTurnResult = {
 const FALLBACK_REPLY =
   "Sorry, I had a hiccup processing that. Could you rephrase or share the detail again?"
 
+function normalizeTimezone(tz: string): string {
+  const map: Record<string, string> = {
+    "pst": "America/Los_Angeles",
+    "pdt": "America/Los_Angeles",
+    "pacific time": "America/Los_Angeles",
+    "pacific": "America/Los_Angeles",
+    "est": "America/New_York",
+    "edt": "America/New_York",
+    "eastern time": "America/New_York",
+    "eastern": "America/New_York",
+    "cst": "America/Chicago",
+    "cdt": "America/Chicago",
+    "central time": "America/Chicago",
+    "central": "America/Chicago",
+    "mst": "America/Denver",
+    "mdt": "America/Denver",
+    "mountain time": "America/Denver",
+    "mountain": "America/Denver",
+    "hst": "Pacific/Honolulu",
+    "akst": "America/Anchorage",
+    "akdt": "America/Anchorage",
+    "utc": "Etc/UTC",
+    "gmt": "Etc/GMT",
+  }
+  const key = tz.toLowerCase().trim()
+  const mapped = map[key]
+  if (mapped) return mapped
+  if (/^utc[+-]\d+$/i.test(tz)) {
+    const offset = parseInt(tz.replace(/^UTC[+-]/, ""), 10)
+    if (offset <= 0) return `Etc/GMT${offset === 0 ? "" : "+" + Math.abs(offset)}`
+    return `Etc/GMT-${offset}`
+  }
+  return tz
+}
+
 function isSetupAssistantSection(value: string): value is SetupAssistantSection {
   return (SETUP_ASSISTANT_SECTIONS as readonly string[]).includes(value)
 }
@@ -90,11 +125,19 @@ function fallbackMockResponse(input: SetupAssistantTurnInput): SetupAssistantRaw
     }
   }
   if (section === "hours") {
+    const tzMatch = text.match(/(America\/[A-Za-z_]+|PST|PDT|Pacific\s*Time|EST|EDT|Eastern\s*Time|CST|CDT|Central\s*Time|MST|MDT|Mountain\s*Time|HST|AKST|UTC[+-]\d+)/i)
+    const timezone = tzMatch
+      ? normalizeTimezone(tzMatch[1])
+      : "America/Los_Angeles"
+    const hasSchedule = /\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(text)
+    const hasAllFields = hasSchedule && tzMatch
     return {
-      reply: "Logged those hours. I'll set the timezone to America/Los_Angeles unless you tell me otherwise. Continue?",
+      reply: hasAllFields
+        ? `Got it. I saved your business hours and timezone (${timezone}). Next, what services do you offer and what are your starting prices?`
+        : `Logged those hours. I'll set the timezone to ${timezone} unless you tell me otherwise. Continue?`,
       section,
-      action: "ask",
-      captured: { hours: { timezone: "America/Los_Angeles" } },
+      action: hasAllFields ? "advance" : "ask",
+      captured: { hours: { timezone } },
       concerns: [],
     }
   }
