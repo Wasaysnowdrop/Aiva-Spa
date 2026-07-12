@@ -32,22 +32,21 @@ export default async function EmbedPage({
   const resolvedSpaId = h.get("x-resolved-spa-id")
   const spaId = resolvedSpaId || routeSpaId
 
-  const [kbResult, accessResult] = await Promise.allSettled([
-    loadKnowledge(),
-    checkEmbedAccess(spaId),
-  ])
-
-  const kb = kbResult.status === "fulfilled" ? kbResult.value : null
-  const access =
-    accessResult.status === "fulfilled"
-      ? accessResult.value
-      : { ok: false as const, reason: "not_found" as const }
-
-  if (accessResult.status === "rejected") {
-    console.error("[embed] checkEmbedAccess threw", accessResult.reason)
+  let access: Awaited<ReturnType<typeof checkEmbedAccess>>
+  try {
+    access = await checkEmbedAccess(spaId)
+  } catch (error) {
+    console.error("[embed] checkEmbedAccess threw", error)
+    access = { ok: false, reason: "not_found" }
   }
-  if (kbResult.status === "rejected") {
-    console.error("[embed] loadKnowledge threw", kbResult.reason)
+
+  let kb: Awaited<ReturnType<typeof loadKnowledge>> | null = null
+  if (access.ok) {
+    try {
+      kb = await loadKnowledge(access.userId)
+    } catch (error) {
+      console.error("[embed] loadKnowledge threw", error)
+    }
   }
 
   if (!access.ok) {

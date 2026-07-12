@@ -3,7 +3,7 @@ import { buildSystemPrompt } from "./prompt"
 import { loadKnowledge, invalidateKnowledgeCache } from "./retrieval"
 import { isAfterHours } from "./working-hours"
 import { detectHumanGreeting } from "./greetings"
-import { kbAwareFallback } from "./fallback"
+import { isUnknownServiceQuestion, kbAwareFallback } from "./fallback"
 import type { KnowledgeBundle } from "./retrieval"
 import {
   buildLanguageDirective,
@@ -19,13 +19,14 @@ export type ConversationTurnInput = {
   message: string
   history?: { role: "visitor" | "user" | "assistant" | "ai"; content: string }[]
   spaId?: string
+  userId?: string
   language?: LanguageCode | null
 }
 
 export type ConversationTurnResult = {
   reply: string
   model: string
-  provider: "cloudflare" | "mock" | "deterministic"
+  provider: "nara" | "mock" | "deterministic"
   isFirstReply: boolean
   afterHours: boolean
   durationMs: number
@@ -52,7 +53,7 @@ export async function runConversationTurn(
     messageLength: input.message?.length ?? 0,
     historyLength: input.history?.length ?? 0,
   })
-  const kb = await loadKnowledge()
+  const kb = await loadKnowledge(input.userId)
   console.log("[chat] Knowledge Base loaded", {
     services: kb.services.length,
     faqs: kb.faqs.length,
@@ -84,6 +85,17 @@ export async function runConversationTurn(
   }
 
   const { system, retrieved } = buildSystemPrompt(kb, input.message)
+  if (retrieved.length === 0 && isUnknownServiceQuestion(input.message)) {
+    return {
+      reply: kbAwareFallback(input.message, kb),
+      model: "aiva-kb-guard",
+      provider: "deterministic",
+      isFirstReply,
+      afterHours,
+      durationMs: Date.now() - start,
+      retrievedIds: [],
+    }
+  }
   console.log("[chat] Prompt generated", {
     systemLength: system.length,
     retrievedCount: retrieved.length,
@@ -104,7 +116,7 @@ export async function runConversationTurn(
     messageCount: messages.length,
     temperature: 0.7,
   })
-  const result = await llmChat({ messages, options: { temperature: 0.7, maxTokens: 800, timeoutMs: 20_000 } })
+  const result = await llmChat({ messages, fallbackKnowledge: kb, options: { temperature: 0.7, maxTokens: 800, timeoutMs: 20_000 } })
   console.log("[chat] AI response received", {
     model: result.model,
     provider: result.provider,
@@ -236,7 +248,7 @@ export async function streamConversationTurn(
   input: StreamConversationInput,
 ): Promise<ConversationTurnResult> {
   const start = Date.now()
-  const kb = await loadKnowledge()
+  const kb = await loadKnowledge(input.userId)
   const history = mapHistory(input.history)
   const isFirstReply = !input.history || input.history.length === 0
   const afterHours = isAfterHours(kb.widget.workingHours)
@@ -260,6 +272,19 @@ export async function streamConversationTurn(
   }
 
   const { system, retrieved } = buildSystemPrompt(kb, input.message)
+  if (retrieved.length === 0 && isUnknownServiceQuestion(input.message)) {
+    const reply = kbAwareFallback(input.message, kb)
+    input.onChunk(reply)
+    return {
+      reply,
+      model: "aiva-kb-guard",
+      provider: "deterministic",
+      isFirstReply,
+      afterHours,
+      durationMs: Date.now() - start,
+      retrievedIds: [],
+    }
+  }
   const languageDirective =
     input.language && isSupportedLanguage(input.language)
       ? buildLanguageDirective(input.language)
@@ -276,7 +301,7 @@ export async function streamConversationTurn(
   let pending = ""
   let inThink = false
   let modelName = "unknown"
-  let providerName: "cloudflare" | "mock" | "deterministic" = "cloudflare"
+  let providerName: "nara" | "mock" | "deterministic" = "nara"
   let streamed = false
   let fallbackInjected = false
 
@@ -297,6 +322,7 @@ export async function streamConversationTurn(
   try {
     for await (const ev of streamLlmChat({
       messages,
+      fallbackKnowledge: kb,
       options: { temperature: 0.7, maxTokens: 800, timeoutMs: 20_000 },
     })) {
       if (ev.type === "chunk") {
@@ -375,7 +401,7 @@ export async function streamConversationTurn(
 // Deterministic canned reply used when the LLM is unavailable. KB-aware:
 // looks up the visitor's actual message against the spa's services + FAQs
 // (using the same retrieval the LLM would use), so even when the model is
-// down or `CLOUDFLARE_API_TOKEN` is empty the visitor gets a relevant answer —
+// down or `NARA_API_KEY` is empty the visitor gets a relevant answer —
 // or a polite, grounded refusal if the question is clearly out of scope.
 // All this runs synchronously against the cached KB (60s TTL), so the reply
 // is delivered instantly with no model latency.

@@ -40,6 +40,18 @@ const UNKNOWN_SERVICE_HINTS = [
   /\b(weight loss|ozempic|semaglutide|phentermine|cool sculpting|coolsculpting|keto|diet pill)\b/i,
 ]
 
+const NAMED_SERVICE_QUESTION_RE =
+  /\b(do you (offer|have|do)|is .{2,80} (available|offered)|tell me about|benefits? of|downtime (for|of)|price (for|of))\b/i
+
+const GENERIC_SERVICE_LIST_RE =
+  /\b(what (services|treatments|offerings?)|what do you offer|list (your )?(services|treatments)|all (the )?(services|treatments|offerings?))\b/i
+
+export function isUnknownServiceQuestion(message: string): boolean {
+  const text = (message || "").trim()
+  if (GENERIC_SERVICE_LIST_RE.test(text)) return false
+  return NAMED_SERVICE_QUESTION_RE.test(text)
+}
+
 const BOOKING_RE = /\b(book|booking|appointment|consult(ation)?|schedule|reserve|reserved|availability)\b/i
 const PRICING_RE = /\b(price|pricing|cost|how much|expensive|cheap|afford|rate|fee)\b/i
 const HOURS_RE = /\b(hours?|open|close|opening|closing|when (are|do)|what time)\b/i
@@ -113,6 +125,13 @@ export function kbAwareFallback(
     return sanitizeReply(
       `Yes — ${svc.name} is one of our treatments.${desc} Pricing is confirmed at consultation by a licensed provider. Let me know if you'd like pricing information or have any other questions about it!`,
     )
+  }
+
+  // A named treatment/service question with no KB match must never fall
+  // through to a generic service. That would make an unrelated approved
+  // treatment look like the answer to the visitor's question.
+  if (isUnknownServiceQuestion(text)) {
+    return buildUnknownServiceReply(kb)
   }
 
   // 6. Booking intent — never confirm; always request-submit language.

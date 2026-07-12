@@ -7,7 +7,7 @@ export type SystemHealth = {
   realtime: "ok" | "degraded" | "down"
   llm: "ok" | "degraded" | "down"
   uptimeSeconds: number
-  cloudflareConfigured: boolean
+  naraConfigured: boolean
   resendConfigured: boolean
   twilioConfigured: boolean
   customCalendarConfigured: boolean
@@ -201,7 +201,7 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     /* ignore */
   }
 
-  const llmConfigured = Boolean(process.env.CLOUDFLARE_API_TOKEN?.trim())
+  const llmConfigured = Boolean(process.env.NARA_API_KEY?.trim())
   if (!llmConfigured) checks.llm = "down"
 
   return {
@@ -210,7 +210,7 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     realtime: checks.realtime,
     llm: checks.llm,
     uptimeSeconds: Math.floor((Date.now() - BOOT_TIME) / 1000),
-    cloudflareConfigured: llmConfigured,
+    naraConfigured: llmConfigured,
     resendConfigured: Boolean(process.env.RESEND_API_KEY?.trim()),
     twilioConfigured: Boolean(
       process.env.TWILIO_ACCOUNT_SID?.trim() && process.env.TWILIO_AUTH_TOKEN?.trim() && process.env.TWILIO_FROM_NUMBER?.trim(),

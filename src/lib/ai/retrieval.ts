@@ -29,7 +29,7 @@ export type KnowledgeBundle = {
   fetchedAt: number
 }
 
-let cache: KnowledgeBundle | null = null
+const cache = new Map<string, KnowledgeBundle>()
 const CACHE_TTL_MS = 60_000
 
 const FALLBACK_WIDGET: WidgetConfig = {
@@ -68,10 +68,12 @@ function parseExtendedKb(raw: unknown): ExtendedKnowledgeBase {
   return { ...merged, source: "fresh" }
 }
 
-export async function loadKnowledge(): Promise<KnowledgeBundle> {
+export async function loadKnowledge(userId?: string): Promise<KnowledgeBundle> {
   const now = Date.now()
-  if (cache && now - cache.fetchedAt < CACHE_TTL_MS) {
-    return cache
+  const cacheKey = userId || "global"
+  const cached = cache.get(cacheKey)
+  if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
+    return cached
   }
   const admin = createAdminClient()
   console.log("[retrieval] loading knowledge base from Supabase", {
@@ -86,10 +88,13 @@ export async function loadKnowledge(): Promise<KnowledgeBundle> {
   // respond with safe canned replies. The visitor never sees a blank
   // bubble because of a slow DB.
   const KB_LOAD_TIMEOUT_MS = 4_000
+  const servicesQuery = admin.from("knowledge_services").select("*").order("name")
+  const faqsQuery = admin.from("knowledge_faqs").select("*").order("created_at")
+  const guardrailsQuery = admin.from("knowledge_guardrails").select("*").order("created_at")
   const loadPromise = Promise.all([
-    admin.from("knowledge_services").select("*").order("name"),
-    admin.from("knowledge_faqs").select("*").order("created_at"),
-    admin.from("knowledge_guardrails").select("*").order("created_at"),
+    userId ? servicesQuery.eq("user_id", userId) : servicesQuery,
+    userId ? faqsQuery.eq("user_id", userId) : faqsQuery,
+    userId ? guardrailsQuery.eq("user_id", userId) : guardrailsQuery,
     admin.from("widget_config").select("*").limit(1).maybeSingle(),
   ])
   const timeoutPromise = new Promise<never>((_, reject) =>
@@ -136,14 +141,32 @@ export async function loadKnowledge(): Promise<KnowledgeBundle> {
 
   // Defensive defaults: never assume the rows exist. A null/empty result
   // becomes an empty array so downstream code can iterate safely.
-  const services = (Array.isArray(servicesRes.data) ? servicesRes.data : []).map(
-    (r) => mapKnowledgeService(r as Record<string, unknown>),
+  const uniqueBy = <T>(rows: T[], key: (row: T) => string): T[] => {
+    const seen = new Set<string>()
+    return rows.filter((row) => {
+      const value = key(row).trim().toLowerCase()
+      if (!value || seen.has(value)) return false
+      seen.add(value)
+      return true
+    })
+  }
+  const services = uniqueBy(
+    (Array.isArray(servicesRes.data) ? servicesRes.data : []).map((r) =>
+      mapKnowledgeService(r as Record<string, unknown>),
+    ),
+    (service) => service.name,
   )
-  const faqs = (Array.isArray(faqsRes.data) ? faqsRes.data : []).map((r) =>
-    mapKnowledgeFaq(r as Record<string, unknown>),
+  const faqs = uniqueBy(
+    (Array.isArray(faqsRes.data) ? faqsRes.data : []).map((r) =>
+      mapKnowledgeFaq(r as Record<string, unknown>),
+    ),
+    (faq) => faq.question,
   )
-  const guardrails = (Array.isArray(guardrailsRes.data) ? guardrailsRes.data : []).map(
-    (r) => mapKnowledgeGuardrail(r as Record<string, unknown>),
+  const guardrails = uniqueBy(
+    (Array.isArray(guardrailsRes.data) ? guardrailsRes.data : []).map((r) =>
+      mapKnowledgeGuardrail(r as Record<string, unknown>),
+    ),
+    (guardrail) => `${guardrail.title}|${guardrail.body}`,
   )
   const widget = widgetRes.data
     ? mapWidgetConfig(widgetRes.data as Record<string, unknown>)
@@ -158,12 +181,13 @@ export async function loadKnowledge(): Promise<KnowledgeBundle> {
     brand: widget.brandName,
   })
 
-  cache = { services, faqs, guardrails, widget, extendedKb, fetchedAt: now }
-  return cache
+  const bundle = { services, faqs, guardrails, widget, extendedKb, fetchedAt: now }
+  cache.set(cacheKey, bundle)
+  return bundle
 }
 
 export function invalidateKnowledgeCache() {
-  cache = null
+  cache.clear()
 }
 
 const STOP_WORDS = new Set([
@@ -213,6 +237,24 @@ const STOP_WORDS = new Set([
   "could",
   "would",
   "should",
+  "offer",
+  "offers",
+  "offering",
+  "service",
+  "services",
+  "treatment",
+  "treatments",
+  "price",
+  "pricing",
+  "cost",
+  "benefit",
+  "benefits",
+  "downtime",
+  "approved",
+  "information",
+  "tell",
+  "only",
+  "exact",
 ])
 
 function tokenize(text: string): string[] {

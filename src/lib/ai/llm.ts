@@ -1,5 +1,5 @@
 import { kbAwareFallback } from "./fallback"
-import { loadKnowledge } from "./retrieval"
+import { loadKnowledge, type KnowledgeBundle } from "./retrieval"
 
 export type ChatRole = "system" | "user" | "assistant" | "tool"
 
@@ -20,6 +20,7 @@ export type LlmOptions = {
 export type LlmChatInput = {
   messages: ChatMessage[]
   responseFormat?: { type: "json_object" | "text" }
+  fallbackKnowledge?: KnowledgeBundle
   options?: LlmOptions
 }
 
@@ -27,44 +28,40 @@ export type LlmChatResult = {
   content: string
   model: string
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number }
-  provider: "cloudflare" | "mock"
+  provider: "nara" | "mock"
 }
 
-export type LlmProvider = "cloudflare" | "mock"
+export type LlmProvider = "nara" | "mock"
 
-// Koi API token nahi hai to yeh wrong hoga — but Cloudflare pe account ID fix hai
-const CLOUDFLARE_ACCOUNT_ID = "0c5413cf333f59befff997713951733a"
-const CLOUDFLARE_API_BASE = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1`
-const DEFAULT_CLOUDFLARE_MODEL = "@cf/meta/llama-3.2-3b-instruct"
+const DEFAULT_NARA_API_BASE_URL = "https://router.bynara.id/v1"
+const DEFAULT_NARA_MODEL = "mistral-medium-3-5"
 const DEFAULT_MOCK_MODEL = "aiva-mock-1"
 // Tight per-request timeouts: chat UX must feel snappy. The LLM usually
 // finishes in ~1-3s on fast models; GLM-5.2 with CoT can take 8-15s,
 // so we use a conservative budget before falling back to the canned reply.
 const DEFAULT_REQUEST_TIMEOUT_MS = 20_000
-const FALLBACK_TIMEOUT_MS = 15_000
-const FALLBACK_MODEL = "@cf/meta/llama-3.2-3b-instruct"
 
 export function resolveLlmProvider(): LlmProvider {
-  const token = process.env.CLOUDFLARE_API_TOKEN
+  const token = process.env.NARA_API_KEY
   if (token && token.trim().length > 0) {
-    return "cloudflare"
+    return "nara"
   }
   return "mock"
 }
 
-function getCloudflareConfig() {
+function getNaraConfig() {
   return {
-    apiToken: process.env.CLOUDFLARE_API_TOKEN,
-    baseUrl: CLOUDFLARE_API_BASE,
-    model: process.env.CLOUDFLARE_MODEL || DEFAULT_CLOUDFLARE_MODEL,
+    apiKey: process.env.NARA_API_KEY,
+    baseUrl: (process.env.NARA_API_BASE_URL || DEFAULT_NARA_API_BASE_URL).replace(/\/$/, ""),
+    model: process.env.NARA_MODEL || DEFAULT_NARA_MODEL,
   }
 }
 
 export async function llmChat(input: LlmChatInput): Promise<LlmChatResult> {
   const provider = resolveLlmProvider()
-  if (provider === "cloudflare") {
+  if (provider === "nara") {
     try {
-      const result = await callCloudflareWithFallback(input)
+      const result = await callNara(input)
       if (!result.content || !result.content.trim()) {
         console.warn("LLM returned empty content, serving canned reply")
         return gracefulFallback(input)
@@ -81,6 +78,12 @@ export async function llmChat(input: LlmChatInput): Promise<LlmChatResult> {
     }
   }
   return callMock(input)
+}
+
+function loadFallbackKnowledge(input: LlmChatInput): Promise<KnowledgeBundle> {
+  return input.fallbackKnowledge
+    ? Promise.resolve(input.fallbackKnowledge)
+    : loadKnowledge()
 }
 
 function gracefulFallback(input: LlmChatInput): Promise<LlmChatResult> {
@@ -112,7 +115,7 @@ function gracefulFallback(input: LlmChatInput): Promise<LlmChatResult> {
   const GREETING_LEAD =
     /^(hi|hey|hello|hola|howdy|yo|good\s+(morning|afternoon|evening|night))[\s.!?,\-;:)][\s\S]/i
   if (GREETING_LEAD.test(userText)) {
-    return loadKnowledge()
+    return loadFallbackKnowledge(input)
       .then((kb) => ({
         content: `Hey! ${kbAwareFallback(userText, kb)}`,
         model: "aiva-fallback",
@@ -138,7 +141,7 @@ function gracefulFallback(input: LlmChatInput): Promise<LlmChatResult> {
   // a service-anchored clarification. Synchronous against the cached KB,
   // so the reply lands instantly instead of a generic canned opener.
   // `loadKnowledge` has a 60s in-memory cache so this is cheap.
-  return loadKnowledge()
+  return loadFallbackKnowledge(input)
     .then((kb) => ({
       content: kbAwareFallback(userText, kb),
       model: "aiva-fallback",
@@ -151,37 +154,13 @@ function gracefulFallback(input: LlmChatInput): Promise<LlmChatResult> {
     }))
 }
 
-async function callCloudflareWithFallback(input: LlmChatInput): Promise<LlmChatResult> {
-  const cfg = getCloudflareConfig()
-  if (!cfg.apiToken) throw new Error("CLOUDFLARE_API_TOKEN is not set")
 
-  const requestedModel = input.options?.model || cfg.model
+
+async function callNara(input: LlmChatInput): Promise<LlmChatResult> {
+  const cfg = getNaraConfig()
+  if (!cfg.apiKey) throw new Error("NARA_API_KEY is not set")
+  const modelName = input.options?.model || cfg.model
   const timeoutMs = input.options?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
-
-  try {
-    return await callCloudflare(input, requestedModel, timeoutMs)
-  } catch (err) {
-    const isTimeout = err instanceof Error && /aborted|timeout/i.test(err.message)
-    if (!isTimeout || requestedModel === FALLBACK_MODEL) {
-      throw err
-    }
-    console.warn(
-      `LLM call to ${requestedModel} failed (${err instanceof Error ? err.message : "unknown"}), retrying with ${FALLBACK_MODEL}`,
-    )
-    return callCloudflare(
-      { ...input, options: { ...input.options, signal: undefined } },
-      FALLBACK_MODEL,
-      FALLBACK_TIMEOUT_MS,
-    )
-  }
-}
-
-async function callCloudflare(
-  input: LlmChatInput,
-  modelName: string,
-  timeoutMs: number,
-): Promise<LlmChatResult> {
-  const cfg = getCloudflareConfig()
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
   const signal = input.options?.signal ?? controller.signal
@@ -203,7 +182,7 @@ async function callCloudflare(
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${cfg.apiToken}`,
+        authorization: `Bearer ${cfg.apiKey}`,
       },
       body: JSON.stringify(body),
       signal,
@@ -211,7 +190,7 @@ async function callCloudflare(
 
     if (!res.ok) {
       const err = await res.text().catch(() => "")
-      throw new Error(`Cloudflare API request failed (${res.status}): ${err.slice(0, 200)}`)
+      throw new Error(`Nara API request failed (${res.status}): ${err.slice(0, 200)}`)
     }
 
     const data = (await res.json()) as {
@@ -224,10 +203,8 @@ async function callCloudflare(
       usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
     }
 
-    // Cloudflare Workers AI can return in three shapes:
-    // 1. OpenAI-compatible { choices: [{ message: { content } }] }
-    // 2. Native Workers AI { result: { response } }
-    // 3. GLM-5.2 style { choices: [{ message: { content, reasoning_content } }] }
+    // Nara returns the standard OpenAI-compatible response shape:
+    // { choices: [{ message: { content } }] }
     let content = ""
     if (data.choices?.[0]?.message?.content) {
       content = data.choices[0].message.content
@@ -246,7 +223,7 @@ async function callCloudflare(
             totalTokens: data.usage.total_tokens ?? 0,
           }
         : undefined,
-      provider: "cloudflare",
+      provider: "nara",
     }
   } finally {
     clearTimeout(timeout)
@@ -277,7 +254,7 @@ function callMock(input: LlmChatInput): Promise<LlmChatResult> {
   const GREETING_LEAD =
     /^(hi|hey|hello|hola|howdy|yo|good\s+(morning|afternoon|evening|night))[\s.!?,\-;:)][\s\S]/i
   if (GREETING_LEAD.test(userText)) {
-    return loadKnowledge()
+    return loadFallbackKnowledge(input)
       .then((kb) => ({
         content: `Hey! ${kbAwareFallback(userText, kb)}`,
         model: DEFAULT_MOCK_MODEL,
@@ -308,10 +285,10 @@ function callMock(input: LlmChatInput): Promise<LlmChatResult> {
   }
 
   // Everything else: route through the KB-aware fallback. This guarantees
-  // that even when `CLOUDFLARE_API_TOKEN` is empty (so `callMock` is the entire
+  // that even when `NARA_API_KEY` is empty (so `callMock` is the entire
   // engine) the visitor gets a relevant answer from the spa's knowledge
   // base — or a polite, KB-grounded refusal if the question is off-topic.
-  return loadKnowledge()
+  return loadFallbackKnowledge(input)
     .then((kb) => ({
       content: kbAwareFallback(userText, kb),
       model: DEFAULT_MOCK_MODEL,
@@ -338,18 +315,18 @@ export type StreamOptions = Omit<LlmOptions, "maxTokens"> & {
 
 export type StreamEvent =
   | { type: "chunk"; text: string }
-  | { type: "done"; model: string; provider: "cloudflare" | "mock" }
+  | { type: "done"; model: string; provider: "nara" | "mock" }
   | { type: "error"; message: string }
 
 export type LlmStreamHandle = AsyncIterable<StreamEvent>
 
 export async function* streamLlmChat(input: LlmChatInput): LlmStreamHandle {
-  const cfg = getCloudflareConfig()
+  const cfg = getNaraConfig()
   const provider = resolveLlmProvider()
   const modelName = input.options?.model || cfg.model
   const timeoutMs = input.options?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
 
-  if (provider !== "cloudflare" || !cfg.apiToken) {
+  if (provider !== "nara" || !cfg.apiKey) {
     const r = callMock(input)
     const text = (await r).content
     yield { type: "chunk", text }
@@ -367,7 +344,7 @@ export async function* streamLlmChat(input: LlmChatInput): LlmStreamHandle {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${cfg.apiToken}`,
+        authorization: `Bearer ${cfg.apiKey}`,
       },
       body: JSON.stringify({
         model: modelName,
@@ -396,7 +373,7 @@ export async function* streamLlmChat(input: LlmChatInput): LlmStreamHandle {
     const errText = await res.text().catch(() => "")
     yield {
       type: "error",
-      message: `Cloudflare stream failed (${res.status}): ${errText.slice(0, 200)}`,
+      message: `Nara stream failed (${res.status}): ${errText.slice(0, 200)}`,
     }
     return
   }
@@ -448,5 +425,5 @@ export async function* streamLlmChat(input: LlmChatInput): LlmStreamHandle {
     yield { type: "error", message: "empty stream" }
     return
   }
-  yield { type: "done", model: modelName, provider: "cloudflare" }
+  yield { type: "done", model: modelName, provider: "nara" }
 }

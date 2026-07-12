@@ -216,7 +216,7 @@ async function handleStreamingChat(
       try {
         // Load KB once for brand name (needed for lead-notification email).
         // The conversation turn uses its own (cached) KB load internally.
-        const brandNameP = loadKnowledge()
+        const brandNameP = loadKnowledge(accessUserId ?? undefined)
           .then((kb) => kb.widget.brandName)
           .catch(() => "AivaSpa")
 
@@ -231,6 +231,8 @@ async function handleStreamingChat(
             sessionId: body.sessionId,
             message: body.message,
             history: body.history,
+            spaId: body.spaId,
+            userId: accessUserId ?? undefined,
             language: requestedLang ?? undefined,
             onChunk: (text) => send("chunk", { text }),
           })
@@ -368,6 +370,8 @@ async function handleBufferedChat(
         sessionId: body.sessionId,
         message: body.message,
         history: body.history,
+        spaId: body.spaId,
+        userId: accessUserId ?? undefined,
         language: requestedLang ?? undefined,
       })
     } catch (turnErr) {

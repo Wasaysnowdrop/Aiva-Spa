@@ -20,6 +20,7 @@ export type FinalizeSetupResult = {
   inserted?: {
     services: number
     faqs: number
+    guardrails: number
     widgetUpdated: boolean
     settingsUpdated: boolean
   }
@@ -142,6 +143,7 @@ export async function finalizeSetupAssistant(
     extendedKb: kb as unknown as Record<string, unknown>,
   }
 
+  const persistenceErrors: string[] = []
   let widgetUpdated = false
   try {
     const { data: existing } = await admin
@@ -163,7 +165,10 @@ export async function finalizeSetupAssistant(
         .update(snake as never)
         .eq("id", (existing as { id: string }).id)
       if (!error) widgetUpdated = true
-      else console.warn("widget_config update failed", error.message)
+      else {
+        persistenceErrors.push(`widget_config: ${error.message}`)
+        console.warn("widget_config update failed", error.message)
+      }
     } else {
       const { error } = await admin.from("widget_config").insert({
         brand_name: widget.brandName,
@@ -182,16 +187,32 @@ export async function finalizeSetupAssistant(
         extended_kb: widget.extendedKb,
       } as never)
       if (!error) widgetUpdated = true
-      else console.warn("widget_config insert failed", error.message)
+      else {
+        persistenceErrors.push(`widget_config: ${error.message}`)
+        console.warn("widget_config insert failed", error.message)
+      }
     }
   } catch (e) {
+    const message = e instanceof Error ? e.message : "unknown error"
+    persistenceErrors.push(`widget_config: ${message}`)
     console.warn("widget_config persist failed", e)
+  }
+
+  const ownedKnowledgeTables = [
+    "knowledge_services",
+    "knowledge_faqs",
+    "knowledge_guardrails",
+  ] as const
+  for (const table of ownedKnowledgeTables) {
+    const { error } = await admin.from(table).delete().eq("user_id", user.id)
+    if (error) persistenceErrors.push(`${table} cleanup: ${error.message}`)
   }
 
   let servicesInserted = 0
   if (kb.services && kb.services.length > 0) {
     try {
       const rows = kb.services.map((s) => ({
+        user_id: user.id,
         name: s.name,
         category: toServiceCategory(s.category),
         description: s.description,
@@ -206,8 +227,13 @@ export async function finalizeSetupAssistant(
         .insert(rows as never)
         .select("id")
       if (!error && Array.isArray(data)) servicesInserted = data.length
-      else if (error) console.warn("knowledge_services insert failed", error.message)
+      else if (error) {
+        persistenceErrors.push(`knowledge_services: ${error.message}`)
+        console.warn("knowledge_services insert failed", error.message)
+      }
     } catch (e) {
+      const message = e instanceof Error ? e.message : "unknown error"
+      persistenceErrors.push(`knowledge_services: ${message}`)
       console.warn("knowledge_services persist failed", e)
     }
   }
@@ -216,6 +242,7 @@ export async function finalizeSetupAssistant(
   if (kb.faqs && kb.faqs.length > 0) {
     try {
       const rows = kb.faqs.map((f) => ({
+        user_id: user.id,
         question: f.question,
         answer: f.answer,
         category: toFaqCategory(f.category),
@@ -225,10 +252,46 @@ export async function finalizeSetupAssistant(
         .insert(rows as never)
         .select("id")
       if (!error && Array.isArray(data)) faqsInserted = data.length
-      else if (error) console.warn("knowledge_faqs insert failed", error.message)
+      else if (error) {
+        persistenceErrors.push(`knowledge_faqs: ${error.message}`)
+        console.warn("knowledge_faqs insert failed", error.message)
+      }
     } catch (e) {
+      const message = e instanceof Error ? e.message : "unknown error"
+      persistenceErrors.push(`knowledge_faqs: ${message}`)
       console.warn("knowledge_faqs persist failed", e)
     }
+  }
+
+  const guardrailRows = [
+    kb.disclaimers?.pricing
+      ? { title: "Pricing guidance", description: kb.disclaimers.pricing, rule_type: "pricing" }
+      : null,
+    kb.disclaimers?.medical
+      ? { title: "Medical guidance", description: kb.disclaimers.medical, rule_type: "medical" }
+      : null,
+    ...(kb.brand_voice?.avoidPhrases ?? []).map((phrase) => ({
+      title: `Avoid phrase: ${phrase}`.slice(0, 120),
+      description: `The AI must not use the phrase "${phrase}".`,
+      rule_type: "general",
+    })),
+  ].filter((row): row is { title: string; description: string; rule_type: string } => Boolean(row))
+
+  let guardrailsInserted = 0
+  if (guardrailRows.length > 0) {
+    const rows = guardrailRows.map((row) => ({
+      ...row,
+      body: row.description,
+      enabled: true,
+      is_active: true,
+      user_id: user.id,
+    }))
+    const { data, error } = await admin
+      .from("knowledge_guardrails")
+      .insert(rows as never)
+      .select("id")
+    if (!error && Array.isArray(data)) guardrailsInserted = data.length
+    else if (error) persistenceErrors.push(`knowledge_guardrails: ${error.message}`)
   }
 
   let settingsUpdated = false
@@ -265,6 +328,13 @@ export async function finalizeSetupAssistant(
     console.warn("spa_settings persist failed", e)
   }
 
+  if (persistenceErrors.length > 0) {
+    return {
+      ok: false,
+      error: `Knowledge base publish failed: ${persistenceErrors.join("; ")}`,
+    }
+  }
+
   try {
     const meta: Record<string, unknown> = {
       ...user.user_metadata,
@@ -288,7 +358,7 @@ export async function finalizeSetupAssistant(
   }
 
   invalidateKnowledgeCache()
-  recordAuditForUser(user, `onboarding.finalized services=${servicesInserted} faqs=${faqsInserted}`)
+  recordAuditForUser(user, `onboarding.finalized services=${servicesInserted} faqs=${faqsInserted} guardrails=${guardrailsInserted}`)
 
   try {
     await ensureTrialSubscription(user.id)
@@ -315,6 +385,7 @@ export async function finalizeSetupAssistant(
     inserted: {
       services: servicesInserted,
       faqs: faqsInserted,
+      guardrails: guardrailsInserted,
       widgetUpdated,
       settingsUpdated,
     },

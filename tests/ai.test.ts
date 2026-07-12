@@ -504,3 +504,24 @@ describe("kb-aware fallback (no LLM available)", () => {
     expect(reply).toMatch(/licensed provider confirms/i)
   })
 })
+
+describe("strict KB grounding", () => {
+  it("does not match a made-up treatment through generic pricing words", () => {
+    const query = "Do you offer Quantum Plasma Sculpting? Tell me its benefits, downtime, and price."
+    expect(retrieve(query, baseKb)).toEqual([])
+  })
+
+  it("refuses a made-up treatment instead of answering with an unrelated KB service", () => {
+    const reply = kbAwareFallback(
+      "Do you offer Quantum Plasma Sculpting? Tell me its benefits, downtime, and price.",
+      baseKb,
+    )
+    expect(reply).toMatch(/don.t have confirmed information/i)
+    expect(reply).not.toMatch(/yes.*botox/i)
+  })
+})
+it("does not classify a generic service-list question as an unknown named service", async () => {
+  const { isUnknownServiceQuestion } = await import("@/lib/ai/fallback")
+  expect(isUnknownServiceQuestion("What services do you offer?")).toBe(false)
+  expect(isUnknownServiceQuestion("Do you offer Quantum Plasma Sculpting?")).toBe(true)
+})

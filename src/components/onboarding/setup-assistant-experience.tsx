@@ -430,7 +430,7 @@ export function SetupAssistantExperience({
         setFinalizeError(result.error ?? "Failed to publish")
         return
       }
-    window.location.href = "/onboarding?resume=1"
+      window.location.href = "/dashboard/knowledge-base"
     } catch (e) {
       setFinalizeError(e instanceof Error ? e.message : "Failed to publish")
     } finally {

@@ -52,7 +52,7 @@ export async function GET(request: Request) {
     )
   }
 
-  const kb = await loadKnowledge()
+  const kb = await loadKnowledge(access.userId)
   const extendedKb = (kb.extendedKb ?? {}) as Record<string, unknown>
   const configuredDefault =
     typeof extendedKb.language === "string" && isSupportedLanguage(extendedKb.language)

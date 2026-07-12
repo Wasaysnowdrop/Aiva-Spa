@@ -321,8 +321,15 @@ describe("GET /api/widget/config", () => {
       },
       error: null,
     })
-    admin.setResult("knowledge_services", "select", { data: [{}, {}], error: null })
-    admin.setResult("knowledge_faqs", "select", { data: [{}, {}, {}], error: null })
+    admin.setResult("knowledge_services", "select", { data: [
+      { id: "svc-1", user_id: "u_1", name: "Botox", category: "Injectables", active: true },
+      { id: "svc-2", user_id: "u_1", name: "HydraFacial", category: "Skin", active: true },
+    ], error: null })
+    admin.setResult("knowledge_faqs", "select", { data: [
+      { id: "faq-1", user_id: "u_1", question: "Do you offer Botox?", answer: "Yes", category: "General" },
+      { id: "faq-2", user_id: "u_1", question: "How do I book?", answer: "Request a consultation", category: "Booking" },
+      { id: "faq-3", user_id: "u_1", question: "What are your hours?", answer: "Contact us", category: "Hours" },
+    ], error: null })
     admin.setResult("knowledge_guardrails", "select", { data: [], error: null })
 
     const { GET } = await import("@/app/api/widget/config/route")

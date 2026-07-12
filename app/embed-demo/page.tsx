@@ -22,35 +22,42 @@ export default async function DemoSitePage({
       ? sp.spaId.trim()
       : null
 
-  const kb = await loadKnowledge()
 
   // Use the spa's active widget_installs.widget_key, not the widget_config
   // row id. checkEmbedAccess looks up installs by widget_key, so this is
   // the only id that actually unlocks the chat iframe.
   const admin = createAdminClient()
 
-  let spaId = kb.widget.id
+  let spaId: string | null = null
+  let ownerId: string | undefined
   if (requestedSpaId) {
     const { data: install } = await admin
       .from("widget_installs")
-      .select("widget_key, active")
+      .select("widget_key, active, user_id")
       .eq("widget_key", requestedSpaId)
       .maybeSingle()
     if (install) {
-      spaId = (install as { widget_key: string }).widget_key
+      const row = install as { widget_key: string; user_id: string }
+      spaId = row.widget_key
+      ownerId = row.user_id
     }
   } else {
     const { data: install } = await admin
       .from("widget_installs")
-      .select("widget_key, active")
+      .select("widget_key, active, user_id")
       .eq("active", true)
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle()
     if (install) {
-      spaId = (install as { widget_key: string }).widget_key
+      const row = install as { widget_key: string; user_id: string }
+      spaId = row.widget_key
+      ownerId = row.user_id
     }
   }
+
+  const kb = await loadKnowledge(ownerId)
+  spaId = spaId || kb.widget.id
 
   const h = await headers()
   const proto = h.get("x-forwarded-proto") ?? "https"
