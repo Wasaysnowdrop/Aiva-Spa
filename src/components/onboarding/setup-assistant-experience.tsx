@@ -356,15 +356,7 @@ export function SetupAssistantExperience({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Setup assistant error")
       setSavingState("idle")
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: makeId(),
-          role: "assistant",
-          content: FALLBACK_REPLY,
-          at: formatTime(new Date()),
-        },
-      ])
+      setInput(trimmed)
     } finally {
       setSending(false)
     }
@@ -613,7 +605,7 @@ export function SetupAssistantExperience({
                     <p className="text-sm font-semibold">Aiva setup assistant</p>
                     <p className="text-[11px] text-[#62666D]">Learning your approved business details</p>
                   </div>
-                  {currentSectionDone && !sending ? (
+                  {currentSectionDone && !sending && !error ? (
                     <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-[#4CB782]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#4CB782]"><Check className="size-3" /> Captured</span>
                   ) : null}
                 </div>

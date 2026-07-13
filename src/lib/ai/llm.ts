@@ -43,18 +43,35 @@ const DEFAULT_MOCK_MODEL = "aiva-mock-1"
 const DEFAULT_REQUEST_TIMEOUT_MS = 20_000
 
 export function resolveLlmProvider(): LlmProvider {
-  const token = process.env.NARA_API_KEY
+  const token = readNaraEnv("NARA_API_KEY")
   if (token && token.trim().length > 0) {
     return "nara"
   }
   return "mock"
 }
 
+function readNaraEnv(name: "NARA_API_KEY" | "NARA_API_BASE_URL" | "NARA_MODEL"): string {
+  let value = process.env[name]?.trim() ?? ""
+  const unwrap = () => {
+    if (
+      value.length >= 2 &&
+      ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'")))
+    ) {
+      value = value.slice(1, -1).trim()
+    }
+  }
+  unwrap()
+  if (value.startsWith(`${name}=`)) value = value.slice(name.length + 1).trim()
+  unwrap()
+  return value
+}
+
 function getNaraConfig() {
   return {
-    apiKey: process.env.NARA_API_KEY,
-    baseUrl: (process.env.NARA_API_BASE_URL || DEFAULT_NARA_API_BASE_URL).replace(/\/$/, ""),
-    model: process.env.NARA_MODEL || DEFAULT_NARA_MODEL,
+    apiKey: readNaraEnv("NARA_API_KEY"),
+    baseUrl: (readNaraEnv("NARA_API_BASE_URL") || DEFAULT_NARA_API_BASE_URL).replace(/\/$/, ""),
+    model: readNaraEnv("NARA_MODEL") || DEFAULT_NARA_MODEL,
   }
 }
 

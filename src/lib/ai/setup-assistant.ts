@@ -49,6 +49,23 @@ function allowMockSetupAssistant(): boolean {
   return process.env.NODE_ENV === "test" || process.env.SETUP_ASSISTANT_ALLOW_MOCK === "true"
 }
 
+function setupAssistantUnavailableMessage(error: unknown): string {
+  const reason = error instanceof Error ? error.message : ""
+  if (/NARA_API_KEY is not (configured|set)/i.test(reason)) {
+    return "NARA_API_KEY is missing from this Vercel deployment. Add it to the active environment and redeploy; your progress is safe."
+  }
+  if (/Nara API request failed \((401|403)\)/i.test(reason)) {
+    return "Nara rejected the API key. In Vercel, NARA_API_KEY must contain only the actual key value, then redeploy. Your progress is safe."
+  }
+  if (/Nara API request failed \(429\)/i.test(reason)) {
+    return "Nara is temporarily rate-limited. Wait a moment and retry; your progress is safe."
+  }
+  if (/abort|timeout/i.test(reason)) {
+    return "Nara took too long to respond. Please retry; your progress is safe."
+  }
+  return "The AI setup assistant is temporarily unavailable. Your progress is safe; please try again."
+}
+
 function normalizeTimezone(tz: string): string {
   const map: Record<string, string> = {
     "pst": "America/Los_Angeles",
@@ -546,7 +563,7 @@ export async function runSetupAssistantTurn(
       const reason = lastAiError instanceof Error ? lastAiError.message : "unknown AI error"
       console.error("setup-assistant: Nara AI unavailable", { reason })
       throw new SetupAssistantAiError(
-        "The AI setup assistant is temporarily unavailable. Your progress is safe; please try again.",
+        setupAssistantUnavailableMessage(lastAiError),
         { cause: lastAiError },
       )
     }

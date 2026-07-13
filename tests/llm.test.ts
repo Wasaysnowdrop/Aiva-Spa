@@ -53,6 +53,26 @@ describe("Nara LLM client", () => {
     ).rejects.toThrow(/NARA_API_KEY is not configured/)
   })
 
+  it("normalizes full-line and quoted Vercel environment values", async () => {
+    process.env.NARA_API_KEY = '"NARA_API_KEY=test-nara-key"'
+    process.env.NARA_API_BASE_URL = "NARA_API_BASE_URL=https://router.bynara.id/v1/"
+    process.env.NARA_MODEL = "'NARA_MODEL=mistral-medium-3-5'"
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ choices: [{ message: { content: "ok" } }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await llmChat({ messages: [{ role: "user", content: "Hello" }] })
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe("https://router.bynara.id/v1/chat/completions")
+    expect(init.headers).toMatchObject({ authorization: "Bearer test-nara-key" })
+    expect(JSON.parse(String(init.body))).toMatchObject({ model: "mistral-medium-3-5" })
+  })
+
   it("propagates Nara failures in strict AI mode", async () => {
     process.env.NARA_API_KEY = "test-nara-key"
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("upstream failed", { status: 503 })))
