@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   buildSetupAssistantResumeMessage,
@@ -19,6 +19,13 @@ describe("setup assistant prompt", () => {
     expect(system).toMatch(/Response JSON schema/i)
     expect(system).toMatch(/"reply":\s*string/)
     expect(system).toMatch(/"action":\s*"ask"\s*\|\s*"summarize"\s*\|\s*"advance"\s*\|\s*"finish"/)
+  })
+
+  it("forbids null captured values and documents direct array shapes", () => {
+    const system = buildSetupAssistantSystemPrompt()
+    expect(system).toMatch(/Never output null anywhere/i)
+    expect(system).toMatch(/services.*DIRECT ARRAY/i)
+    expect(system).toMatch(/calendarLink: valid URL string or ""/i)
   })
 
   it("forbids firm prices and medical claims", () => {
@@ -216,6 +223,65 @@ describe("setup assistant KB helpers", () => {
   })
 })
 
+describe("runSetupAssistantTurn (strict Nara provider)", () => {
+  it("retries once when Nara returns malformed JSON", async () => {
+    const previousKey = process.env.NARA_API_KEY
+    process.env.NARA_API_KEY = "test-nara-key"
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            model: "mistral-medium-3-5",
+            choices: [{ message: { content: "not valid json" } }],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            model: "mistral-medium-3-5",
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    reply: "I saved Glow Aesthetics. What is your website?",
+                    section: "business",
+                    action: "ask",
+                    captured: { business: { name: "Glow Aesthetics" } },
+                    concerns: [],
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const result = await runSetupAssistantTurn({
+        history: [],
+        userMessage: "Our business is Glow Aesthetics.",
+        currentSection: "business",
+        draft: emptyKnowledgeBase(),
+      })
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(result.provider).toBe("nara")
+      expect(result.model).toBe("mistral-medium-3-5")
+      expect(result.reply).toMatch(/website/i)
+      expect(result.draft.business?.name).toBe("Glow Aesthetics")
+    } finally {
+      if (previousKey === undefined) delete process.env.NARA_API_KEY
+      else process.env.NARA_API_KEY = previousKey
+      vi.unstubAllGlobals()
+    }
+  })
+})
+
 describe("runSetupAssistantTurn (mock provider)", () => {
   it("returns a structured reply and merges captured data into the draft", async () => {
     const draft = emptyKnowledgeBase()
@@ -316,7 +382,7 @@ describe("runSetupAssistantTurn (mock provider)", () => {
 
   it("recovers an hours answer received while an older draft is stuck on business", async () => {
     const draft = emptyKnowledgeBase()
-    draft.business.name = { value: "Glow Haven Med Spa", status: "captured" }
+    draft.business!.name = { value: "Glow Haven Med Spa", status: "captured" }
 
     const result = await runSetupAssistantTurn({
       history: [
@@ -332,7 +398,7 @@ describe("runSetupAssistantTurn (mock provider)", () => {
     expect(result.action).toBe("advance")
     expect(result.section).toBe("hours")
     expect(result.nextSection).toBe("services")
-    expect(result.draft.business.name).toEqual({
+    expect(result.draft.business!.name).toEqual({
       value: "Glow Haven Med Spa",
       status: "captured",
     })

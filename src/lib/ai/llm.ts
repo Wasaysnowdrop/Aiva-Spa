@@ -21,6 +21,7 @@ export type LlmChatInput = {
   messages: ChatMessage[]
   responseFormat?: { type: "json_object" | "text" }
   fallbackKnowledge?: KnowledgeBundle
+  failureMode?: "fallback" | "throw"
   options?: LlmOptions
 }
 
@@ -63,23 +64,25 @@ export async function llmChat(input: LlmChatInput): Promise<LlmChatResult> {
     try {
       const result = await callNara(input)
       if (!result.content || !result.content.trim()) {
+        if (input.failureMode === "throw") throw new Error("LLM returned empty content")
         console.warn("LLM returned empty content, serving canned reply")
         return gracefulFallback(input)
       }
       return result
     } catch (err) {
-      // NEVER throw. If anything goes wrong (timeout, network, 4xx, 5xx,
-      // auth, parse), serve a graceful canned reply so the visitor always
-      // gets a usable answer. The widget never breaks.
+      if (input.failureMode === "throw") throw err
+      // Widget chat remains resilient when the upstream provider is unavailable.
       console.warn(
         `LLM call failed (${err instanceof Error ? err.message : "unknown"}), serving canned reply`,
       )
       return gracefulFallback(input)
     }
   }
+  if (input.failureMode === "throw") {
+    throw new Error("NARA_API_KEY is not configured")
+  }
   return callMock(input)
 }
-
 function loadFallbackKnowledge(input: LlmChatInput): Promise<KnowledgeBundle> {
   return input.fallbackKnowledge
     ? Promise.resolve(input.fallbackKnowledge)

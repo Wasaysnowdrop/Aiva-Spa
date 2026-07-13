@@ -42,6 +42,29 @@ describe("Nara LLM client", () => {
     expect(JSON.parse(String(init.body))).toMatchObject({ model: "mistral-medium-3-5" })
   })
 
+  it("throws instead of using canned responses when strict AI mode has no key", async () => {
+    delete process.env.NARA_API_KEY
+
+    await expect(
+      llmChat({
+        messages: [{ role: "user", content: "Hello" }],
+        failureMode: "throw",
+      }),
+    ).rejects.toThrow(/NARA_API_KEY is not configured/)
+  })
+
+  it("propagates Nara failures in strict AI mode", async () => {
+    process.env.NARA_API_KEY = "test-nara-key"
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("upstream failed", { status: 503 })))
+
+    await expect(
+      llmChat({
+        messages: [{ role: "user", content: "Hello" }],
+        failureMode: "throw",
+      }),
+    ).rejects.toThrow(/Nara API request failed \(503\)/)
+  })
+
   it("streams responses through Nara with the same model", async () => {
     process.env.NARA_API_KEY = "test-nara-key"
     delete process.env.NARA_API_BASE_URL

@@ -3,7 +3,11 @@ import { z } from "zod"
 
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { runSetupAssistantTurn, makeInitialDraft } from "@/lib/ai/setup-assistant"
+import {
+  makeInitialDraft,
+  runSetupAssistantTurn,
+  SetupAssistantAiError,
+} from "@/lib/ai/setup-assistant"
 import {
   emptyKnowledgeBase,
   SETUP_ASSISTANT_SECTIONS,
@@ -151,9 +155,13 @@ export async function POST(request: NextRequest) {
     )
   } catch (err) {
     console.error("setup-assistant error", err)
+    const aiUnavailable = err instanceof SetupAssistantAiError
     return Response.json(
-      { error: err instanceof Error ? err.message : "Setup assistant error" },
-      { status: 500, headers: cors(request) },
+      {
+        error: err instanceof Error ? err.message : "Setup assistant error",
+        ...(aiUnavailable ? { code: err.code } : {}),
+      },
+      { status: aiUnavailable ? 503 : 500, headers: cors(request) },
     )
   }
 }

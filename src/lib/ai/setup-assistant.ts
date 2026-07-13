@@ -6,6 +6,7 @@ import {
 } from "./setup-assistant-prompt"
 import {
   emptyKnowledgeBase,
+  knowledgeBaseSchema,
   SETUP_ASSISTANT_SECTIONS,
   type KnowledgeBase,
   type SetupAssistantSection,
@@ -35,8 +36,18 @@ export type SetupAssistantTurnResult = {
   model: string
 }
 
-const FALLBACK_REPLY =
-  "Sorry, I had a hiccup processing that. Could you rephrase or share the detail again?"
+export class SetupAssistantAiError extends Error {
+  readonly code = "SETUP_ASSISTANT_AI_UNAVAILABLE"
+
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = "SetupAssistantAiError"
+  }
+}
+
+function allowMockSetupAssistant(): boolean {
+  return process.env.NODE_ENV === "test" || process.env.SETUP_ASSISTANT_ALLOW_MOCK === "true"
+}
 
 function normalizeTimezone(tz: string): string {
   const map: Record<string, string> = {
@@ -356,37 +367,50 @@ function fallbackMockResponse(input: SetupAssistantTurnInput): SetupAssistantRaw
 }
 
 function safeParseAssistantJson(content: string): SetupAssistantRawResponse | null {
-  try {
-    const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/i)
-    const raw = fenced ? fenced[1] : content
-    const parsed = JSON.parse(raw.trim()) as Partial<SetupAssistantRawResponse>
-    if (typeof parsed.reply !== "string" || typeof parsed.action !== "string") return null
-    const section =
-      typeof parsed.section === "string" && isSetupAssistantSection(parsed.section)
-        ? parsed.section
-        : null
-    if (!section) return null
-    const allowedActions: SetupAssistantAction[] = ["ask", "summarize", "advance", "finish"]
-    const action = allowedActions.includes(parsed.action as SetupAssistantAction)
-      ? (parsed.action as SetupAssistantAction)
-      : "ask"
-    return {
-      reply: parsed.reply,
-      section,
-      action,
-      captured:
-        parsed.captured && typeof parsed.captured === "object"
-          ? (parsed.captured as Record<string, unknown>)
-          : undefined,
-      concerns: Array.isArray(parsed.concerns)
-        ? parsed.concerns.filter((c): c is string => typeof c === "string").slice(0, 10)
-        : [],
-    }
-  } catch {
-    return null
-  }
-}
+  const withoutThinking = content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim()
+  const fenced = withoutThinking.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  const firstBrace = withoutThinking.indexOf("{")
+  const lastBrace = withoutThinking.lastIndexOf("}")
+  const candidates = [
+    fenced?.[1],
+    withoutThinking,
+    firstBrace >= 0 && lastBrace > firstBrace
+      ? withoutThinking.slice(firstBrace, lastBrace + 1)
+      : undefined,
+  ].filter((candidate): candidate is string => Boolean(candidate?.trim()))
 
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      const parsed = JSON.parse(candidate.trim()) as Partial<SetupAssistantRawResponse>
+      if (typeof parsed.reply !== "string" || typeof parsed.action !== "string") continue
+      const section =
+        typeof parsed.section === "string" && isSetupAssistantSection(parsed.section)
+          ? parsed.section
+          : null
+      if (!section) continue
+      const allowedActions: SetupAssistantAction[] = ["ask", "summarize", "advance", "finish"]
+      const action = allowedActions.includes(parsed.action as SetupAssistantAction)
+        ? (parsed.action as SetupAssistantAction)
+        : "ask"
+      return {
+        reply: parsed.reply,
+        section,
+        action,
+        captured:
+          parsed.captured && typeof parsed.captured === "object"
+            ? (parsed.captured as Record<string, unknown>)
+            : undefined,
+        concerns: Array.isArray(parsed.concerns)
+          ? parsed.concerns.filter((concern): concern is string => typeof concern === "string").slice(0, 10)
+          : [],
+      }
+    } catch {
+      // Try the next JSON candidate. A second AI request runs if none parse.
+    }
+  }
+
+  return null
+}
 function detectPricingConcerns(text: string): string[] {
   const concerns: string[] = []
   const dollar = text.match(/\$\s?\d+(\.\d+)?/)
@@ -466,36 +490,72 @@ export async function runSetupAssistantTurn(
   let raw: SetupAssistantRawResponse | null = null
   let model = "aiva-mock-1"
   let provider: "nara" | "mock" = "mock"
+  let lastAiError: unknown
 
-  try {
-    const result = await llmChat({
-      messages: history,
-      responseFormat: { type: "json_object" },
-      options: { temperature: 0.3, maxTokens: 700 },
-    })
-    model = result.model
-    provider = result.provider
-    raw = safeParseAssistantJson(result.content)
-    if (!raw && provider === "mock") {
-      raw = fallbackMockResponse(input)
+  for (let attempt = 0; attempt < 2 && !raw; attempt += 1) {
+    try {
+      const attemptMessages =
+        attempt === 0
+          ? history
+          : [
+              {
+                role: "system" as const,
+                content:
+                  `${system}\n\nCRITICAL RETRY: The previous response failed because: ${
+                    lastAiError instanceof Error ? lastAiError.message : "invalid response"
+                  }. Return exactly one complete JSON object using the exact captured shape. ` +
+                  "Do not add prose, markdown fences, or reasoning outside the JSON.",
+              },
+              ...history.slice(1),
+            ]
+      const result = await llmChat({
+        messages: attemptMessages,
+        responseFormat: { type: "json_object" },
+        failureMode: "throw",
+        options: { temperature: 0.2, maxTokens: 1800, timeoutMs: 28_000 },
+      })
+      model = result.model
+      provider = result.provider
+      const parsedRaw = safeParseAssistantJson(result.content)
+      if (!parsedRaw) {
+        lastAiError = new Error("Nara returned an incomplete or invalid JSON response")
+        continue
+      }
+
+      const candidateDraft = mergeCaptured(input.draft, parsedRaw)
+      const candidateValidation = knowledgeBaseSchema.safeParse(candidateDraft)
+      if (!candidateValidation.success) {
+        const issue = candidateValidation.error.issues[0]
+        lastAiError = new Error(
+          `captured.${issue?.path.join(".") || "unknown"}: ${issue?.message || "invalid schema"}`,
+        )
+        continue
+      }
+      raw = parsedRaw
+    } catch (error) {
+      lastAiError = error
     }
-  } catch {
-    raw = fallbackMockResponse(input)
   }
 
   if (!raw) {
-    raw = {
-      reply: FALLBACK_REPLY,
-      section: input.currentSection,
-      action: "ask",
+    if (allowMockSetupAssistant()) {
+      raw = fallbackMockResponse(input)
+      model = "aiva-mock-1"
+      provider = "mock"
+    } else {
+      const reason = lastAiError instanceof Error ? lastAiError.message : "unknown AI error"
+      console.error("setup-assistant: Nara AI unavailable", { reason })
+      throw new SetupAssistantAiError(
+        "The AI setup assistant is temporarily unavailable. Your progress is safe; please try again.",
+        { cause: lastAiError },
+      )
     }
   }
-
   // Do not let an LLM or fallback response ask for hours/timezone that the owner
   // explicitly supplied. This guard also recovers older drafts that are still on
   // the business step after a provider timeout.
   const explicitHours = extractExplicitHours(input.userMessage)
-  if (explicitHours && (input.currentSection === "business" || input.currentSection === "hours")) {
+  if (provider === "mock" && explicitHours && (input.currentSection === "business" || input.currentSection === "hours")) {
     raw = {
       ...raw,
       reply: `Got it. I saved your business hours and timezone (${explicitHours.timezone}). Next, what services do you offer and what are your starting prices?`,
@@ -512,21 +572,39 @@ export async function runSetupAssistantTurn(
     ...detectPricingConcerns(input.userMessage),
   ]
 
-  const merged = mergeCaptured(input.draft, raw)
-  merged.status = {
+  const mergedCandidate = mergeCaptured(input.draft, raw)
+  mergedCandidate.status = {
     complete: raw.action === "finish",
-    pendingFields: countPendingFields(merged),
+    pendingFields: countPendingFields(mergedCandidate),
     completedAt: raw.action === "finish" ? new Date().toISOString() : undefined,
   }
 
+  const validatedDraft = knowledgeBaseSchema.safeParse(mergedCandidate)
+  if (!validatedDraft.success && provider === "nara") {
+    console.error("setup-assistant: Nara returned invalid knowledge data", {
+      issues: validatedDraft.error.issues.slice(0, 5).map((issue) => ({
+        path: issue.path.join("."),
+        message: issue.message,
+      })),
+    })
+    throw new SetupAssistantAiError(
+      "The AI response could not be safely saved. Your previous progress is unchanged; please try again.",
+    )
+  }
+  const merged = validatedDraft.success ? validatedDraft.data : mergedCandidate
+  const effectiveSection =
+    provider === "nara"
+      ? input.currentSection
+      : isSetupAssistantSection(raw.section)
+        ? raw.section
+        : input.currentSection
   const next =
     raw.action === "advance" || raw.action === "finish"
-      ? nextSectionOf(isSetupAssistantSection(raw.section) ? raw.section : input.currentSection)
+      ? nextSectionOf(effectiveSection)
       : null
-
   return {
     reply: raw.reply,
-    section: raw.section as SetupAssistantSection,
+    section: effectiveSection,
     nextSection: next,
     action: raw.action,
     concerns,

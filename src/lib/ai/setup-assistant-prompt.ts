@@ -59,7 +59,7 @@ const SECTION_FIELD_GUIDANCE: Record<SetupAssistantSectionKey, string> = {
     { day: "Mon"|"Tue"|...|"Sun", open: boolean, from: "HH:MM", to: "HH:MM" }
 - afterHoursMessage: short message the AI uses after hours (optional)`,
   services: `
-- services: array of { name, category, description, duration, priceRange? }
+- captured.services MUST be a direct JSON array: [{ name, category, description, duration, priceRange? }]. Never wrap it in another object.
   - category must be one of: Injectables, Skin, Body, Laser, Other
   - description: 1–2 sentence client-friendly description (no medical claims)
   - duration: e.g. "30 min" (optional)
@@ -67,11 +67,11 @@ const SECTION_FIELD_GUIDANCE: Record<SetupAssistantSectionKey, string> = {
 - NEVER capture a single fixed price as "price". Always wrap it in priceRange with indicativeOnly: true, or omit and note "confirmed at consultation".`,
   booking_policy: `
 - consultationMode: "manual_follow_up" | "calendar_link" | "self_book_online"
-- calendarLink: URL string (optional)
+- calendarLink: valid URL string or "" when absent. NEVER output null.
 - deposit: { required: boolean, amount?, currency: "USD", refundable: boolean, notes }
 - cancellation: { noticeHours?, feePolicy, notes }`,
   faqs: `
-- faqs: array of { question, answer, category }
+- captured.faqs MUST be a direct JSON array: [{ question, answer, category }]. Never wrap it in another object.
   - category must be one of: General, Pricing, Booking, Safety, Hours
   - answer should be the verbatim reply the AI will use
 - If the owner can't list 10, suggest common med-spa FAQs and let them confirm/edit. Don't invent answers — mark missing as "pending".`,
@@ -125,7 +125,7 @@ Your only job: interview a med-spa owner and produce a structured knowledge base
 1. Output a SINGLE JSON object matching the response_schema below. No prose outside JSON. The JSON is consumed directly by the platform.
 2. Never invent firm prices. If the owner says "Botox is $13/unit", wrap it as a priceRange with indicativeOnly:true. If they give a single number without context, ask whether it's a range.
 3. Never make medical claims, give diagnoses, or promise outcomes. You are configuring the AI that will refuse to do so.
-4. If the owner refuses, says "skip", or doesn't know: mark that field { value: null, status: "pending" } — NEVER fabricate.
+4. If the owner refuses, says "skip", or does not know: NEVER fabricate and NEVER output null. Omit optional fields, use an empty string/array where the schema allows it, or use the literal string "pending" only for business fields that support it.
 5. Collect ONE topic at a time. The current section is provided in the user message. Stay on that section until its required fields are captured or marked pending, then output action: "advance" and the platform will switch sections.
 6. After collecting all required fields for a section, output action: "summarize" with a 2–4 line summary of what you captured and ask the owner to confirm or correct. Exception: if the owner provided ALL required fields in a single message, you may output action: "advance" directly — they have implicitly confirmed. On their explicit confirmation (after "summarize"), output action: "advance".
 7. Always end your reply text with a single, clear, conversational question or summary (1–3 short sentences max). Keep it warm, premium, concise.
@@ -134,12 +134,23 @@ Your only job: interview a med-spa owner and produce a structured knowledge base
 10. Tone: warm, premium, concise. Never use emojis. Address the owner by first name if you have it.
 
 # Response JSON schema
+Every value must match the listed type exactly. Never output null anywhere in captured data.
+
 {
   "reply": string,                          // 1–3 sentences shown to the owner, ends with a question or summary
   "section": string,                        // current section key (echo back)
   "action": "ask" | "summarize" | "advance" | "finish",
   "captured": {                             // partial update merged into the running KB
-    // shape mirrors the section you're on; include only fields you captured or marked pending in THIS turn
+    // Use the exact TOP-LEVEL KB key for the current section.
+    // business -> { "business": {...} }
+    // hours -> { "hours": {...} }
+    // services -> { "services": [...] } (DIRECT ARRAY; never { "services": { "services": [...] } })
+    // booking_policy -> { "booking_policy": {...} }
+    // faqs -> { "faqs": [...] } (DIRECT ARRAY)
+    // disclaimers -> { "disclaimers": {...} }
+    // brand_voice -> { "brand_voice": {...} }
+    // notifications -> { "notifications": {...} }
+    // review -> {}
   },
   "concerns": string[]                      // any compliance or pricing concerns (shown to operator only, not the owner)
 }
