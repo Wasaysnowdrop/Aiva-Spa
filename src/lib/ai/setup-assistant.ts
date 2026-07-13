@@ -162,6 +162,23 @@ function buildMockSchedule(text: string): DayEntry[] {
   return schedule
 }
 
+function extractExplicitHours(text: string): { timezone: string; schedule: DayEntry[] } | null {
+  const timezoneMatch = text.match(
+    /(America\/[A-Za-z_]+|Asia\/[A-Za-z_]+|Europe\/[A-Za-z_]+|Africa\/[A-Za-z_]+|Australia\/[A-Za-z_]+|Pacific\/[A-Za-z_]+|PST|PDT|Pacific\s*Time|EST|EDT|Eastern\s*Time|CST|CDT|Central\s*Time|MST|MDT|Mountain\s*Time|HST|AKST|UTC[+-]\d+|\+\d{2}:\d{2})/i,
+  )
+  const hasSchedule =
+    /\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekdays?|weekends?)\b/i.test(
+      text,
+    )
+
+  if (!timezoneMatch || !hasSchedule) return null
+
+  return {
+    timezone: normalizeTimezone(timezoneMatch[1]),
+    schedule: buildMockSchedule(text),
+  }
+}
+
 function isSetupAssistantSection(value: string): value is SetupAssistantSection {
   return (SETUP_ASSISTANT_SECTIONS as readonly string[]).includes(value)
 }
@@ -200,6 +217,19 @@ function deepMerge<T>(base: T, patch: Record<string, unknown> | undefined): T {
 function fallbackMockResponse(input: SetupAssistantTurnInput): SetupAssistantRawResponse {
   const text = input.userMessage.toLowerCase()
   const section = input.currentSection
+  const explicitHours = extractExplicitHours(input.userMessage)
+
+  if (section === "business" && explicitHours) {
+    return {
+      reply: `Got it. I saved your business hours and timezone (${explicitHours.timezone}). Next, what services do you offer and what are your starting prices?`,
+      section: "hours",
+      action: "advance",
+      captured: {
+        hours: { ...explicitHours, open247: false },
+      },
+      concerns: [],
+    }
+  }
 
   if (section === "business") {
     return {
@@ -461,6 +491,22 @@ export async function runSetupAssistantTurn(
     }
   }
 
+  // Do not let an LLM or fallback response ask for hours/timezone that the owner
+  // explicitly supplied. This guard also recovers older drafts that are still on
+  // the business step after a provider timeout.
+  const explicitHours = extractExplicitHours(input.userMessage)
+  if (explicitHours && (input.currentSection === "business" || input.currentSection === "hours")) {
+    raw = {
+      ...raw,
+      reply: `Got it. I saved your business hours and timezone (${explicitHours.timezone}). Next, what services do you offer and what are your starting prices?`,
+      section: "hours",
+      action: "advance",
+      captured: deepMerge(raw.captured ?? {}, {
+        hours: { ...explicitHours, open247: false },
+      }),
+    }
+  }
+
   const concerns = [
     ...(raw.concerns ?? []),
     ...detectPricingConcerns(input.userMessage),
@@ -475,7 +521,7 @@ export async function runSetupAssistantTurn(
 
   const next =
     raw.action === "advance" || raw.action === "finish"
-      ? nextSectionOf(input.currentSection)
+      ? nextSectionOf(isSetupAssistantSection(raw.section) ? raw.section : input.currentSection)
       : null
 
   return {

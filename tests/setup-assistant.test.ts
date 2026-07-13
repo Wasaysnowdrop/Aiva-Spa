@@ -262,6 +262,60 @@ describe("runSetupAssistantTurn (mock provider)", () => {
     expect(result.reply).toContain("America/Los_Angeles")
   })
 
+  it("captures the exact Asia/Karachi hours message without asking for timezone again", async () => {
+    const result = await runSetupAssistantTurn({
+      history: [],
+      userMessage:
+        "Our timezone is Asia/Karachi. We are open Monday to Friday from 10:00 AM to 8:00 PM, Saturday from 11:00 AM to 6:00 PM, and closed on Sunday.",
+      currentSection: "hours",
+      draft: emptyKnowledgeBase(),
+    })
+
+    expect(result.action).toBe("advance")
+    expect(result.nextSection).toBe("services")
+    expect(result.section).toBe("hours")
+    expect(result.draft.hours?.timezone).toBe("Asia/Karachi")
+    expect(result.draft.hours?.schedule?.find((day) => day.day === "Mon")).toMatchObject({
+      open: true,
+      from: "10:00",
+      to: "20:00",
+    })
+    expect(result.draft.hours?.schedule?.find((day) => day.day === "Sat")).toMatchObject({
+      open: true,
+      from: "11:00",
+      to: "18:00",
+    })
+    expect(result.draft.hours?.schedule?.find((day) => day.day === "Sun")?.open).toBe(false)
+    expect(result.reply).toContain("Asia/Karachi")
+    expect(result.reply).not.toMatch(/which timezone/i)
+  })
+
+  it("recovers an hours answer received while an older draft is stuck on business", async () => {
+    const draft = emptyKnowledgeBase()
+    draft.business.name = { value: "Glow Haven Med Spa", status: "captured" }
+
+    const result = await runSetupAssistantTurn({
+      history: [
+        { role: "user", content: "Our business is Glow Haven Med Spa in Karachi." },
+        { role: "assistant", content: "Quick confirm: which timezone should we use?" },
+      ],
+      userMessage:
+        "Our timezone is Asia/Karachi. We are open Monday to Friday from 10:00 AM to 8:00 PM, Saturday from 11:00 AM to 6:00 PM, and closed on Sunday.",
+      currentSection: "business",
+      draft,
+    })
+
+    expect(result.action).toBe("advance")
+    expect(result.section).toBe("hours")
+    expect(result.nextSection).toBe("services")
+    expect(result.draft.business.name).toEqual({
+      value: "Glow Haven Med Spa",
+      status: "captured",
+    })
+    expect(result.draft.hours?.timezone).toBe("Asia/Karachi")
+    expect(result.reply).not.toMatch(/which timezone/i)
+  })
+
   it("extracts timezone from PST abbreviation and advances when schedule present", async () => {
     const result = await runSetupAssistantTurn({
       history: [],
