@@ -51,7 +51,7 @@ export function resolveLlmProvider(): LlmProvider {
 }
 
 function readNaraEnv(name: "NARA_API_KEY" | "NARA_API_BASE_URL" | "NARA_MODEL"): string {
-  let value = process.env[name]?.trim() ?? ""
+  let value = (process.env[name] ?? "").replace(/\r\n?/g, "\n").trim()
   const unwrap = () => {
     if (
       value.length >= 2 &&
@@ -61,10 +61,17 @@ function readNaraEnv(name: "NARA_API_KEY" | "NARA_API_BASE_URL" | "NARA_MODEL"):
       value = value.slice(1, -1).trim()
     }
   }
+
   unwrap()
-  if (value.startsWith(`${name}=`)) value = value.slice(name.length + 1).trim()
+  const assignment = value.match(new RegExp(`(?:^|\\n)\\s*${name}\\s*=\\s*([^\\n]+)`, "i"))
+  if (assignment?.[1]) {
+    value = assignment[1].trim()
+  } else {
+    value = value.replace(new RegExp(`^${name}\\s*=\\s*`, "i"), "").trim()
+  }
   unwrap()
-  return value
+  value = value.replace(/[\u200B-\u200D\uFEFF]/g, "").trim()
+  return name === "NARA_API_KEY" ? value.replace(/\s+/g, "") : value
 }
 
 function getNaraConfig() {

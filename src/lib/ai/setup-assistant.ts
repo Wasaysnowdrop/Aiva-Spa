@@ -54,8 +54,14 @@ function setupAssistantUnavailableMessage(error: unknown): string {
   if (/NARA_API_KEY is not (configured|set)/i.test(reason)) {
     return "NARA_API_KEY is missing from this Vercel deployment. Add it to the active environment and redeploy; your progress is safe."
   }
-  if (/Nara API request failed \((401|403)\)/i.test(reason)) {
-    return "Nara rejected the API key. In Vercel, NARA_API_KEY must contain only the actual key value, then redeploy. Your progress is safe."
+  if (/Nara API request failed \(401\)/i.test(reason)) {
+    return "Nara rejected the API key loaded by this Vercel deployment. Replace NARA_API_KEY with the active sk-nry key value and redeploy; your progress is safe."
+  }
+  if (/Nara API request failed \(403\)/i.test(reason)) {
+    return "Nara authenticated the key, but this account cannot use NARA_MODEL. Confirm the plan includes mistral-medium-3-5 and the account is active; your progress is safe."
+  }
+  if (/Nara API request failed \(404\)/i.test(reason)) {
+    return "Nara could not find the configured endpoint or model. Use https://router.bynara.id/v1 and mistral-medium-3-5, then redeploy; your progress is safe."
   }
   if (/Nara API request failed \(429\)/i.test(reason)) {
     return "Nara is temporarily rate-limited. Wait a moment and retry; your progress is safe."

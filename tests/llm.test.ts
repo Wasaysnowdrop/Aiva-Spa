@@ -54,9 +54,14 @@ describe("Nara LLM client", () => {
   })
 
   it("normalizes full-line and quoted Vercel environment values", async () => {
-    process.env.NARA_API_KEY = '"NARA_API_KEY=test-nara-key"'
-    process.env.NARA_API_BASE_URL = "NARA_API_BASE_URL=https://router.bynara.id/v1/"
-    process.env.NARA_MODEL = "'NARA_MODEL=mistral-medium-3-5'"
+    const pastedBlock = [
+      'NARA_API_KEY="\u200Btest-nara-key"',
+      "NARA_API_BASE_URL=https://router.bynara.id/v1/",
+      "NARA_MODEL='mistral-medium-3-5'",
+    ].join("\n")
+    process.env.NARA_API_KEY = pastedBlock
+    process.env.NARA_API_BASE_URL = pastedBlock
+    process.env.NARA_MODEL = pastedBlock
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({ choices: [{ message: { content: "ok" } }] }),
