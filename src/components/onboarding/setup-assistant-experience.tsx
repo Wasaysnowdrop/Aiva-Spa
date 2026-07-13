@@ -11,11 +11,12 @@ import {
   Clock,
   FileText,
   Loader2,
-  Lock,
+  Sparkles,
   Trash2,
 } from "lucide-react"
 import { Logo } from "@/components/logo"
 import { toast } from "sonner"
+import { AnimatePresence, motion } from "framer-motion"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -262,7 +263,6 @@ export function SetupAssistantExperience({
   const [finalizing, setFinalizing] = React.useState(false)
   const [finalizeError, setFinalizeError] = React.useState<string | null>(null)
   const [showResetConfirm, setShowResetConfirm] = React.useState(false)
-  const [sidebarOpen, setSidebarOpen] = React.useState(false)
 
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const inputRef = React.useRef<HTMLTextAreaElement | null>(null)
@@ -444,489 +444,252 @@ export function SetupAssistantExperience({
   const suggestions = SUGGESTIONS[section] ?? []
   const currentStep = SECTION_ORDER.indexOf(section) + 1
   const progressPercent = (completedSections.length / SECTION_ORDER.length) * 100
-
-  const sidebarPanel = (
-    <>
-      <div className="rounded-2xl border border-[#23252A] bg-[#121316] p-4">
-        <div className="flex items-center gap-2">
-          <Bot className="size-4 text-[#5E6AD2]" />
-          <p className="text-sm font-semibold">Sections</p>
-        </div>
-
-        <div className="mt-3">
-          <div className="flex items-center justify-between text-[11px] text-[#8A8F98]">
-            <span>Step {currentStep} of {SECTION_ORDER.length}</span>
-            {completedSections.length > 0 ? (
-              <span>{completedSections.length} completed</span>
-            ) : null}
-          </div>
-          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-[#1A1B1E]">
-            <div
-              className="h-full rounded-full bg-[#5E6AD2] transition-all duration-500"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-        </div>
-
-        <ol className="mt-3 space-y-0.5">
-          {SECTION_ORDER.map((s, idx) => {
-            const done = isSectionDone(draft, s)
-            const active = s === section
-            const isPast = idx + 1 < currentStep && !done
-            return (
-              <li key={s}>
-                <button
-                  type="button"
-                  onClick={() => { setSection(s); setSidebarOpen(false) }}
-                  className={cn(
-                    "group flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-xs font-medium transition",
-                    active
-                      ? "bg-[#1A1B1E] text-[#F7F8F8]"
-                      : "text-[#8A8F98] hover:bg-[#1A1B1E] hover:text-[#F7F8F8]",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "flex size-5 shrink-0 items-center justify-center rounded-md border",
-                      done
-                        ? "border-[#4CB782]/40 bg-[#4CB782]/15 text-[#4CB782]"
-                        : active
-                          ? "border-[#5E6AD2]/40 bg-[#5E6AD2]/15 text-[#5E6AD2]"
-                          : "border-[#23252A] bg-[#0B0C0E] text-[#62666D]",
-                    )}
-                  >
-                    {done ? (
-                      <Check className="size-3" />
-                    ) : isPast ? (
-                      <Lock className="size-2.5" />
-                    ) : (
-                      <span className="text-[11px] font-mono">{idx + 1}</span>
-                    )}
-                  </span>
-                  <span className="flex-1 truncate">{SECTION_LABEL[s]}</span>
-                  {active ? (
-                    <span className="rounded-full bg-[#5E6AD2] px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                      NOW
-                    </span>
-                  ) : null}
-                </button>
-              </li>
-            )
-          })}
-        </ol>
-      </div>
-
-      <div className="mt-4 rounded-2xl border border-[#23252A] bg-[#121316] p-4">
-        <p className="text-xs font-semibold uppercase tracking-wider text-[#62666D]">
-          Setup Guide
-        </p>
-        <div className="mt-3 space-y-2.5 text-[13px] text-[#8A8F98]">
-          <div className="flex items-center gap-2">
-            <Clock className="size-3.5 shrink-0 text-[#5E6AD2]" />
-            <span>~5 minutes to complete</span>
-          </div>
-          <div className="flex items-start gap-2">
-            <CheckCircle2 className="size-3.5 shrink-0 text-[#5E6AD2]" />
-            <span>Auto-saved as you type</span>
-          </div>
-        </div>
-        <div className="mt-3 border-t border-[#23252A] pt-3">
-          <p className="text-xs font-medium text-[#62666D]">What you&apos;ll need:</p>
-          <ul className="mt-1.5 space-y-1 text-[13px] text-[#8A8F98]">
-            <li className="flex items-center gap-1.5">
-              <span className="text-[#5E6AD2]">&bull;</span> Business name &amp; website
-            </li>
-            <li className="flex items-center gap-1.5">
-              <span className="text-[#5E6AD2]">&bull;</span> Operating hours
-            </li>
-            <li className="flex items-center gap-1.5">
-              <span className="text-[#5E6AD2]">&bull;</span> Services &amp; pricing ranges
-            </li>
-            <li className="flex items-center gap-1.5">
-              <span className="text-[#5E6AD2]">&bull;</span> Booking &amp; cancellation policy
-            </li>
-            <li className="flex items-center gap-1.5">
-              <span className="text-[#5E6AD2]">&bull;</span> FAQ answers
-            </li>
-            <li className="flex items-center gap-1.5">
-              <span className="text-[#5E6AD2]">&bull;</span> Notification preferences
-            </li>
-          </ul>
-          <p className="mt-2.5 text-[11px] text-[#62666D]">
-            You can leave and come back anytime. Your progress is saved automatically.
-          </p>
-        </div>
-      </div>
-
-      {concerns.length > 0 ? (
-        <div className="mt-4 rounded-2xl border border-[#EB5757]/30 bg-[#EB5757]/5 p-4 text-xs">
-          <div className="flex items-center gap-2 font-semibold text-[#EB5757]">
-            <AlertTriangle className="size-3.5" />
-            Compliance notes
-          </div>
-          <ul className="mt-2 space-y-1.5 text-[#F7C0C0]">
-            {concerns.map((c, i) => (
-              <li key={i} className="flex gap-1.5">
-                <span className="text-[#EB5757]">&bull;</span>
-                <span>{sanitize(c)}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-[11px] text-[#8A8F98]">
-            Saved anyway &mdash; edit in the Knowledge Base before going live.
-          </p>
-        </div>
-      ) : null}
-    </>
-  )
+  const focusedAssistantIndex = sending
+    ? -1
+    : messages.findLastIndex((message) => message.role === "assistant")
+  const focusedAssistant =
+    focusedAssistantIndex >= 0 ? messages[focusedAssistantIndex] : null
+  const historyMessages =
+    focusedAssistantIndex >= 0 ? messages.slice(0, focusedAssistantIndex) : messages
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#08090A] text-[#F7F8F8]">
+      <div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:72px_72px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_78%)]" />
+        <motion.div
+          className="absolute -left-40 top-[8%] h-[34rem] w-[34rem] rounded-full bg-[#E2E54B]/8 blur-[110px]"
+          animate={{ x: [0, 150, 40, 0], y: [0, 70, 180, 0], scale: [1, 1.15, 0.92, 1] }}
+          transition={{ duration: 24, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <motion.div
+          className="absolute -right-48 bottom-[-10%] h-[38rem] w-[38rem] rounded-full bg-[#5E6AD2]/12 blur-[130px]"
+          animate={{ x: [0, -130, -35, 0], y: [0, -100, -30, 0], scale: [1, 0.9, 1.12, 1] }}
+          transition={{ duration: 28, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <motion.div
+          className="absolute left-[48%] top-[18%] h-56 w-56 rounded-full border border-[#E2E54B]/10"
+          animate={{ rotate: 360, scale: [1, 1.25, 1], opacity: [0.25, 0.55, 0.25] }}
+          transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
+        />
+      </div>
+
       {showResetConfirm ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-sm rounded-2xl border border-[#23252A] bg-[#121316] p-6 text-center shadow-2xl">
-            <Trash2 className="mx-auto size-8 text-[#EB5757]" />
-            <h3 className="mt-3 text-base font-semibold text-[#F7F8F8]">Reset all progress?</h3>
-            <p className="mt-2 text-sm text-[#8A8F98]">
-              This will delete everything you&apos;ve entered so far. You&apos;ll start from the beginning.
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-md">
+          <div className="w-full max-w-sm rounded-[28px] border border-white/10 bg-[#121316]/95 p-6 text-center shadow-[0_30px_100px_rgba(0,0,0,.65)]">
+            <span className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-[#EB5757]/10">
+              <Trash2 className="size-5 text-[#EB5757]" />
+            </span>
+            <h3 className="mt-4 text-lg font-semibold">Reset all progress?</h3>
+            <p className="mt-2 text-sm leading-6 text-[#8A8F98]">
+              Everything captured in this setup will be cleared and you&apos;ll begin again.
             </p>
-            <div className="mt-5 flex items-center justify-center gap-3">
-              <Button
-                variant="outline"
-                onClick={() => setShowResetConfirm(false)}
-                className="rounded-xl text-sm"
-              >
-                Cancel
+            <div className="mt-6 flex justify-center gap-3">
+              <Button variant="outline" onClick={() => setShowResetConfirm(false)} className="rounded-xl">
+                Keep progress
               </Button>
-              <Button
-                onClick={() => void handleResetAndRestart()}
-                className="h-10 rounded-xl bg-[#EB5757] px-5 text-sm font-semibold text-white hover:bg-[#EB5757]/90"
-              >
-                Yes, reset
+              <Button onClick={() => void handleResetAndRestart()} className="rounded-xl bg-[#EB5757] text-white hover:bg-[#EB5757]/90">
+                Reset setup
               </Button>
             </div>
           </div>
         </div>
       ) : null}
 
-      <header className="relative z-10 border-b border-[#23252A] bg-[#08090A]">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-3 lg:px-8 lg:py-4">
-          <Link href="/" className="flex items-center gap-2.5" aria-label="AivaSpa home">
+      <header className="relative z-20 border-b border-white/[0.06] bg-[#08090A]/72 backdrop-blur-xl">
+        <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-5 lg:px-8">
+          <Link href="/" className="flex items-center gap-3" aria-label="AivaSpa home">
             <Logo />
-            <span className="ml-2 rounded-full border border-[#23252A] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-[#8A8F98]">
-              Setup Assistant
-            </span>
+            <span className="hidden h-5 w-px bg-white/10 sm:block" />
+            <span className="hidden text-xs font-medium text-[#8A8F98] sm:block">AI setup studio</span>
           </Link>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setShowResetConfirm(true)}
-              className="hidden text-xs text-[#8A8F98] transition hover:text-[#F7F8F8] sm:inline-flex sm:items-center sm:gap-1"
-            >
-              <Trash2 className="size-3" /> Start over
+          <div className="flex items-center gap-4">
+            <span className={cn(
+              "hidden items-center gap-1.5 text-xs sm:inline-flex",
+              savingState === "saved" ? "text-[#4CB782]" : "text-[#8A8F98]",
+            )}>
+              {savingState === "saving" ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />}
+              {savingState === "saving" ? "Saving" : "Auto-saved"}
+            </span>
+            <button type="button" onClick={() => setShowResetConfirm(true)} className="text-xs text-[#62666D] transition hover:text-white">
+              Start over
             </button>
-            <button
-              type="button"
-              onClick={() => void handleFinishLater()}
-              disabled={savingState === "saving"}
-              className="text-sm text-[#8A8F98] transition hover:text-[#F7F8F8] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {savingState === "saving" ? "Saving\u2026" : "Finish later"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="inline-flex size-8 items-center justify-center rounded-lg border border-[#23252A] text-[#8A8F98] lg:hidden"
-              aria-label="Toggle sidebar"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
+            <button type="button" onClick={() => void handleFinishLater()} disabled={savingState === "saving"} className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-medium text-[#F7F8F8] transition hover:border-white/20 hover:bg-white/[0.06] disabled:opacity-40">
+              Finish later
             </button>
           </div>
         </div>
       </header>
 
       {showResumeBanner ? (
-        <div className="mx-auto mt-2 max-w-7xl px-5 lg:px-8">
-          <div className="flex items-center gap-2 rounded-xl border border-[#5E6AD2]/30 bg-[#5E6AD2]/8 px-4 py-2.5 text-sm text-[#C8CCF0] shadow-sm">
-            <CheckCircle2 className="size-4 shrink-0 text-[#5E6AD2]" />
-            <span>Welcome back. Your setup progress was saved. Continue where you left off.</span>
-            <button
-              type="button"
-              onClick={() => setShowResumeBanner(false)}
-              className="ml-auto shrink-0 text-xs text-[#8A8F98] hover:text-[#F7F8F8]"
-            >
-              Dismiss
-            </button>
+        <div className="relative z-20 mx-auto mt-4 max-w-4xl px-5">
+          <div className="flex items-center gap-2 rounded-2xl border border-[#4CB782]/20 bg-[#4CB782]/10 px-4 py-3 text-sm text-[#B9E7D1] backdrop-blur-xl">
+            <CheckCircle2 className="size-4 shrink-0" />
+            <span>Your progress is safe. We&apos;ve opened the exact step you left.</span>
+            <button type="button" onClick={() => setShowResumeBanner(false)} className="ml-auto text-xs text-[#8A8F98] hover:text-white">Dismiss</button>
           </div>
         </div>
       ) : null}
 
-      <div className="mx-auto flex max-w-7xl gap-6 px-5 py-6 lg:px-8 lg:py-10">
-        {sidebarOpen ? (
-          <div className="fixed inset-0 z-40 overflow-y-auto lg:hidden">
-            <div className="relative z-10 min-h-full bg-[#08090A] p-5 pt-4">
-              <div className="mb-4 flex items-center justify-between">
-                <p className="text-sm font-semibold">Menu</p>
+      <div className="relative z-10 mx-auto flex min-h-[calc(100vh-72px)] max-w-5xl flex-col px-4 pb-8 pt-6 sm:px-6 lg:px-8 lg:pt-8">
+        <div className="mx-auto w-full max-w-4xl">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#E2E54B]">
+                <Sparkles className="size-3.5" /> Guided setup
+              </div>
+              <h1 className="mt-2 text-2xl font-semibold tracking-[-0.04em] sm:text-3xl">
+                Build your receptionist&apos;s knowledge
+              </h1>
+            </div>
+            <div className="text-right">
+              <p className="font-mono text-sm text-[#F7F8F8]">{currentStep}<span className="text-[#62666D]">/{SECTION_ORDER.length}</span></p>
+              <p className="mt-1 text-[11px] text-[#62666D]">{Math.round(progressPercent)}% complete</p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-9 gap-1.5" aria-label="Onboarding progress">
+            {SECTION_ORDER.map((item, index) => {
+              const done = isSectionDone(draft, item)
+              const active = item === section
+              return (
                 <button
+                  key={item}
                   type="button"
-                  onClick={() => setSidebarOpen(false)}
-                  className="text-xs text-[#8A8F98] hover:text-[#F7F8F8]"
-                >
-                  Close
-                </button>
-              </div>
-              {sidebarPanel}
-            </div>
-            <div
-              className="fixed inset-0 z-0 bg-black/60"
-              onClick={() => setSidebarOpen(false)}
-            />
-          </div>
-        ) : null}
-
-        <aside className="hidden shrink-0 lg:sticky lg:top-6 lg:block lg:self-start" style={{ width: 280 }}>
-          {sidebarPanel}
-        </aside>
-
-        <div
-          className={cn(
-            "flex min-h-[600px] flex-1 flex-col rounded-2xl border border-[#23252A] bg-[#0B0C0E] shadow-2xl shadow-black/30",
-            sidebarOpen ? "hidden lg:flex" : "flex",
-          )}
-        >
-          <div className="flex items-start justify-between gap-4 border-b border-[#23252A] p-5">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold uppercase tracking-wider text-[#5E6AD2]">
-                Step {currentStep} of {SECTION_ORDER.length}
-              </p>
-              <h2 className="mt-1 text-lg font-bold tracking-tight">{SECTION_LABEL[section]}</h2>
-              <p className="mt-0.5 text-[13px] text-[#8A8F98]">{sectionTip}</p>
-            </div>
-            <div className="flex shrink-0 flex-col items-end gap-1">
-              {currentSectionDone ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-[#4CB782]/15 px-2 py-0.5 text-[11px] font-semibold text-[#4CB782]">
-                  <Check className="size-3" /> Captured
-                </span>
-              ) : null}
-              {savingState !== "idle" ? (
-                <span className={cn(
-                  "inline-flex items-center gap-1 text-[10px] font-medium",
-                  savingState === "saving" ? "text-[#8A8F98]" : "text-[#4CB782]",
-                )}>
-                  {savingState === "saving" ? (
-                    <><Loader2 className="size-2.5 animate-spin" /> Saving&hellip;</>
-                  ) : (
-                    <><Check className="size-2.5" /> Saved</>
-                  )}
-                </span>
-              ) : null}
-            </div>
-          </div>
-
-          <div
-            ref={scrollRef}
-            className="flex-1 space-y-3 overflow-y-auto p-5"
-            style={{ minHeight: 360 }}
-          >
-            {messages.map((m) => (
-              <div
-                key={m.id}
-                className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}
-              >
-                <div
+                  onClick={() => setSection(item)}
+                  title={`${index + 1}. ${SECTION_LABEL[item]}`}
                   className={cn(
-                    "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-6",
-                    m.role === "user"
-                      ? "rounded-br-sm bg-[#E2E54B] text-[#08090A]"
-                      : "rounded-bl-sm border border-[#23252A] bg-[#121316] text-[#F7F8F8]",
+                    "group relative h-1.5 overflow-hidden rounded-full bg-white/[0.07] transition",
+                    active && "ring-2 ring-[#E2E54B]/20 ring-offset-2 ring-offset-[#08090A]",
                   )}
                 >
-                  <p className="whitespace-pre-wrap">{sanitize(m.content)}</p>
-                  <p
-                    className={cn(
-                      "mt-1 text-[11px]",
-                      m.role === "user" ? "text-[#08090A]/60" : "text-[#62666D]",
-                    )}
-                  >
-                    {m.role === "user" ? "You" : "Setup Assistant"} &middot; {m.at}
-                  </p>
-                </div>
-              </div>
-            ))}
-            {sending ? (
-              <div className="flex justify-start">
-                <div className="inline-flex items-center gap-2 rounded-2xl rounded-bl-sm border border-[#23252A] bg-[#121316] px-3 py-2 text-[13px] text-[#8A8F98]">
-                  <Loader2 className="size-3 animate-spin" />
-                  Thinking&hellip;
-                </div>
-              </div>
-            ) : null}
-
-            {messages.length <= 1 && !sending ? (
-              <>
-                <div className="mt-4 rounded-xl border border-[#23252A] bg-[#121316] p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-[#62666D]">
-                    Example answer
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-[#8A8F98]">
-                    &quot;Glow Aesthetics, glowaesthetics.com, 123 Main St, San Francisco.&quot;
-                  </p>
-                  <p className="mt-2 text-[13px] text-[#62666D]">
-                    Just answer naturally &mdash; I&apos;ll capture the details from your message.
-                  </p>
-                </div>
-                <div className="rounded-xl border border-[#23252A] bg-[#121316] p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-[#62666D]">
-                    What happens next
-                  </p>
-                  <div className="mt-2 space-y-2 text-[13px] text-[#8A8F98]">
-                    <p className="flex items-start gap-2">
-                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-[#5E6AD2]/20 text-[10px] text-[#5E6AD2]">1</span>
-                      Tell us about your business &mdash; name, website, location
-                    </p>
-                    <p className="flex items-start gap-2">
-                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-[#5E6AD2]/20 text-[10px] text-[#5E6AD2]">2</span>
-                      Add services, hours, and booking preferences
-                    </p>
-                    <p className="flex items-start gap-2">
-                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-[#5E6AD2]/20 text-[10px] text-[#5E6AD2]">3</span>
-                      Set up FAQs, disclaimers, and notifications
-                    </p>
-                    <p className="flex items-start gap-2">
-                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-[#5E6AD2]/20 text-[10px] text-[#5E6AD2]">4</span>
-                      Review and publish your knowledge base
-                    </p>
-                  </div>
-                </div>
-              </>
-            ) : null}
+                  <span className={cn("absolute inset-0 origin-left transition-transform duration-700", done || active ? "scale-x-100" : "scale-x-0", done ? "bg-[#4CB782]" : "bg-[#E2E54B]")} />
+                </button>
+              )
+            })}
           </div>
 
-          {onReview ? (
-            <div className="border-t border-[#23252A] bg-[#0B0C0E] p-5">
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#F7F8F8]">
-                <FileText className="size-4 text-[#5E6AD2]" />
-                Final review
+          <div className="mt-3 flex items-center justify-between text-xs">
+            <span className="font-medium text-[#F7F8F8]">{SECTION_LABEL[section]}</span>
+            <span className="hidden text-[#62666D] sm:block">{sectionTip}</span>
+          </div>
+        </div>
+
+        <section className="mx-auto mt-6 flex w-full max-w-4xl flex-1 flex-col overflow-hidden rounded-[30px] border border-white/[0.08] bg-[#0D0E10]/88 shadow-[0_35px_120px_rgba(0,0,0,.42)] backdrop-blur-xl">
+          {historyMessages.length > 0 ? (
+            <div ref={scrollRef} className="max-h-52 space-y-3 overflow-y-auto border-b border-white/[0.06] bg-black/10 px-5 py-4 sm:px-7">
+              <div className="mb-3 flex items-center gap-3">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#62666D]">Previous conversation</span>
+                <span className="h-px flex-1 bg-white/[0.06]" />
               </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {SECTION_ORDER.filter((s) => s !== "review").map((s) => (
-                  <div
-                    key={s}
-                    className="rounded-xl border border-[#23252A] bg-[#121316] p-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-[#62666D]">
-                        {SECTION_LABEL[s]}
-                      </p>
-                      {isSectionDone(draft, s) ? (
-                        <Check className="size-3.5 text-[#4CB782]" />
-                      ) : (
-                        <Clock className="size-3.5 text-[#62666D]" />
-                      )}
-                    </div>
-                    <p className="mt-1 text-[13px] text-[#F7F8F8]">
-                      {SECTION_SUMMARY[s](draft)}
-                    </p>
+              {historyMessages.map((message) => (
+                <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} key={message.id} className={cn("flex gap-3", message.role === "user" && "justify-end")}>
+                  {message.role === "assistant" ? (
+                    <span className="mt-1 flex size-6 shrink-0 items-center justify-center rounded-lg border border-[#E2E54B]/15 bg-[#E2E54B]/8"><Bot className="size-3 text-[#E2E54B]" /></span>
+                  ) : null}
+                  <div className={cn("max-w-[82%] text-[13px] leading-5", message.role === "assistant" ? "text-[#8A8F98]" : "rounded-xl bg-white/[0.06] px-3 py-2 text-[#D9DADC]")}>
+                    <p className="whitespace-pre-wrap">{sanitize(message.content)}</p>
                   </div>
-                ))}
-              </div>
-              {finalizeError ? (
-                <div className="mt-3 rounded-xl border border-[#EB5757]/40 bg-[#EB5757]/10 px-3 py-2 text-xs text-[#EB5757]">
-                  {finalizeError}
-                </div>
-              ) : null}
-              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-[13px] text-[#8A8F98]">
-                  {draft.status?.pendingFields?.length
-                    ? `${draft.status.pendingFields.length} field(s) still pending \u2014 you can publish anyway and edit later.`
-                    : "All required fields captured. Ready to publish."}
-                </p>
-                <Button
-                  onClick={() => void publish()}
-                  disabled={finalizing}
-                  className="h-11 rounded-xl bg-[#E2E54B] px-6 text-sm font-semibold text-[#08090A] hover:bg-[#E2E54B]/90 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {finalizing ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" /> Publishing&hellip;
-                    </>
-                  ) : (
-                    <>
-                      Publish knowledge base
-                      <ArrowRight className="size-4" />
-                    </>
-                  )}
-                </Button>
-              </div>
+                </motion.div>
+              ))}
             </div>
           ) : null}
 
-          <div className="border-t border-[#23252A] bg-[#0B0C0E] p-4">
-            {error ? (
-              <div className="mb-2 rounded-xl border border-[#EB5757]/40 bg-[#EB5757]/10 px-3 py-2 text-xs text-[#EB5757]">
-                {error}
-              </div>
-            ) : null}
+          <div className="flex flex-1 flex-col justify-center px-5 py-8 sm:px-10 sm:py-10">
+            <AnimatePresence initial={false}>
+              <motion.div
+                key={sending ? `thinking-${messages.length}` : `${section}-${focusedAssistant?.id ?? "empty"}`}
+                initial={{ opacity: 0, y: 18, filter: "blur(5px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                exit={{ opacity: 0, y: -14, filter: "blur(4px)" }}
+                transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
+                className="mx-auto w-full max-w-2xl"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="relative flex size-10 items-center justify-center rounded-2xl border border-[#E2E54B]/20 bg-[#E2E54B]/10 shadow-[0_0_28px_rgba(226,229,75,.08)]">
+                    {sending ? <Loader2 className="size-4 animate-spin text-[#E2E54B]" /> : <Bot className="size-4 text-[#E2E54B]" />}
+                    <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-[#0D0E10] bg-[#4CB782]" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold">Aiva setup assistant</p>
+                    <p className="text-[11px] text-[#62666D]">Learning your approved business details</p>
+                  </div>
+                  {currentSectionDone && !sending ? (
+                    <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-[#4CB782]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#4CB782]"><Check className="size-3" /> Captured</span>
+                  ) : null}
+                </div>
 
-            {suggestions.length > 0 && messages.length <= 2 ? (
-              <div className="mb-3 flex flex-wrap gap-2">
-                {suggestions.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => void send(s)}
-                    className="max-w-full rounded-full border border-[#3A3D43] bg-[#1A1B1E] px-3.5 py-1.5 text-left text-[13px] text-[#8A8F98] transition hover:border-[#5E6AD2]/50 hover:bg-[#1A1B1E] hover:text-[#F7F8F8]"
-                  >
-                    {s.length > 80 ? s.slice(0, 80) + "\u2026" : s}
+                <div className="mt-6 min-h-24">
+                  {sending ? (
+                    <div>
+                      <p className="text-xl font-medium tracking-[-0.025em] text-[#F7F8F8] sm:text-2xl">Understanding your answer…</p>
+                      <div className="mt-5 flex gap-1.5"><span className="size-2 animate-pulse rounded-full bg-[#E2E54B]" /><span className="size-2 animate-pulse rounded-full bg-[#E2E54B]/60 [animation-delay:150ms]" /><span className="size-2 animate-pulse rounded-full bg-[#E2E54B]/30 [animation-delay:300ms]" /></div>
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap text-xl font-medium leading-[1.55] tracking-[-0.025em] text-[#F7F8F8] sm:text-2xl sm:leading-[1.5]">
+                      {sanitize(focusedAssistant?.content ?? "Tell me a little about your business to begin.")}
+                    </p>
+                  )}
+                </div>
+
+                {concerns.length > 0 ? (
+                  <div className="mt-5 rounded-2xl border border-[#EB5757]/20 bg-[#EB5757]/5 p-4 text-xs text-[#E8B4B4]">
+                    <div className="flex items-center gap-2 font-semibold text-[#EB7777]"><AlertTriangle className="size-3.5" /> Compliance note</div>
+                    <p className="mt-1.5 leading-5">{sanitize(concerns[concerns.length - 1])}</p>
+                  </div>
+                ) : null}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          {onReview ? (
+            <div className="border-t border-white/[0.06] px-5 py-5 sm:px-7">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {SECTION_ORDER.filter((item) => item !== "review").map((item) => (
+                  <button key={item} type="button" onClick={() => setSection(item)} className="flex items-start gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-3 text-left transition hover:bg-white/[0.05]">
+                    <span className={cn("mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-lg", isSectionDone(draft, item) ? "bg-[#4CB782]/10 text-[#4CB782]" : "bg-white/[0.05] text-[#62666D]")}>{isSectionDone(draft, item) ? <Check className="size-3.5" /> : <Clock className="size-3.5" />}</span>
+                    <span className="min-w-0"><span className="block text-xs font-semibold text-[#F7F8F8]">{SECTION_LABEL[item]}</span><span className="mt-1 block truncate text-[11px] text-[#62666D]">{SECTION_SUMMARY[item](draft)}</span></span>
                   </button>
                 ))}
               </div>
-            ) : null}
-
-            <div className="flex items-end gap-2">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={onKeyDown}
-                placeholder={
-                  onReview
-                    ? "Any last edits before publishing?"
-                    : `Tell me about your ${SECTION_LABEL[section].toLowerCase()}\u2026`
-                }
-                rows={2}
-                disabled={onReview}
-                className={cn(
-                  "min-h-12 max-h-32 flex-1 resize-none rounded-xl border border-[#23252A] bg-[#121316] px-3 py-2.5 text-sm text-[#F7F8F8] placeholder:text-[#8A8F98] focus:border-[#5E6AD2] focus:outline-none focus:ring-2 focus:ring-[#5E6AD2]/20 disabled:cursor-not-allowed disabled:opacity-50",
-                )}
-                maxLength={2000}
-              />
-              <Button
-                type="button"
-                onClick={() => void send()}
-                disabled={sending || input.trim().length === 0 || onReview}
-                className={cn(
-                  "size-11 shrink-0 rounded-xl bg-[#E2E54B] text-[#08090A] transition-all",
-                  "hover:bg-[#E2E54B]/90 hover:shadow-lg hover:shadow-[#E2E54B]/20",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E2E54B]/50",
-                  "disabled:cursor-not-allowed disabled:opacity-30 disabled:shadow-none",
-                )}
-                aria-label="Send"
-              >
-                {sending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <ArrowRight className="size-4" />
-                )}
+              {finalizeError ? <div className="mt-3 rounded-xl border border-[#EB5757]/30 bg-[#EB5757]/10 px-3 py-2 text-xs text-[#EB7777]">{finalizeError}</div> : null}
+              <Button onClick={() => void publish()} disabled={finalizing} className="mt-4 h-12 w-full rounded-2xl bg-[#E2E54B] font-semibold text-[#08090A] hover:bg-[#EEF06A]">
+                {finalizing ? <><Loader2 className="size-4 animate-spin" /> Publishing…</> : <><FileText className="size-4" /> Publish knowledge base <ArrowRight className="ml-auto size-4" /></>}
               </Button>
             </div>
-            <p className="mt-2 text-xs italic text-[#62666D]">
-              Example: Glow Aesthetics, glowaesthetics.com, 123 Main St, San Francisco.
-            </p>
-          </div>
-        </div>
+          ) : (
+            <div className="border-t border-white/[0.06] bg-black/10 px-4 py-4 sm:px-7 sm:py-5">
+              {error ? <div className="mb-3 rounded-xl border border-[#EB5757]/30 bg-[#EB5757]/10 px-3 py-2 text-xs text-[#EB7777]">{error}</div> : null}
+              {suggestions.length > 0 && messages.length <= 2 ? (
+                <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+                  {suggestions.map((suggestion) => (
+                    <button key={suggestion} type="button" onClick={() => void send(suggestion)} className="shrink-0 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-[#8A8F98] transition hover:border-[#E2E54B]/25 hover:text-white">
+                      {suggestion.length > 64 ? `${suggestion.slice(0, 64)}…` : suggestion}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <div className="flex items-end gap-3 rounded-[22px] border border-white/[0.09] bg-[#121316] p-2.5 pl-4 shadow-inner shadow-black/20 transition-within:border-[#E2E54B]/40 focus-within:border-[#E2E54B]/40 focus-within:ring-4 focus-within:ring-[#E2E54B]/5">
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  onKeyDown={onKeyDown}
+                  placeholder={`Answer about ${SECTION_LABEL[section].toLowerCase()}…`}
+                  rows={2}
+                  maxLength={2000}
+                  className="max-h-32 min-h-12 flex-1 resize-none bg-transparent py-2 text-sm leading-6 text-[#F7F8F8] outline-none placeholder:text-[#62666D]"
+                />
+                <Button type="button" onClick={() => void send()} disabled={sending || input.trim().length === 0} aria-label="Send answer" className="size-12 shrink-0 rounded-2xl bg-[#E2E54B] text-[#08090A] shadow-[0_8px_28px_rgba(226,229,75,.12)] hover:bg-[#EEF06A] disabled:opacity-25">
+                  {sending ? <Loader2 className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}
+                </Button>
+              </div>
+              <div className="mt-2.5 flex items-center justify-between px-1 text-[11px] text-[#62666D]">
+                <span>Reply naturally — Aiva will ask again if anything is missing.</span>
+                <span className="hidden sm:block">Enter to send · Shift + Enter for a new line</span>
+              </div>
+            </div>
+          )}
+        </section>
       </div>
     </main>
   )
