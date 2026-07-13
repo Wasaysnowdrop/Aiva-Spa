@@ -226,6 +226,36 @@ When you reach action: "finish", the platform shows the owner the full KB for on
 Begin.`
 }
 
+const RESUME_QUESTION: Record<SetupAssistantSection, string> = {
+  business:
+    "Tell me your business name, website, location, and what visitors should expect after hours.",
+  hours:
+    "Tell me your regular business hours and timezone, including any days you are closed.",
+  services:
+    "Continue with your services: share each service name, a short client-friendly description, duration, and an indicative price range if you use one.",
+  booking_policy:
+    "How should consultation requests be handled, and do you require a deposit or cancellation notice?",
+  faqs:
+    "Share the common visitor questions and the exact answers your receptionist is approved to give.",
+  disclaimers:
+    "Confirm your pricing and medical disclaimers, plus any claims or phrases the receptionist must avoid.",
+  brand_voice:
+    "How should your receptionist sound, what greeting should it use, and are there phrases it should avoid?",
+  notifications:
+    "Which email addresses or phone numbers should receive new-lead notifications?",
+  review:
+    "Your setup details are ready for review. Confirm any final corrections, then publish your knowledge base.",
+}
+
+export function buildSetupAssistantResumeMessage(
+  section: SetupAssistantSection,
+  firstName = "",
+): string {
+  const welcome = section === "business" ? "Welcome" : "Welcome back"
+  const name = firstName.trim() ? `, ${firstName.trim()}` : ""
+  return `${welcome}${name}. ${RESUME_QUESTION[section]}`
+}
+
 export function buildSetupAssistantUserTurn(input: SetupAssistantTurnInput): string {
   const { history, userMessage, currentSection, draft, ownerName, spaName } = input
   const isFirst = !history.some(m => m.role === "user")

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  buildSetupAssistantResumeMessage,
   buildSetupAssistantSystemPrompt,
   buildSetupAssistantUserTurn,
 } from "@/lib/ai/setup-assistant-prompt"
@@ -120,6 +121,29 @@ describe("setup assistant prompt", () => {
     // Should NOT contain first-turn instruction
     expect(turn).not.toContain("first user message")
     expect(turn).toContain("Stay strictly")
+  })
+
+  it("builds a resume question that matches every saved section", () => {
+    const cases = [
+      ["business", /business name/i],
+      ["hours", /business hours and timezone/i],
+      ["services", /continue with your services/i],
+      ["booking_policy", /consultation requests/i],
+      ["faqs", /visitor questions/i],
+      ["disclaimers", /medical disclaimers/i],
+      ["brand_voice", /receptionist sound/i],
+      ["notifications", /new-lead notifications/i],
+      ["review", /ready for review/i],
+    ] as const
+
+    for (const [section, expected] of cases) {
+      const message = buildSetupAssistantResumeMessage(section, "Wff")
+      expect(message).toMatch(expected)
+      expect(message).toContain("Wff")
+      if (section !== "business") {
+        expect(message).not.toMatch(/tell me your business name/i)
+      }
+    }
   })
 
   it("includes business field guidance with name not spa_name", () => {

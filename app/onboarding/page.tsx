@@ -10,6 +10,7 @@ import {
   type SetupAssistantSection,
 } from "@/lib/ai/setup-assistant-schema"
 import { SETUP_ASSISTANT_SECTIONS } from "@/lib/ai/setup-assistant-schema"
+import { buildSetupAssistantResumeMessage } from "@/lib/ai/setup-assistant-prompt"
 
 export const metadata: Metadata = {
   title: "Setup Assistant — launch your AI receptionist | AivaSpa",
@@ -58,10 +59,7 @@ export default async function OnboardingPage() {
   const spaName = (user.user_metadata?.spa_name as string | undefined) ?? ""
 
   const firstName = fullName.split(" ")[0] || ""
-  const hasDraft = initialDraft && Object.keys(initialDraft).length > 1
-  const greetingMessage = hasDraft
-    ? `Welcome back${firstName ? `, ${firstName}` : ""}. Let's finish your spa setup. To start, tell me your business name, website, and location. I'll save everything automatically.`
-    : `Welcome${firstName ? `, ${firstName}` : ""}. Let's set up your spa. To start, tell me your business name, website, and location. I'll save everything automatically.`
+  const greetingMessage = buildSetupAssistantResumeMessage(initialSection, firstName)
 
   const welcomeAt = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
   const initialHistory = [
