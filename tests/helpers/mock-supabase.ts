@@ -206,7 +206,10 @@ function buildClientWithSharedResults(
     resend: async () => ({ error: null }),
     resetPasswordForEmail: async () => ({ error: null }),
     admin: {
-      updateUserById: async () => ({ data: { user: authRef.current }, error: null }),
+      updateUserById: async (...args: unknown[]) => {
+        calls.push({ table: "auth", op: "updateUserById", args })
+        return { data: { user: authRef.current }, error: null }
+      },
       deleteUser: async () => ({ data: { user: null }, error: null }),
       createUser: async () => ({ data: { user: authRef.current }, error: null }),
       listUsers: async () => ({ data: { users: [] }, error: null }),

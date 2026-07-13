@@ -61,6 +61,21 @@ describe("onboarding knowledge-base persistence", () => {
     expect(guardrailRows.every((row) => row.user_id === user.id)).toBe(true)
     expect(guardrailRows.map((row) => row.rule_type)).toEqual(["pricing", "medical", "general"])
 
+    const widgetPayload = admin.callsFor("widget_config", "update")[0]?.args[0] as Record<string, unknown>
+    expect(widgetPayload.extended_kb).toMatchObject({
+      business: { name: "Glow Spa", website: "https://glow.example" },
+      services: [{ name: "Botox" }],
+      faqs: [{ question: "How do I book?" }],
+    })
+    const authUpdate = admin.callsFor("auth", "updateUserById")[0]
+    expect(authUpdate?.args[0]).toBe(user.id)
+    expect(authUpdate?.args[1]).toMatchObject({
+      user_metadata: {
+        onboarding_completed: true,
+        onboarding_kb: { services: [{ name: "Botox" }] },
+      },
+    })
+
     for (const table of ["knowledge_services", "knowledge_faqs", "knowledge_guardrails"]) {
       expect(admin.callsFor(table, "eq")).toContainEqual({ table, op: "eq", args: ["user_id", user.id] })
     }

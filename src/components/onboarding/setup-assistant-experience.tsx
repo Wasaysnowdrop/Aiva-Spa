@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   AlertTriangle,
   ArrowRight,
@@ -24,6 +25,7 @@ import { finalizeSetupAssistant } from "@/app/actions/setup-assistant"
 import {
   SETUP_ASSISTANT_SECTIONS,
   emptyKnowledgeBase,
+  isBusinessBasicsComplete,
   type KnowledgeBase,
   type SetupAssistantSection,
 } from "@/lib/ai/setup-assistant-schema"
@@ -150,7 +152,7 @@ function isSectionDone(kb: KnowledgeBase, section: SetupAssistantSection): boole
   if (isSectionDefaultValue(kb, section)) return false
   switch (section) {
     case "business":
-      return Boolean(kb.business?.name)
+      return isBusinessBasicsComplete(kb)
     case "hours":
       return Boolean(kb.hours?.schedule && kb.hours.schedule.length > 0 && kb.hours?.timezone)
     case "services":
@@ -255,6 +257,7 @@ export function SetupAssistantExperience({
   const [draft, setDraft] = React.useState<KnowledgeBase>(initialDraft)
   const [section, setSection] = React.useState<SetupAssistantSection>(initialSection)
   const [messages, setMessages] = React.useState<ChatMessage[]>(initialHistory)
+  const router = useRouter()
   const [input, setInput] = React.useState("")
   const [sending, setSending] = React.useState(false)
   const [savingState, setSavingState] = React.useState<SavingState>("idle")
@@ -272,8 +275,11 @@ export function SetupAssistantExperience({
   )
 
   const completedSections = React.useMemo(
-    () => SECTION_ORDER.filter((s) => isSectionDone(draft, s)),
-    [draft],
+    () => {
+      const activeIndex = SECTION_ORDER.indexOf(section)
+      return SECTION_ORDER.filter((s, index) => index < activeIndex || isSectionDone(draft, s))
+    },
+    [draft, section],
   )
 
   React.useEffect(() => {
@@ -353,6 +359,9 @@ export function SetupAssistantExperience({
       } else if (data.section !== section) {
         setSection(data.section)
       }
+      if (data.action === "finish") {
+        await publish(data.draft)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Setup assistant error")
       setSavingState("idle")
@@ -410,19 +419,19 @@ export function SetupAssistantExperience({
       })
     } catch {
     }
-    window.location.href = "/onboarding?resume=1"
+    router.replace("/onboarding?resume=1")
   }
 
-  async function publish() {
+  async function publish(finalDraft: KnowledgeBase = draft) {
     setFinalizing(true)
     setFinalizeError(null)
     try {
-      const result = await finalizeSetupAssistant(draft)
+      const result = await finalizeSetupAssistant(finalDraft)
       if (!result.ok) {
         setFinalizeError(result.error ?? "Failed to publish")
         return
       }
-      window.location.href = "/dashboard/knowledge-base"
+      router.replace("/dashboard/knowledge-base")
     } catch (e) {
       setFinalizeError(e instanceof Error ? e.message : "Failed to publish")
     } finally {
@@ -541,7 +550,7 @@ export function SetupAssistantExperience({
 
           <div className="mt-5 grid grid-cols-9 gap-1.5" aria-label="Onboarding progress">
             {SECTION_ORDER.map((item, index) => {
-              const done = isSectionDone(draft, item)
+              const done = index < currentStep - 1 || isSectionDone(draft, item)
               const active = item === section
               return (
                 <button

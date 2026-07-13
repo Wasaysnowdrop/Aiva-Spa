@@ -185,7 +185,7 @@ export const emptyKnowledgeBase = (): KnowledgeBase => ({
   version: 1,
   business: { name: "", website: "", addresses: [], afterHoursPolicy: "pending" },
   hours: {
-    timezone: "America/Los_Angeles",
+    timezone: "",
     schedule: [],
     afterHoursMessage: "",
     open247: false,
@@ -236,6 +236,32 @@ export function isCaptured(value: unknown): boolean {
   if (typeof value === "string") return value.trim().length > 0
   if (Array.isArray(value)) return value.length > 0
   return Boolean(value)
+}
+
+function isNonPendingText(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0 && value.trim().toLowerCase() !== "pending"
+}
+
+/**
+ * Step 1 is complete only after every item asked for in the business-basics
+ * interview has been captured. Keeping this check outside the LLM makes the
+ * section transition deterministic even if a provider returns `summarize`
+ * more than once.
+ */
+export function isBusinessBasicsComplete(kb: KnowledgeBase): boolean {
+  const business = kb.business
+  if (!business) return false
+
+  const hasAddress = (business.addresses ?? []).some((address) =>
+    isNonPendingText(address.line1),
+  )
+
+  return Boolean(
+    isCaptured(business.name) &&
+      isNonPendingText(business.website) &&
+      hasAddress &&
+      isNonPendingText(business.afterHoursPolicy),
+  )
 }
 
 export function countPendingFields(kb: KnowledgeBase): string[] {

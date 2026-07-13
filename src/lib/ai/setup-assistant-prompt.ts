@@ -48,12 +48,12 @@ export const SECTION_INTRO: Record<SetupAssistantSectionKey, string> = {
 const SECTION_FIELD_GUIDANCE: Record<SetupAssistantSectionKey, string> = {
   business: `
 - name (required) — the business/spa name. If the user says "Our spa is X", "We are X", "We're called X", extract the name. "name" is the exact schema key — do NOT use "spa_name".
-- website (optional) — URL. Look for patterns like "our website is X", a domain after the name, or "X.com".
-- addresses: array of {line1, line2, city, region, postal, country}. Extract city/region from the address. "San Francisco, CA" → city: "San Francisco", region: "CA".
+- website (required for Step 1 completion) — URL or domain. Look for patterns like "our website is X" or "X.com".
+- addresses (at least one required for Step 1 completion): array of {line1, line2, city, region, postal, country}. Extract the full street address and city/region.
 - business_type (optional) — e.g., "single-location med spa", "multi-location". Capture if the owner mentions it.
 - afterHoursPolicy: a short sentence describing what happens after hours (e.g., "We capture leads and follow up the next business morning."). If the owner says "skip" or "I don't know", set status to "pending".`,
   hours: `
-- timezone: IANA tz string (default "America/Los_Angeles"). Extract timezone from common formats: "PST" / "Pacific Time" → "America/Los_Angeles", "EST" / "Eastern Time" → "America/New_York", "CST" / "Central Time" → "America/Chicago", "MST" / "Mountain Time" → "America/Denver", "HST" → "Pacific/Honolulu", "AKST" → "America/Anchorage". UTC offsets like "UTC-5" → "America/New_York". If the owner explicitly states a timezone, ALWAYS capture it — do NOT ask for it again.
+- timezone: IANA tz string. Leave it empty until the owner explicitly supplies a timezone. Extract common formats such as PST, EST, CST, MST, or Asia/Karachi. If explicitly stated, ALWAYS capture it and never ask again.
 - open247: boolean (true if the spa is 24/7)
 - schedule: array of exactly 7 entries, one per day Mon..Sun
     { day: "Mon"|"Tue"|...|"Sun", open: boolean, from: "HH:MM", to: "HH:MM" }
@@ -127,8 +127,8 @@ Your only job: interview a med-spa owner and produce a structured knowledge base
 3. Never make medical claims, give diagnoses, or promise outcomes. You are configuring the AI that will refuse to do so.
 4. If the owner refuses, says "skip", or does not know: NEVER fabricate and NEVER output null. Omit optional fields, use an empty string/array where the schema allows it, or use the literal string "pending" only for business fields that support it.
 5. Collect ONE topic at a time. The current section is provided in the user message. Stay on that section until its required fields are captured or marked pending, then output action: "advance" and the platform will switch sections.
-6. After collecting all required fields for a section, output action: "summarize" with a 2–4 line summary of what you captured and ask the owner to confirm or correct. Exception: if the owner provided ALL required fields in a single message, you may output action: "advance" directly — they have implicitly confirmed. On their explicit confirmation (after "summarize"), output action: "advance".
-7. Always end your reply text with a single, clear, conversational question or summary (1–3 short sentences max). Keep it warm, premium, concise.
+6. As soon as the running draft plus the latest answer contains every field requested for the current section, output action: "advance" immediately and ask the first question for the next section. Never ask the owner to reconfirm a complete section.
+7. Ask exactly ONE missing field at a time. Keep the reply to 1–2 short sentences with one clear question; never bundle several questions together.
 8. Sections in order: business → hours → services → booking_policy → faqs → disclaimers → brand_voice → notifications → review. The platform passes you the current section; do not skip ahead unless the owner explicitly asks.
 9. If the owner goes off-topic, gently redirect: "Happy to cover that — first, can we finish {current section}?"
 10. Tone: warm, premium, concise. Never use emojis. Address the owner by first name if you have it.
@@ -156,7 +156,7 @@ Every value must match the listed type exactly. Never output null anywhere in ca
 }
 
 # Current section guidance
-For each section, capture exactly the fields listed below. Use null + status:"pending" for fields the owner doesn't supply.
+For each section, capture exactly the fields listed below. Never output null; omit optional fields or use the allowed empty/pending value.
 
 ${Object.entries(SECTION_FIELD_GUIDANCE)
   .map(([k, v]) => `## ${k}\n${v}`)
@@ -239,24 +239,30 @@ Begin.`
 
 const RESUME_QUESTION: Record<SetupAssistantSection, string> = {
   business:
-    "Tell me your business name, website, location, and what visitors should expect after hours.",
+    "What is your business name?",
   hours:
-    "Tell me your regular business hours and timezone, including any days you are closed.",
+    "What are your regular business hours, including closed days?",
   services:
-    "Continue with your services: share each service name, a short client-friendly description, duration, and an indicative price range if you use one.",
+    "What services do you offer?",
   booking_policy:
-    "How should consultation requests be handled, and do you require a deposit or cancellation notice?",
+    "How should consultation requests be handled?",
   faqs:
-    "Share the common visitor questions and the exact answers your receptionist is approved to give.",
+    "What is one common visitor question and its approved answer?",
   disclaimers:
-    "Confirm your pricing and medical disclaimers, plus any claims or phrases the receptionist must avoid.",
+    "Should I use the standard pricing, medical, and consent disclaimers?",
   brand_voice:
-    "How should your receptionist sound, what greeting should it use, and are there phrases it should avoid?",
+    "What tone should your receptionist use?",
   notifications:
-    "Which email addresses or phone numbers should receive new-lead notifications?",
+    "Which email address should receive new-lead notifications?",
   review:
-    "Your setup details are ready for review. Confirm any final corrections, then publish your knowledge base.",
+    "Is everything correct and ready to save?",
 }
+export function buildSetupAssistantSectionQuestion(
+  section: SetupAssistantSection,
+): string {
+  return RESUME_QUESTION[section]
+}
+
 
 export function buildSetupAssistantResumeMessage(
   section: SetupAssistantSection,
@@ -271,8 +277,8 @@ export function buildSetupAssistantUserTurn(input: SetupAssistantTurnInput): str
   const { history, userMessage, currentSection, draft, ownerName, spaName } = input
   const isFirst = !history.some(m => m.role === "user")
   const intro = isFirst
-    ? `This is the first user message. The user may provide MULTIPLE fields at once. Extract ALL the information they give (business name, website, address, business type, hours, timezone, etc.) and save it in "captured". If they gave you all required fields for this section, set action to "advance" and ask about the next section. NEVER ask for a field the user just provided — only ask for missing required fields that were NOT mentioned.`
-    : `Stay strictly on the "${currentSection}" section. Do not jump ahead.`
+    ? `This is the first user message. Extract ALL information they provide and save it in "captured", even if they answer multiple fields at once. Ask exactly ONE short question for the first missing field. If the section becomes complete, set action to "advance" immediately and ask one short question from the next section. NEVER ask for a field the user just provided.`
+    : `Stay strictly on the "${currentSection}" section. Ask exactly ONE short question for the first missing field. If the running draft plus this answer completes the section, set action to "advance" immediately; never request another confirmation.`
 
   const draftExcerpt = excerptDraft(draft, currentSection)
 
@@ -291,7 +297,7 @@ ${draftExcerpt}
 ${JSON.stringify(userMessage)}
 
 # Output
-Respond with the strict JSON object described in your system prompt. End "reply" with a question or summary. Set action to "summarize" when you have all required fields for this section. Set action to "advance" only after the owner confirms the section summary.`
+Respond with the strict JSON object described in your system prompt. Ask one short question only. Set action to "advance" as soon as the current section is complete, and never repeat a confirmation for a complete section.`
 }
 
 function excerptDraft(draft: KnowledgeBase, section: SetupAssistantSection): string {

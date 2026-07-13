@@ -1,6 +1,7 @@
 import { llmChat, type ChatMessage } from "./llm"
 import {
   buildSetupAssistantSystemPrompt,
+  buildSetupAssistantSectionQuestion,
   buildSetupAssistantUserTurn,
   type SetupAssistantTurnInput,
 } from "./setup-assistant-prompt"
@@ -11,6 +12,8 @@ import {
   type KnowledgeBase,
   type SetupAssistantSection,
   countPendingFields,
+  isBusinessBasicsComplete,
+  isCaptured,
 } from "./setup-assistant-schema"
 
 export type SetupAssistantAction = "ask" | "summarize" | "advance" | "finish"
@@ -223,6 +226,187 @@ function nextSectionOf(section: SetupAssistantSection): SetupAssistantSection | 
   return SETUP_ASSISTANT_SECTIONS[idx + 1] as SetupAssistantSection
 }
 
+function nextBusinessBasicsQuestion(kb: KnowledgeBase): string | null {
+  const business = kb.business
+  if (!isCaptured(business?.name)) return "What is your business name?"
+
+  const website = business?.website?.trim() ?? ""
+  if (!website || website.toLowerCase() === "pending") {
+    return "What is your website?"
+  }
+
+  const hasAddress = (business?.addresses ?? []).some(
+    (address) => address.line1.trim().length > 0,
+  )
+  if (!hasAddress) return "What is your full street address?"
+
+  const afterHoursPolicy = business?.afterHoursPolicy?.trim() ?? ""
+  if (!afterHoursPolicy || afterHoursPolicy.toLowerCase() === "pending") {
+    return "What should visitors expect after hours?"
+  }
+
+  return null
+}
+
+type DeterministicFlowInput = {
+  input: SetupAssistantTurnInput
+  raw: SetupAssistantRawResponse
+  draft: KnowledgeBase
+  section: SetupAssistantSection
+}
+
+function askSection(
+  raw: SetupAssistantRawResponse,
+  section: SetupAssistantSection,
+  reply: string,
+): SetupAssistantRawResponse {
+  return { ...raw, section, action: "ask", reply }
+}
+
+function advanceSection(
+  raw: SetupAssistantRawResponse,
+  section: SetupAssistantSection,
+): SetupAssistantRawResponse {
+  const next = nextSectionOf(section)
+  return {
+    ...raw,
+    section,
+    action: next ? "advance" : "finish",
+    reply: next
+      ? "Saved. " + buildSetupAssistantSectionQuestion(next)
+      : "Setup complete. Saving your knowledge base now.",
+  }
+}
+
+function lastAssistantMessage(input: SetupAssistantTurnInput): string {
+  return (
+    [...input.history].reverse().find((message) => message.role === "assistant")?.content ?? ""
+  ).toLowerCase()
+}
+
+function ownerFinishedList(message: string): boolean {
+  return /^(no|nope|no more|that'?s all|that is all|done|finished|next)\b/i.test(
+    message.trim(),
+  )
+}
+
+function ownerConfirmed(message: string): boolean {
+  return /^(yes|yep|correct|looks good|everything is correct|save|publish|done)\b/i.test(
+    message.trim(),
+  )
+}
+
+function capturedObject(
+  raw: SetupAssistantRawResponse,
+  key: SetupAssistantSection,
+): Record<string, unknown> | null {
+  const value = raw.captured?.[key]
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function applyDeterministicSectionFlow({
+  input,
+  raw,
+  draft,
+  section,
+}: DeterministicFlowInput): SetupAssistantRawResponse {
+  const lastAssistant = lastAssistantMessage(input)
+
+  switch (section) {
+    case "business": {
+      const missingQuestion = nextBusinessBasicsQuestion(draft)
+      return isBusinessBasicsComplete(draft)
+        ? advanceSection(raw, section)
+        : askSection(raw, section, missingQuestion!)
+    }
+
+    case "hours":
+      if (!draft.hours?.schedule?.length) {
+        return askSection(raw, section, buildSetupAssistantSectionQuestion("hours"))
+      }
+      if (!draft.hours.timezone?.trim()) {
+        return askSection(raw, section, "What timezone should I use?")
+      }
+      return advanceSection(raw, section)
+
+    case "services":
+      if (!draft.services?.length) {
+        return askSection(raw, section, buildSetupAssistantSectionQuestion("services"))
+      }
+      if (raw.action === "advance" || ownerFinishedList(input.userMessage)) {
+        return advanceSection(raw, section)
+      }
+      return askSection(raw, section, "Do you offer any other services?")
+
+    case "booking_policy": {
+      const mentionsDeposit = /\b(no deposit|deposit)\b/i.test(input.userMessage)
+      const mentionsCancellation = /\b(cancel|cancellation|notice)\b/i.test(input.userMessage)
+      if (raw.action === "advance" && mentionsDeposit && mentionsCancellation) {
+        return advanceSection(raw, section)
+      }
+      if (lastAssistant.includes("consultation requests")) {
+        return askSection(raw, section, "Do you require a deposit?")
+      }
+      if (lastAssistant.includes("deposit")) {
+        return askSection(raw, section, "How much cancellation notice do you require?")
+      }
+      if (lastAssistant.includes("cancellation notice")) {
+        return advanceSection(raw, section)
+      }
+      return askSection(raw, section, buildSetupAssistantSectionQuestion("booking_policy"))
+    }
+
+    case "faqs":
+      if (!draft.faqs?.length) {
+        return askSection(raw, section, buildSetupAssistantSectionQuestion("faqs"))
+      }
+      if (raw.action === "advance" || ownerFinishedList(input.userMessage)) {
+        return advanceSection(raw, section)
+      }
+      return askSection(raw, section, "Do you want to add another FAQ?")
+
+    case "disclaimers":
+      if (raw.action === "advance" || capturedObject(raw, "disclaimers")) {
+        return advanceSection(raw, section)
+      }
+      return askSection(raw, section, buildSetupAssistantSectionQuestion("disclaimers"))
+
+    case "brand_voice": {
+      const captured = capturedObject(raw, "brand_voice")
+      if (raw.action === "advance" && captured?.tone && captured?.greeting) {
+        return advanceSection(raw, section)
+      }
+      if (lastAssistant.includes("what tone")) {
+        return askSection(raw, section, "What greeting should the receptionist use?")
+      }
+      if (lastAssistant.includes("what greeting")) {
+        return askSection(raw, section, "Are there any phrases it should avoid?")
+      }
+      if (lastAssistant.includes("phrases it should avoid")) {
+        return advanceSection(raw, section)
+      }
+      return askSection(raw, section, buildSetupAssistantSectionQuestion("brand_voice"))
+    }
+
+    case "notifications": {
+      const hasRecipient = Boolean(
+        draft.notifications?.emailRecipients?.length ||
+          draft.notifications?.smsRecipients?.length,
+      )
+      return hasRecipient
+        ? advanceSection(raw, section)
+        : askSection(raw, section, buildSetupAssistantSectionQuestion("notifications"))
+    }
+
+    case "review":
+      return raw.action === "finish" || ownerConfirmed(input.userMessage)
+        ? advanceSection(raw, section)
+        : askSection(raw, section, buildSetupAssistantSectionQuestion("review"))
+  }
+}
+
 function deepMerge<T>(base: T, patch: Record<string, unknown> | undefined): T {
   if (!patch) return base
   if (Array.isArray(patch)) return patch as unknown as T
@@ -241,6 +425,12 @@ function deepMerge<T>(base: T, patch: Record<string, unknown> | undefined): T {
       !Array.isArray(existing)
     ) {
       out[k] = deepMerge(existing as Record<string, unknown>, v as Record<string, unknown>)
+    } else if (
+      Array.isArray(v) &&
+      Array.isArray(existing) &&
+      v.length === 0
+    ) {
+      out[k] = existing
     } else {
       out[k] = v
     }
@@ -266,14 +456,26 @@ function fallbackMockResponse(input: SetupAssistantTurnInput): SetupAssistantRaw
   }
 
   if (section === "business") {
+    const question = nextBusinessBasicsQuestion(input.draft)
+    let business: Record<string, unknown>
+    if (question === "What is your website?") {
+      business = { website: input.userMessage.trim() }
+    } else if (question === "What is your full street address?") {
+      business = {
+        addresses: [{ line1: input.userMessage.trim(), line2: "", city: "", region: "", postal: "", country: "" }],
+      }
+    } else if (question === "What should visitors expect after hours?") {
+      business = { afterHoursPolicy: input.userMessage.trim() }
+    } else {
+      business = {
+        name: { value: input.userMessage.trim().slice(0, 120), status: "captured" },
+      }
+    }
     return {
-      reply:
-        "Got it — saved the spa name and basics. Quick confirm: which timezone should we use?",
+      reply: question ?? buildSetupAssistantSectionQuestion("hours"),
       section,
       action: "ask",
-      captured: {
-        business: { name: { value: input.userMessage.slice(0, 120), status: "captured" } },
-      },
+      captured: { business },
       concerns: [],
     }
   }
@@ -281,7 +483,7 @@ function fallbackMockResponse(input: SetupAssistantTurnInput): SetupAssistantRaw
     const tzMatch = text.match(/(America\/[A-Za-z_]+|PST|PDT|Pacific\s*Time|EST|EDT|Eastern\s*Time|CST|CDT|Central\s*Time|MST|MDT|Mountain\s*Time|HST|AKST|UTC[+-]\d+|Asia\/[A-Za-z_]+|\+\d{2}:\d{2})/i)
     const timezone = tzMatch
       ? normalizeTimezone(tzMatch[1])
-      : "America/Los_Angeles"
+      : ""
     const hasSchedule = /\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekdays?|weekends?)\b/i.test(text)
     const schedule = hasSchedule ? buildMockSchedule(text) : []
     const hasAllFields = schedule.length > 0 && tzMatch
@@ -325,15 +527,55 @@ function fallbackMockResponse(input: SetupAssistantTurnInput): SetupAssistantRaw
     }
   }
   if (section === "booking_policy") {
+    const lastAssistant = lastAssistantMessage(input)
+    const calendarLink = input.userMessage.match(/https?:\/\/\S+/i)?.[0] ?? ""
+    const consultationMode =
+      /self.?book|online booking/i.test(text)
+        ? "self_book_online"
+        : calendarLink || /calendar|calendly/i.test(text)
+          ? "calendar_link"
+          : "manual_follow_up"
+    const depositAmount = input.userMessage.match(/\$?\s*(\d+(?:\.\d{1,2})?)/)?.[1]
+    const cancellationHours = input.userMessage.match(
+      /(\d+)\s*(?:hours?|hrs?)/i,
+    )?.[1]
+    const bookingPolicy =
+      lastAssistant.includes("deposit")
+        ? {
+            deposit: {
+              required: !/\b(no|none|not required)\b/i.test(text),
+              ...(depositAmount ? { amount: Number(depositAmount) } : {}),
+              currency: "USD",
+              refundable: true,
+              notes: input.userMessage.trim(),
+            },
+          }
+        : lastAssistant.includes("cancellation notice")
+          ? {
+              cancellation: {
+                ...(cancellationHours
+                  ? { noticeHours: Number(cancellationHours) }
+                  : {}),
+                feePolicy: "",
+                notes: input.userMessage.trim(),
+              },
+            }
+          : {
+              consultationMode,
+              ...(calendarLink ? { calendarLink } : {}),
+            }
     return {
-      reply:
-        "Saved: manual follow-up. Want to add a deposit requirement or a calendar link? Otherwise we can move on.",
+      reply: buildSetupAssistantSectionQuestion("booking_policy"),
       section,
       action: "ask",
-      captured: { booking_policy: { consultationMode: "manual_follow_up" } },
+      captured: { booking_policy: bookingPolicy },
     }
   }
   if (section === "faqs") {
+    if (ownerFinishedList(input.userMessage)) {
+      return { reply: "FAQs saved.", section, action: "advance" }
+    }
+    const questionAndAnswer = input.userMessage.match(/^(.+?\?)\s*([\s\S]+)$/)
     return {
       reply:
         "Added that FAQ. Got 1 down — share more, or say 'suggest' and I'll give you the most common med-spa FAQs to confirm or edit.",
@@ -342,8 +584,10 @@ function fallbackMockResponse(input: SetupAssistantTurnInput): SetupAssistantRaw
       captured: {
         faqs: [
           {
-            question: input.userMessage.slice(0, 200),
-            answer: "Pending — please confirm or edit the answer.",
+            question: (questionAndAnswer?.[1] ?? input.userMessage).trim().slice(0, 500),
+            answer: (questionAndAnswer?.[2] ?? "Pending — please confirm or edit the answer.")
+              .trim()
+              .slice(0, 2000),
             category: "General",
           },
         ],
@@ -359,33 +603,44 @@ function fallbackMockResponse(input: SetupAssistantTurnInput): SetupAssistantRaw
     }
   }
   if (section === "brand_voice") {
+    const lastAssistant = lastAssistantMessage(input)
+    const toneMatch = text.match(/\b(formal|warm|casual|playful|luxury)\b/)
+    const brandVoice = lastAssistant.includes("what greeting")
+      ? { greeting: input.userMessage.trim() }
+      : lastAssistant.includes("phrases it should avoid")
+        ? {
+            avoidPhrases: ownerFinishedList(input.userMessage)
+              ? []
+              : [input.userMessage.trim().slice(0, 120)],
+          }
+        : { tone: (toneMatch?.[1] ?? "warm") as "formal" | "warm" | "casual" | "playful" | "luxury" }
     return {
-      reply:
-        "Voice captured as warm + premium. Saved your greeting. Any phrases the AI must avoid (e.g., 'cheap', 'guaranteed')?",
+      reply: buildSetupAssistantSectionQuestion("brand_voice"),
       section,
       action: "ask",
-      captured: { brand_voice: { tone: "warm" } },
+      captured: { brand_voice: brandVoice },
     }
   }
   if (section === "notifications") {
+    const email = input.userMessage.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]
+    const phone = input.userMessage.match(/\+?[0-9][0-9 ()-]{6,19}/)?.[0]?.trim()
     return {
-      reply:
-        "Email and SMS recipients noted. You can add more from Settings → Team later. Ready for the final review?",
+      reply: buildSetupAssistantSectionQuestion("notifications"),
       section,
-      action: "summarize",
+      action: "ask",
       captured: {
         notifications: {
-          channels: { email: true, sms: false },
-          emailRecipients: [],
-          smsRecipients: [],
+          channels: { email: Boolean(email), sms: Boolean(phone) },
+          emailRecipients: email ? [email] : [],
+          smsRecipients: phone ? [phone] : [],
         },
       },
     }
   }
   return {
-    reply: "Everything looks good. Confirm to publish your knowledge base.",
+    reply: buildSetupAssistantSectionQuestion("review"),
     section: "review",
-    action: "finish",
+    action: ownerConfirmed(input.userMessage) ? "finish" : "ask",
   }
 }
 
@@ -578,7 +833,7 @@ export async function runSetupAssistantTurn(
   // explicitly supplied. This guard also recovers older drafts that are still on
   // the business step after a provider timeout.
   const explicitHours = extractExplicitHours(input.userMessage)
-  if (provider === "mock" && explicitHours && (input.currentSection === "business" || input.currentSection === "hours")) {
+  if (explicitHours && (input.currentSection === "business" || input.currentSection === "hours")) {
     raw = {
       ...raw,
       reply: `Got it. I saved your business hours and timezone (${explicitHours.timezone}). Next, what services do you offer and what are your starting prices?`,
@@ -596,6 +851,15 @@ export async function runSetupAssistantTurn(
   ]
 
   const mergedCandidate = mergeCaptured(input.draft, raw)
+  const flowSection: SetupAssistantSection =
+    explicitHours && input.currentSection === "business" ? "hours" : input.currentSection
+  raw = applyDeterministicSectionFlow({
+    input,
+    raw,
+    draft: mergedCandidate,
+    section: flowSection,
+  })
+
   mergedCandidate.status = {
     complete: raw.action === "finish",
     pendingFields: countPendingFields(mergedCandidate),
@@ -616,7 +880,9 @@ export async function runSetupAssistantTurn(
   }
   const merged = validatedDraft.success ? validatedDraft.data : mergedCandidate
   const effectiveSection =
-    provider === "nara"
+    explicitHours && input.currentSection === "business"
+      ? "hours"
+      : provider === "nara"
       ? input.currentSection
       : isSetupAssistantSection(raw.section)
         ? raw.section

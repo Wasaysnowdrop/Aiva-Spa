@@ -7,6 +7,7 @@ import {
 } from "@/lib/ai/setup-assistant-prompt"
 import {
   emptyKnowledgeBase,
+  isBusinessBasicsComplete,
   countPendingFields,
   isCaptured,
   knowledgeBaseSchema,
@@ -19,6 +20,8 @@ describe("setup assistant prompt", () => {
     expect(system).toMatch(/Response JSON schema/i)
     expect(system).toMatch(/"reply":\s*string/)
     expect(system).toMatch(/"action":\s*"ask"\s*\|\s*"summarize"\s*\|\s*"advance"\s*\|\s*"finish"/)
+    expect(system).toMatch(/Ask exactly ONE missing field/i)
+    expect(system).toMatch(/Never ask the owner to reconfirm/i)
   })
 
   it("forbids null captured values and documents direct array shapes", () => {
@@ -133,14 +136,14 @@ describe("setup assistant prompt", () => {
   it("builds a resume question that matches every saved section", () => {
     const cases = [
       ["business", /business name/i],
-      ["hours", /business hours and timezone/i],
-      ["services", /continue with your services/i],
+      ["hours", /regular business hours/i],
+      ["services", /services do you offer/i],
       ["booking_policy", /consultation requests/i],
-      ["faqs", /visitor questions/i],
-      ["disclaimers", /medical disclaimers/i],
-      ["brand_voice", /receptionist sound/i],
+      ["faqs", /common visitor question/i],
+      ["disclaimers", /standard pricing/i],
+      ["brand_voice", /what tone/i],
       ["notifications", /new-lead notifications/i],
-      ["review", /ready for review/i],
+      ["review", /ready to save/i],
     ] as const
 
     for (const [section, expected] of cases) {
@@ -181,6 +184,20 @@ describe("setup assistant KB helpers", () => {
     expect(pending).toContain("faqs")
     expect(pending).toContain("notifications")
     expect(pending).toContain("hours.schedule")
+  })
+
+  it("only completes Step 1 after name, website, address, and after-hours policy", () => {
+    const kb = emptyKnowledgeBase()
+    kb.business!.name = "Wff Med Spa"
+    expect(isBusinessBasicsComplete(kb)).toBe(false)
+
+    kb.business!.website = "https://wffmedspa.com"
+    kb.business!.addresses = [
+      { line1: "25 Main Boulevard", city: "Lahore", region: "Punjab", country: "Pakistan", line2: "", postal: "54660" },
+    ]
+    kb.business!.afterHoursPolicy = "Capture leads and follow up the next morning."
+
+    expect(isBusinessBasicsComplete(kb)).toBe(true)
   })
 
   it("knowledgeBaseSchema validates the empty KB", () => {
@@ -280,6 +297,178 @@ describe("runSetupAssistantTurn (strict Nara provider)", () => {
       vi.unstubAllGlobals()
     }
   })
+  it("advances to Step 2 immediately when Nara captures all business fields", async () => {
+    const previousKey = process.env.NARA_API_KEY
+    process.env.NARA_API_KEY = "test-nara-key"
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          model: "mistral-medium-3-5",
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  reply: "Everything looks correct. Can you confirm?",
+                  section: "business",
+                  action: "summarize",
+                  captured: {
+                    business: {
+                      name: "Wff Med Spa",
+                      website: "https://wffmedspa.com",
+                      addresses: [
+                        {
+                          line1: "25 Main Boulevard",
+                          city: "Lahore",
+                          region: "Punjab",
+                          postal: "54660",
+                          country: "Pakistan",
+                        },
+                      ],
+                      afterHoursPolicy:
+                        "Capture inquiries and follow up the next business morning.",
+                    },
+                  },
+                  concerns: [],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const result = await runSetupAssistantTurn({
+        history: [],
+        userMessage:
+          "Wff Med Spa, wffmedspa.com, 25 Main Boulevard, Lahore. Capture leads after hours.",
+        currentSection: "business",
+        draft: emptyKnowledgeBase(),
+      })
+
+      expect(result.action).toBe("advance")
+      expect(result.section).toBe("business")
+      expect(result.nextSection).toBe("hours")
+      expect(result.reply).toMatch(/regular business hours/i)
+      expect(result.reply).not.toMatch(/confirm|correct/i)
+    } finally {
+      if (previousKey === undefined) delete process.env.NARA_API_KEY
+      else process.env.NARA_API_KEY = previousKey
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("breaks an existing Step 1 confirmation loop after the owner says yes", async () => {
+    const previousKey = process.env.NARA_API_KEY
+    process.env.NARA_API_KEY = "test-nara-key"
+    const draft = emptyKnowledgeBase()
+    draft.business = {
+      name: "Wff Med Spa",
+      website: "https://wffmedspa.com",
+      addresses: [
+        {
+          line1: "25 Main Boulevard",
+          line2: "",
+          city: "Lahore",
+          region: "Punjab",
+          postal: "54660",
+          country: "Pakistan",
+        },
+      ],
+      afterHoursPolicy: "Capture inquiries and follow up the next business morning.",
+    }
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          model: "mistral-medium-3-5",
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  reply: "Does this look correct?",
+                  section: "business",
+                  action: "summarize",
+                  captured: {},
+                  concerns: [],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const result = await runSetupAssistantTurn({
+        history: [
+          { role: "assistant", content: "Does this look correct?" },
+        ],
+        userMessage: "Yes, everything is correct.",
+        currentSection: "business",
+        draft,
+      })
+
+      expect(result.action).toBe("advance")
+      expect(result.nextSection).toBe("hours")
+      expect(result.reply).toBe(
+        "Saved. What are your regular business hours, including closed days?",
+      )
+    } finally {
+      if (previousKey === undefined) delete process.env.NARA_API_KEY
+      else process.env.NARA_API_KEY = previousKey
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("asks one short missing business field even if Nara bundles questions", async () => {
+    const previousKey = process.env.NARA_API_KEY
+    process.env.NARA_API_KEY = "test-nara-key"
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          model: "mistral-medium-3-5",
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  reply: "What is your website, address, and after-hours policy?",
+                  section: "business",
+                  action: "ask",
+                  captured: { business: { name: "Wff Med Spa" } },
+                  concerns: [],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const result = await runSetupAssistantTurn({
+        history: [],
+        userMessage: "Our business name is Wff Med Spa.",
+        currentSection: "business",
+        draft: emptyKnowledgeBase(),
+      })
+
+      expect(result.action).toBe("ask")
+      expect(result.nextSection).toBeNull()
+      expect(result.reply).toBe("What is your website?")
+      expect(result.reply.match(/\?/g)).toHaveLength(1)
+    } finally {
+      if (previousKey === undefined) delete process.env.NARA_API_KEY
+      else process.env.NARA_API_KEY = previousKey
+      vi.unstubAllGlobals()
+    }
+  })
+
 })
 
 describe("runSetupAssistantTurn (mock provider)", () => {
@@ -348,8 +537,7 @@ describe("runSetupAssistantTurn (mock provider)", () => {
     expect(result.draft.hours?.schedule?.find(d => d.day === "Mon")?.to).toBe("18:00")
     expect(result.draft.hours?.schedule?.find(d => d.day === "Sat")?.from).toBe("10:00")
     expect(result.draft.hours?.schedule?.find(d => d.day === "Sat")?.to).toBe("15:00")
-    expect(result.reply).toContain("Got it")
-    expect(result.reply).toContain("America/Los_Angeles")
+    expect(result.reply).toBe("Saved. What services do you offer?")
   })
 
   it("captures the exact Asia/Karachi hours message without asking for timezone again", async () => {
@@ -376,7 +564,7 @@ describe("runSetupAssistantTurn (mock provider)", () => {
       to: "18:00",
     })
     expect(result.draft.hours?.schedule?.find((day) => day.day === "Sun")?.open).toBe(false)
-    expect(result.reply).toContain("Asia/Karachi")
+    expect(result.reply).toBe("Saved. What services do you offer?")
     expect(result.reply).not.toMatch(/which timezone/i)
   })
 
@@ -415,6 +603,91 @@ describe("runSetupAssistantTurn (mock provider)", () => {
     })
     expect(result.action).toBe("advance")
     expect(result.draft.hours?.timezone).toBe("America/Los_Angeles")
+  })
+
+  it("asks one short question per field, advances through every step, and completes the KB", async () => {
+    let draft = emptyKnowledgeBase()
+    let section: Parameters<typeof runSetupAssistantTurn>[0]["currentSection"] = "business"
+    const history: Parameters<typeof runSetupAssistantTurn>[0]["history"] = []
+
+    async function answer(message: string) {
+      const result = await runSetupAssistantTurn({
+        history,
+        userMessage: message,
+        currentSection: section,
+        draft,
+      })
+      history.push(
+        { role: "user", content: message },
+        { role: "assistant", content: result.reply },
+      )
+      draft = result.draft
+      if (result.nextSection) section = result.nextSection
+      return result
+    }
+
+    async function expectQuestion(message: string, expected: RegExp) {
+      const result = await answer(message)
+      expect(result.reply).toMatch(expected)
+      expect(result.reply.match(/\?/g)).toHaveLength(1)
+      return result
+    }
+
+    await expectQuestion("Wff Med Spa", /website/i)
+    await expectQuestion("wffmedspa.com", /street address/i)
+    await expectQuestion("25 Main Boulevard, Gulberg III, Lahore", /after hours/i)
+    await expectQuestion(
+      "Capture inquiries and follow up the next business morning.",
+      /regular business hours/i,
+    )
+    expect(section).toBe("hours")
+
+    await expectQuestion(
+      "Monday to Friday 10 AM to 8 PM, Saturday 11 AM to 6 PM, closed Sunday.",
+      /timezone/i,
+    )
+    await expectQuestion("Asia/Karachi", /services do you offer/i)
+    expect(section).toBe("services")
+
+    await expectQuestion("Botox and facials.", /other services/i)
+    await expectQuestion("No more.", /consultation requests/i)
+    expect(section).toBe("booking_policy")
+
+    await expectQuestion("Manual follow-up.", /deposit/i)
+    await expectQuestion("No deposit.", /cancellation notice/i)
+    await expectQuestion("24 hours.", /common visitor question/i)
+    expect(section).toBe("faqs")
+
+    await expectQuestion(
+      "Do you offer Botox? Yes, after a consultation with a licensed provider.",
+      /another FAQ/i,
+    )
+    await expectQuestion("No more.", /standard pricing/i)
+    await expectQuestion("Use the standard disclaimers.", /what tone/i)
+    expect(section).toBe("brand_voice")
+
+    await expectQuestion("Warm.", /greeting/i)
+    await expectQuestion("Hi! How can I help with your treatment inquiry?", /phrases.*avoid/i)
+    await expectQuestion("No more.", /email address/i)
+    expect(section).toBe("notifications")
+
+    await expectQuestion("owner@wffmedspa.com", /ready to save/i)
+    expect(section).toBe("review")
+    const final = await answer("Yes, save it.")
+
+    expect(final.action).toBe("finish")
+    expect(final.nextSection).toBeNull()
+    expect(final.reply).toMatch(/saving your knowledge base/i)
+    expect(final.draft.status).toMatchObject({ complete: true })
+    expect(final.draft.business?.website).toBe("wffmedspa.com")
+    expect(final.draft.hours?.timezone).toBe("Asia/Karachi")
+    expect(final.draft.services).toHaveLength(1)
+    expect(final.draft.booking_policy?.deposit.required).toBe(false)
+    expect(final.draft.booking_policy?.cancellation.noticeHours).toBe(24)
+    expect(final.draft.faqs[0]?.answer).toMatch(/licensed provider/i)
+    expect(final.draft.disclaimers?.standardAccepted).toBe(true)
+    expect(final.draft.brand_voice?.greeting).toMatch(/How can I help/i)
+    expect(final.draft.notifications?.emailRecipients).toEqual(["owner@wffmedspa.com"])
   })
 
   it("accepts website as a bare domain without https:// protocol", () => {

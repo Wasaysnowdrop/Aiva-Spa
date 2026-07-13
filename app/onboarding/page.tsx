@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server"
 import {
   emptyKnowledgeBase,
   knowledgeBaseSchema,
+  isBusinessBasicsComplete,
   type KnowledgeBase,
   type SetupAssistantSection,
 } from "@/lib/ai/setup-assistant-schema"
@@ -48,9 +49,11 @@ export default async function OnboardingPage() {
 
   const sectionHint =
     typeof meta.onboarding_setup_section === "string" ? meta.onboarding_setup_section : null
-  const initialSection: SetupAssistantSection = isSection(sectionHint)
+  const savedSection: SetupAssistantSection = isSection(sectionHint)
     ? sectionHint
     : "business"
+  const initialSection: SetupAssistantSection =
+    savedSection === "business" && isBusinessBasicsComplete(initialDraft) ? "hours" : savedSection
 
   const fullName =
     (user.user_metadata?.full_name as string | undefined) ??
