@@ -25,7 +25,10 @@ import { finalizeSetupAssistant } from "@/app/actions/setup-assistant"
 import {
   SETUP_ASSISTANT_SECTIONS,
   emptyKnowledgeBase,
-  isBusinessBasicsComplete,
+  getNextIncompleteOnboardingField,
+  isOnboardingFieldComplete,
+  knowledgeBaseSchema,
+  syncOnboardingProgress,
   type KnowledgeBase,
   type SetupAssistantSection,
 } from "@/lib/ai/setup-assistant-schema"
@@ -42,6 +45,7 @@ type ChatMessage = {
 
 type SetupAssistantExperienceProps = {
   user: {
+    id: string
     email: string
     fullName: string
     spaName: string
@@ -49,6 +53,7 @@ type SetupAssistantExperienceProps = {
   initialDraft: KnowledgeBase
   initialSection: SetupAssistantSection
   initialHistory: ChatMessage[]
+  initialSavedAt: string | null
 }
 
 const SECTION_LABEL: Record<SetupAssistantSection, string> = {
@@ -134,47 +139,8 @@ function sanitize(str: string): string {
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "")
 }
 
-function isSectionDefaultValue(kb: KnowledgeBase, section: SetupAssistantSection): boolean {
-  const empty = emptyKnowledgeBase()
-  switch (section) {
-    case "booking_policy":
-      return JSON.stringify(kb.booking_policy ?? {}) === JSON.stringify(empty.booking_policy ?? {})
-    case "disclaimers":
-      return JSON.stringify(kb.disclaimers ?? {}) === JSON.stringify(empty.disclaimers ?? {})
-    case "brand_voice":
-      return JSON.stringify(kb.brand_voice ?? {}) === JSON.stringify(empty.brand_voice ?? {})
-    default:
-      return false
-  }
-}
-
 function isSectionDone(kb: KnowledgeBase, section: SetupAssistantSection): boolean {
-  if (isSectionDefaultValue(kb, section)) return false
-  switch (section) {
-    case "business":
-      return isBusinessBasicsComplete(kb)
-    case "hours":
-      return Boolean(kb.hours?.schedule && kb.hours.schedule.length > 0 && kb.hours?.timezone)
-    case "services":
-      return Array.isArray(kb.services) && kb.services.length > 0
-    case "booking_policy":
-      return Boolean(kb.booking_policy?.consultationMode)
-    case "faqs":
-      return Array.isArray(kb.faqs) && kb.faqs.length > 0
-    case "disclaimers":
-      return Boolean(kb.disclaimers?.standardAccepted !== undefined)
-    case "brand_voice":
-      return Boolean(kb.brand_voice?.tone)
-    case "notifications":
-      return Boolean(
-        (kb.notifications?.emailRecipients && kb.notifications.emailRecipients.length > 0) ||
-          (kb.notifications?.smsRecipients && kb.notifications.smsRecipients.length > 0),
-      )
-    case "review":
-      return Boolean(kb.status?.complete)
-    default:
-      return false
-  }
+  return isOnboardingFieldComplete(kb, section)
 }
 
 function pickStr(value: unknown): string {
@@ -248,11 +214,39 @@ const SECTION_SUMMARY: Record<SetupAssistantSection, (kb: KnowledgeBase) => stri
 }
 
 type SavingState = "idle" | "saving" | "saved"
+type OnboardingCache = {
+  version: 1
+  draft: KnowledgeBase
+  section: SetupAssistantSection
+  updatedAt: string
+}
+
+function parseOnboardingCache(value: string | null): OnboardingCache | null {
+  if (!value) return null
+  try {
+    const parsed = JSON.parse(value) as Partial<OnboardingCache>
+    const draft = knowledgeBaseSchema.safeParse(parsed.draft)
+    const validSection = SETUP_ASSISTANT_SECTIONS.includes(
+      parsed.section as SetupAssistantSection,
+    )
+    if (parsed.version !== 1 || !draft.success || !validSection || !parsed.updatedAt) return null
+    return {
+      version: 1,
+      draft: syncOnboardingProgress(draft.data),
+      section: parsed.section as SetupAssistantSection,
+      updatedAt: parsed.updatedAt,
+    }
+  } catch {
+    return null
+  }
+}
 
 export function SetupAssistantExperience({
+  user,
   initialDraft,
   initialSection,
   initialHistory,
+  initialSavedAt,
 }: SetupAssistantExperienceProps) {
   const [draft, setDraft] = React.useState<KnowledgeBase>(initialDraft)
   const [section, setSection] = React.useState<SetupAssistantSection>(initialSection)
@@ -266,21 +260,50 @@ export function SetupAssistantExperience({
   const [finalizing, setFinalizing] = React.useState(false)
   const [finalizeError, setFinalizeError] = React.useState<string | null>(null)
   const [showResetConfirm, setShowResetConfirm] = React.useState(false)
+  const [editingSection, setEditingSection] = React.useState<SetupAssistantSection | null>(null)
+  const [cacheHydrated, setCacheHydrated] = React.useState(false)
 
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const inputRef = React.useRef<HTMLTextAreaElement | null>(null)
   const finishingLaterRef = React.useRef(false)
+  const cacheKey = React.useMemo(() => `aivaspa:onboarding:${user.id}`, [user.id])
   const [showResumeBanner, setShowResumeBanner] = React.useState(() =>
     typeof window !== "undefined" && window.location.search.includes("resume=1"),
   )
 
   const completedSections = React.useMemo(
-    () => {
-      const activeIndex = SECTION_ORDER.indexOf(section)
-      return SECTION_ORDER.filter((s, index) => index < activeIndex || isSectionDone(draft, s))
-    },
-    [draft, section],
+    () => SECTION_ORDER.filter((item) => isSectionDone(draft, item)),
+    [draft],
   )
+
+  React.useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const cached = parseOnboardingCache(window.localStorage.getItem(cacheKey))
+      const serverSavedAt = initialSavedAt ? Date.parse(initialSavedAt) : 0
+      const cacheSavedAt = cached ? Date.parse(cached.updatedAt) : 0
+      if (cached && cacheSavedAt > serverSavedAt) {
+        const restoredDraft = syncOnboardingProgress(cached.draft)
+        const restoredSection = isSectionDone(restoredDraft, cached.section)
+          ? getNextIncompleteOnboardingField(restoredDraft, cached.section)
+          : cached.section
+        setDraft(restoredDraft)
+        setSection(restoredSection)
+      }
+      setCacheHydrated(true)
+    }, 0)
+    return () => window.clearTimeout(timeout)
+  }, [cacheKey, initialSavedAt])
+
+  React.useEffect(() => {
+    if (!cacheHydrated) return
+    const cached: OnboardingCache = {
+      version: 1,
+      draft: syncOnboardingProgress(draft),
+      section,
+      updatedAt: new Date().toISOString(),
+    }
+    window.localStorage.setItem(cacheKey, JSON.stringify(cached))
+  }, [cacheHydrated, cacheKey, draft, section])
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
@@ -303,6 +326,10 @@ export function SetupAssistantExperience({
       return () => clearTimeout(t)
     }
   }, [savingState])
+  function selectSection(nextSection: SetupAssistantSection) {
+    setEditingSection(isSectionDone(draft, nextSection) ? nextSection : null)
+    setSection(nextSection)
+  }
 
   async function send(text?: string) {
     const trimmed = (text ?? input).trim()
@@ -327,6 +354,7 @@ export function SetupAssistantExperience({
           userMessage: trimmed,
           currentSection: section,
           draft,
+          explicitEdit: editingSection === section,
         }),
       })
       if (!res.ok) {
@@ -340,6 +368,9 @@ export function SetupAssistantExperience({
         action: "ask" | "summarize" | "advance" | "finish"
         concerns: string[]
         draft: KnowledgeBase
+        completedFields: SetupAssistantSection[]
+        selectionReason: string
+        savedAt: string
       }
       const cleanReply = sanitize(data.reply || FALLBACK_REPLY)
       const aiMsg: ChatMessage = {
@@ -350,6 +381,7 @@ export function SetupAssistantExperience({
       }
       setMessages((prev) => [...prev, aiMsg])
       setDraft(data.draft)
+      setEditingSection(null)
       setSavingState("saved")
       if (data.concerns && data.concerns.length > 0) {
         setConcerns((prev) => Array.from(new Set([...prev, ...data.concerns])))
@@ -385,6 +417,8 @@ export function SetupAssistantExperience({
     setSection("business")
     setConcerns([])
     setError(null)
+    window.localStorage.removeItem(cacheKey)
+    setEditingSection(null)
     try {
       await fetch("/api/onboarding/setup-assistant", {
         method: "POST",
@@ -394,7 +428,7 @@ export function SetupAssistantExperience({
           userMessage: "Start over.",
           currentSection: "business",
           draft: emptyKnowledgeBase(),
-          resume: true,
+          operation: "reset",
         }),
       })
     } catch {
@@ -405,9 +439,8 @@ export function SetupAssistantExperience({
     if (finishingLaterRef.current) return
     finishingLaterRef.current = true
     setSavingState("saving")
-    toast.success("Progress saved. You can continue setup anytime.")
     try {
-      await fetch("/api/onboarding/setup-assistant", {
+      const response = await fetch("/api/onboarding/setup-assistant", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -415,11 +448,17 @@ export function SetupAssistantExperience({
           userMessage: "Finish later.",
           currentSection: section,
           draft,
+          operation: "persist",
         }),
       })
-    } catch {
+      if (!response.ok) throw new Error("Progress could not be saved")
+      toast.success("Progress saved. You can continue setup anytime.")
+      router.replace("/onboarding?resume=1")
+    } catch (saveError) {
+      finishingLaterRef.current = false
+      setSavingState("idle")
+      toast.error(saveError instanceof Error ? saveError.message : "Progress could not be saved")
     }
-    router.replace("/onboarding?resume=1")
   }
 
   async function publish(finalDraft: KnowledgeBase = draft) {
@@ -431,6 +470,7 @@ export function SetupAssistantExperience({
         setFinalizeError(result.error ?? "Failed to publish")
         return
       }
+      window.localStorage.removeItem(cacheKey)
       router.replace("/dashboard/knowledge-base")
     } catch (e) {
       setFinalizeError(e instanceof Error ? e.message : "Failed to publish")
@@ -550,13 +590,13 @@ export function SetupAssistantExperience({
 
           <div className="mt-5 grid grid-cols-9 gap-1.5" aria-label="Onboarding progress">
             {SECTION_ORDER.map((item, index) => {
-              const done = index < currentStep - 1 || isSectionDone(draft, item)
+              const done = isSectionDone(draft, item)
               const active = item === section
               return (
                 <button
                   key={item}
                   type="button"
-                  onClick={() => setSection(item)}
+                  onClick={() => selectSection(item)}
                   title={`${index + 1}. ${SECTION_LABEL[item]}`}
                   className={cn(
                     "group relative h-1.5 overflow-hidden rounded-full bg-white/[0.07] transition",
@@ -646,7 +686,7 @@ export function SetupAssistantExperience({
             <div className="border-t border-white/[0.06] px-5 py-5 sm:px-7">
               <div className="grid gap-2 sm:grid-cols-2">
                 {SECTION_ORDER.filter((item) => item !== "review").map((item) => (
-                  <button key={item} type="button" onClick={() => setSection(item)} className="flex items-start gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-3 text-left transition hover:bg-white/[0.05]">
+                  <button key={item} type="button" onClick={() => selectSection(item)} className="flex items-start gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-3 text-left transition hover:bg-white/[0.05]">
                     <span className={cn("mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-lg", isSectionDone(draft, item) ? "bg-[#4CB782]/10 text-[#4CB782]" : "bg-white/[0.05] text-[#62666D]")}>{isSectionDone(draft, item) ? <Check className="size-3.5" /> : <Clock className="size-3.5" />}</span>
                     <span className="min-w-0"><span className="block text-xs font-semibold text-[#F7F8F8]">{SECTION_LABEL[item]}</span><span className="mt-1 block truncate text-[11px] text-[#62666D]">{SECTION_SUMMARY[item](draft)}</span></span>
                   </button>

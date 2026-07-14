@@ -5,12 +5,15 @@ import { SetupAssistantExperience } from "@/components/onboarding/setup-assistan
 import { createClient } from "@/lib/supabase/server"
 import {
   emptyKnowledgeBase,
+  getCompletedOnboardingFields,
+  getNextIncompleteOnboardingField,
+  isOnboardingFieldComplete,
   knowledgeBaseSchema,
-  isBusinessBasicsComplete,
+  SETUP_ASSISTANT_SECTIONS,
+  syncOnboardingProgress,
   type KnowledgeBase,
   type SetupAssistantSection,
 } from "@/lib/ai/setup-assistant-schema"
-import { SETUP_ASSISTANT_SECTIONS } from "@/lib/ai/setup-assistant-schema"
 import { buildSetupAssistantResumeMessage } from "@/lib/ai/setup-assistant-prompt"
 
 export const metadata: Metadata = {
@@ -47,13 +50,29 @@ export default async function OnboardingPage() {
     }
   }
 
+  initialDraft = syncOnboardingProgress(initialDraft)
   const sectionHint =
     typeof meta.onboarding_setup_section === "string" ? meta.onboarding_setup_section : null
   const savedSection: SetupAssistantSection = isSection(sectionHint)
     ? sectionHint
     : "business"
-  const initialSection: SetupAssistantSection =
-    savedSection === "business" && isBusinessBasicsComplete(initialDraft) ? "hours" : savedSection
+  const savedSectionComplete = isOnboardingFieldComplete(initialDraft, savedSection)
+  const initialSection = savedSectionComplete
+    ? getNextIncompleteOnboardingField(initialDraft, savedSection)
+    : savedSection
+  const initialSavedAt =
+    typeof meta.onboarding_setup_updated_at === "string"
+      ? meta.onboarding_setup_updated_at
+      : null
+
+  console.info("setup-assistant: question-selection", {
+    currentOnboardingStep: savedSection,
+    completedFields: getCompletedOnboardingFields(initialDraft),
+    nextFieldSelected: initialSection,
+    reason: savedSectionComplete
+      ? "saved_field_already_completed_on_restore"
+      : "saved_field_is_incomplete_on_restore",
+  })
 
   const fullName =
     (user.user_metadata?.full_name as string | undefined) ??
@@ -77,6 +96,7 @@ export default async function OnboardingPage() {
   return (
     <SetupAssistantExperience
       user={{
+        id: user.id,
         email: user.email ?? "",
         fullName,
         spaName,
@@ -84,6 +104,7 @@ export default async function OnboardingPage() {
       initialDraft={initialDraft}
       initialSection={initialSection}
       initialHistory={initialHistory}
+      initialSavedAt={initialSavedAt}
     />
   )
 }

@@ -14,6 +14,12 @@ export const SETUP_ASSISTANT_SECTIONS = [
 
 export type SetupAssistantSection = (typeof SETUP_ASSISTANT_SECTIONS)[number]
 
+export const ONBOARDING_FIELDS = SETUP_ASSISTANT_SECTIONS.filter(
+  (section): section is Exclude<SetupAssistantSection, "review"> => section !== "review",
+)
+
+export type OnboardingField = (typeof ONBOARDING_FIELDS)[number]
+
 const PENDING_OBJ = z
   .object({ value: z.string().max(500), status: z.enum(["captured", "pending", "refused"]) })
   .or(z.string())
@@ -171,10 +177,12 @@ export const knowledgeBaseSchema = z.object({
     .object({
       complete: z.boolean().default(false),
       pendingFields: z.array(z.string()).default([]),
+      completedFields: z.array(z.enum(SETUP_ASSISTANT_SECTIONS)).default([]),
+      askedQuestions: z.array(z.string().max(500)).max(100).default([]),
       completedAt: z.string().datetime().optional(),
     })
     .optional()
-    .default({ complete: false, pendingFields: [] }),
+    .default({ complete: false, pendingFields: [], completedFields: [], askedQuestions: [] }),
 })
 
 export type KnowledgeBase = z.infer<typeof knowledgeBaseSchema>
@@ -222,7 +230,7 @@ export const emptyKnowledgeBase = (): KnowledgeBase => ({
     channels: { email: true, sms: false },
     quietHours: { enabled: false, from: "22:00", to: "08:00" },
   },
-  status: { complete: false, pendingFields: [] },
+  status: { complete: false, pendingFields: [], completedFields: [], askedQuestions: [] },
 })
 
 export function isCaptured(value: unknown): boolean {
@@ -273,4 +281,148 @@ export function countPendingFields(kb: KnowledgeBase): string[] {
     pending.push("notifications")
   if (!kb.hours?.schedule || kb.hours.schedule.length === 0) pending.push("hours.schedule")
   return pending
+}
+
+function hasHours(kb: KnowledgeBase): boolean {
+  return Boolean(kb.hours?.schedule?.length && kb.hours.timezone?.trim())
+}
+
+function hasNotificationRecipient(kb: KnowledgeBase): boolean {
+  return Boolean(
+    kb.notifications?.emailRecipients?.length || kb.notifications?.smsRecipients?.length,
+  )
+}
+
+/**
+ * Completion is derived from real values wherever possible. Fields whose valid
+ * answer can equal the empty-KB default (booking policy, disclaimers and brand
+ * voice) rely on the explicit completion marker written after their interview.
+ */
+export function isOnboardingFieldComplete(
+  kb: KnowledgeBase,
+  field: SetupAssistantSection,
+): boolean {
+  const tracked = new Set(kb.status?.completedFields ?? [])
+  switch (field) {
+    case "business":
+      return isBusinessBasicsComplete(kb)
+    case "hours":
+      return hasHours(kb)
+    case "services":
+      return Array.isArray(kb.services) && kb.services.length > 0
+    case "booking_policy":
+    case "disclaimers":
+    case "brand_voice":
+      return tracked.has(field)
+    case "faqs":
+      return Array.isArray(kb.faqs) && kb.faqs.length > 0
+    case "notifications":
+      return hasNotificationRecipient(kb)
+    case "review":
+      return kb.status?.complete === true
+  }
+}
+
+export function getCompletedOnboardingFields(kb: KnowledgeBase): SetupAssistantSection[] {
+  return SETUP_ASSISTANT_SECTIONS.filter((field) => isOnboardingFieldComplete(kb, field))
+}
+
+export function getNextIncompleteOnboardingField(
+  kb: KnowledgeBase,
+  afterField?: SetupAssistantSection,
+): SetupAssistantSection {
+  const start = afterField ? SETUP_ASSISTANT_SECTIONS.indexOf(afterField) + 1 : 0
+  const ordered = [
+    ...SETUP_ASSISTANT_SECTIONS.slice(start),
+    ...SETUP_ASSISTANT_SECTIONS.slice(0, start),
+  ]
+  return ordered.find((field) => !isOnboardingFieldComplete(kb, field)) ?? "review"
+}
+
+export function syncOnboardingProgress(
+  kb: KnowledgeBase,
+  completedNow: SetupAssistantSection[] = [],
+): KnowledgeBase {
+  const completedFields = Array.from(
+    new Set([
+      ...(kb.status?.completedFields ?? []),
+      ...completedNow,
+      ...SETUP_ASSISTANT_SECTIONS.filter((field) => {
+        if (["booking_policy", "disclaimers", "brand_voice"].includes(field)) return false
+        return isOnboardingFieldComplete(kb, field)
+      }),
+    ]),
+  )
+
+  return {
+    ...kb,
+    status: {
+      complete: kb.status?.complete ?? false,
+      pendingFields: countPendingFields(kb),
+      completedFields,
+      askedQuestions: kb.status?.askedQuestions ?? [],
+      ...(kb.status?.completedAt ? { completedAt: kb.status.completedAt } : {}),
+    },
+  }
+}
+
+export function clearOnboardingFieldCompletion(
+  kb: KnowledgeBase,
+  field: SetupAssistantSection,
+): KnowledgeBase {
+  return {
+    ...kb,
+    status: {
+      complete: field === "review" ? false : (kb.status?.complete ?? false),
+      pendingFields: kb.status?.pendingFields ?? [],
+      completedFields: (kb.status?.completedFields ?? []).filter((item) => item !== field),
+      askedQuestions: kb.status?.askedQuestions ?? [],
+      ...(field !== "review" && kb.status?.completedAt
+        ? { completedAt: kb.status.completedAt }
+        : {}),
+    },
+  }
+}
+
+export function mergeOnboardingDrafts(
+  stored: KnowledgeBase,
+  incoming: KnowledgeBase,
+): KnowledgeBase {
+  function mergeValue(base: unknown, patch: unknown): unknown {
+    if (patch === undefined || patch === null) return base
+    if (typeof patch === "string" && (!patch.trim() || patch.trim().toLowerCase() === "pending")) {
+      return isCaptured(base) ? base : patch
+    }
+    if (Array.isArray(patch)) return patch.length > 0 ? patch : base
+    if (typeof patch !== "object") return patch
+    if (typeof base !== "object" || base === null || Array.isArray(base)) return patch
+
+    const out = { ...(base as Record<string, unknown>) }
+    for (const [key, value] of Object.entries(patch as Record<string, unknown>)) {
+      out[key] = mergeValue(out[key], value)
+    }
+    return out
+  }
+
+  const merged = mergeValue(stored, incoming) as KnowledgeBase
+  merged.status = {
+    complete: incoming.status?.complete ?? stored.status?.complete ?? false,
+    pendingFields: incoming.status?.pendingFields ?? stored.status?.pendingFields ?? [],
+    completedFields: Array.from(
+      new Set([
+        ...(stored.status?.completedFields ?? []),
+        ...(incoming.status?.completedFields ?? []),
+      ]),
+    ),
+    askedQuestions: Array.from(
+      new Set([
+        ...(stored.status?.askedQuestions ?? []),
+        ...(incoming.status?.askedQuestions ?? []),
+      ]),
+    ).slice(-100),
+    ...(incoming.status?.completedAt ?? stored.status?.completedAt
+      ? { completedAt: incoming.status?.completedAt ?? stored.status?.completedAt }
+      : {}),
+  }
+  return syncOnboardingProgress(merged)
 }

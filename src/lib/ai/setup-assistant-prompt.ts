@@ -10,6 +10,7 @@ export type SetupAssistantTurnInput = {
   currentSection: SetupAssistantSection
   draft: KnowledgeBase
   ownerName?: string
+  explicitEdit?: boolean
   spaName?: string
 }
 

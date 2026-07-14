@@ -6,14 +6,18 @@ import {
   type SetupAssistantTurnInput,
 } from "./setup-assistant-prompt"
 import {
+  clearOnboardingFieldCompletion,
   emptyKnowledgeBase,
+  getCompletedOnboardingFields,
+  getNextIncompleteOnboardingField,
   knowledgeBaseSchema,
   SETUP_ASSISTANT_SECTIONS,
+  syncOnboardingProgress,
   type KnowledgeBase,
   type SetupAssistantSection,
-  countPendingFields,
   isBusinessBasicsComplete,
   isCaptured,
+  isOnboardingFieldComplete,
 } from "./setup-assistant-schema"
 
 export type SetupAssistantAction = "ask" | "summarize" | "advance" | "finish"
@@ -34,6 +38,8 @@ export type SetupAssistantTurnResult = {
   concerns: string[]
   draft: KnowledgeBase
   pendingFields: string[]
+  completedFields: SetupAssistantSection[]
+  selectionReason: string
   durationMs: number
   provider: "nara" | "mock"
   model: string
@@ -296,6 +302,64 @@ function ownerConfirmed(message: string): boolean {
   )
 }
 
+function normalizeQuestion(text: string): string {
+  const questions = text.match(/[^.!?]*\?/g)
+  const question = questions?.at(-1) ?? text
+  return question.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
+}
+
+function recordAskedQuestion(kb: KnowledgeBase, reply: string): KnowledgeBase {
+  if (!reply.includes("?")) return kb
+  const normalized = normalizeQuestion(reply)
+  if (!normalized) return kb
+  return {
+    ...kb,
+    status: {
+      complete: kb.status?.complete ?? false,
+      pendingFields: kb.status?.pendingFields ?? [],
+      completedFields: kb.status?.completedFields ?? [],
+      askedQuestions: Array.from(
+        new Set([...(kb.status?.askedQuestions ?? []), normalized]),
+      ).slice(-100),
+      ...(kb.status?.completedAt ? { completedAt: kb.status.completedAt } : {}),
+    },
+  }
+}
+
+function questionWasAlreadyAsked(
+  input: SetupAssistantTurnInput,
+  kb: KnowledgeBase,
+  reply: string,
+): boolean {
+  const normalized = normalizeQuestion(reply)
+  return Boolean(
+    normalized &&
+      ((kb.status?.askedQuestions ?? []).includes(normalized) ||
+        input.history.some(
+          (message) =>
+            message.role === "assistant" && normalizeQuestion(message.content) === normalized,
+        )),
+  )
+}
+
+function duplicateSafeQuestion(section: SetupAssistantSection, attempt: number): string {
+  const label = section.replaceAll("_", " ")
+  return `I still need valid ${label} details before continuing. What ${label} value should I save for attempt ${attempt}?`
+}
+
+function logQuestionSelection(
+  currentStep: SetupAssistantSection,
+  kb: KnowledgeBase,
+  nextField: SetupAssistantSection | null,
+  reason: string,
+) {
+  console.info("setup-assistant: question-selection", {
+    currentOnboardingStep: currentStep,
+    completedFields: getCompletedOnboardingFields(kb),
+    nextFieldSelected: nextField,
+    reason,
+  })
+}
 function capturedObject(
   raw: SetupAssistantRawResponse,
   key: SetupAssistantSection,
@@ -335,10 +399,7 @@ function applyDeterministicSectionFlow({
       if (!draft.services?.length) {
         return askSection(raw, section, buildSetupAssistantSectionQuestion("services"))
       }
-      if (raw.action === "advance" || ownerFinishedList(input.userMessage)) {
-        return advanceSection(raw, section)
-      }
-      return askSection(raw, section, "Do you offer any other services?")
+      return advanceSection(raw, section)
 
     case "booking_policy": {
       const mentionsDeposit = /\b(no deposit|deposit)\b/i.test(input.userMessage)
@@ -757,6 +818,38 @@ export async function runSetupAssistantTurn(
   input: SetupAssistantTurnInput,
 ): Promise<SetupAssistantTurnResult> {
   const start = Date.now()
+  const preparedDraft = syncOnboardingProgress(
+    input.explicitEdit
+      ? clearOnboardingFieldCompletion(input.draft, input.currentSection)
+      : input.draft,
+  )
+  input = { ...input, draft: preparedDraft }
+
+  if (
+    input.currentSection !== "review" &&
+    isOnboardingFieldComplete(preparedDraft, input.currentSection) &&
+    !input.explicitEdit
+  ) {
+    const nextField = getNextIncompleteOnboardingField(preparedDraft, input.currentSection)
+    const reply = `Saved. ${buildSetupAssistantSectionQuestion(nextField)}`
+    const guardedDraft = recordAskedQuestion(preparedDraft, reply)
+    const selectionReason = "current_field_already_completed_value_present"
+    logQuestionSelection(input.currentSection, guardedDraft, nextField, selectionReason)
+    return {
+      reply,
+      section: input.currentSection,
+      nextSection: nextField,
+      action: "advance",
+      concerns: [],
+      draft: guardedDraft,
+      pendingFields: guardedDraft.status.pendingFields,
+      completedFields: getCompletedOnboardingFields(guardedDraft),
+      selectionReason,
+      durationMs: Date.now() - start,
+      provider: "mock",
+      model: "aiva-flow-guard",
+    }
+  }
   const system = buildSetupAssistantSystemPrompt()
   const user = buildSetupAssistantUserTurn(input)
   const history: ChatMessage[] = [
@@ -860,13 +953,63 @@ export async function runSetupAssistantTurn(
     section: flowSection,
   })
 
+  let selectionReason =
+    raw.action === "ask" ? "current_field_incomplete" : "current_field_completed"
+  const completedNow =
+    raw.action === "advance" || raw.action === "finish" ? [flowSection] : []
   mergedCandidate.status = {
     complete: raw.action === "finish",
-    pendingFields: countPendingFields(mergedCandidate),
-    completedAt: raw.action === "finish" ? new Date().toISOString() : undefined,
+    pendingFields: mergedCandidate.status?.pendingFields ?? [],
+    completedFields: mergedCandidate.status?.completedFields ?? [],
+    askedQuestions: mergedCandidate.status?.askedQuestions ?? [],
+    ...(raw.action === "finish" ? { completedAt: new Date().toISOString() } : {}),
+  }
+  let progressedCandidate = syncOnboardingProgress(mergedCandidate, completedNow)
+
+  if (
+    raw.action === "ask" &&
+    isOnboardingFieldComplete(progressedCandidate, flowSection)
+  ) {
+    raw = { ...raw, action: "advance" }
+    progressedCandidate = syncOnboardingProgress(progressedCandidate, [flowSection])
+    selectionReason = "field_has_valid_value_duplicate_question_blocked"
   }
 
-  const validatedDraft = knowledgeBaseSchema.safeParse(mergedCandidate)
+  const effectiveSection =
+    explicitHours && input.currentSection === "business"
+      ? "hours"
+      : provider === "nara"
+      ? input.currentSection
+      : isSetupAssistantSection(raw.section)
+        ? raw.section
+        : input.currentSection
+
+  let next: SetupAssistantSection | null = null
+  if (raw.action === "advance") {
+    next = getNextIncompleteOnboardingField(progressedCandidate, effectiveSection)
+    raw = {
+      ...raw,
+      reply: `Saved. ${buildSetupAssistantSectionQuestion(next)}`,
+    }
+    selectionReason =
+      selectionReason === "field_has_valid_value_duplicate_question_blocked"
+        ? selectionReason
+        : "current_field_completed_next_incomplete_selected"
+  } else if (raw.action === "ask") {
+    if (questionWasAlreadyAsked(input, progressedCandidate, raw.reply)) {
+      const attempt = (progressedCandidate.status?.askedQuestions?.length ?? 0) + 2
+      raw = {
+        ...raw,
+        reply: duplicateSafeQuestion(effectiveSection, attempt),
+      }
+      selectionReason = "duplicate_question_rephrased_for_incomplete_field"
+    }
+  } else if (raw.action === "finish") {
+    selectionReason = "all_onboarding_fields_completed"
+  }
+
+  progressedCandidate = recordAskedQuestion(progressedCandidate, raw.reply)
+  const validatedDraft = knowledgeBaseSchema.safeParse(progressedCandidate)
   if (!validatedDraft.success && provider === "nara") {
     console.error("setup-assistant: Nara returned invalid knowledge data", {
       issues: validatedDraft.error.issues.slice(0, 5).map((issue) => ({
@@ -878,19 +1021,13 @@ export async function runSetupAssistantTurn(
       "The AI response could not be safely saved. Your previous progress is unchanged; please try again.",
     )
   }
-  const merged = validatedDraft.success ? validatedDraft.data : mergedCandidate
-  const effectiveSection =
-    explicitHours && input.currentSection === "business"
-      ? "hours"
-      : provider === "nara"
-      ? input.currentSection
-      : isSetupAssistantSection(raw.section)
-        ? raw.section
-        : input.currentSection
-  const next =
-    raw.action === "advance" || raw.action === "finish"
-      ? nextSectionOf(effectiveSection)
-      : null
+  const merged = validatedDraft.success ? validatedDraft.data : progressedCandidate
+  logQuestionSelection(
+    effectiveSection,
+    merged,
+    raw.action === "ask" ? effectiveSection : next,
+    selectionReason,
+  )
   return {
     reply: raw.reply,
     section: effectiveSection,
@@ -899,6 +1036,8 @@ export async function runSetupAssistantTurn(
     concerns,
     draft: merged,
     pendingFields: merged.status.pendingFields,
+    completedFields: getCompletedOnboardingFields(merged),
+    selectionReason,
     durationMs: Date.now() - start,
     provider,
     model,

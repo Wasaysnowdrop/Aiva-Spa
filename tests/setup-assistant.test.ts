@@ -7,10 +7,15 @@ import {
 } from "@/lib/ai/setup-assistant-prompt"
 import {
   emptyKnowledgeBase,
+  getCompletedOnboardingFields,
+  getNextIncompleteOnboardingField,
   isBusinessBasicsComplete,
+  isOnboardingFieldComplete,
   countPendingFields,
   isCaptured,
   knowledgeBaseSchema,
+  mergeOnboardingDrafts,
+  syncOnboardingProgress,
 } from "@/lib/ai/setup-assistant-schema"
 import { runSetupAssistantTurn } from "@/lib/ai/setup-assistant"
 
@@ -199,6 +204,42 @@ describe("setup assistant KB helpers", () => {
 
     expect(isBusinessBasicsComplete(kb)).toBe(true)
   })
+  it("marks services complete from its value and selects the next unanswered field", () => {
+    const kb = emptyKnowledgeBase()
+    kb.services = [
+      {
+        name: "Botox",
+        category: "Injectables",
+        description: "Wrinkle-relaxer consultation.",
+        duration: "30 minutes",
+      },
+    ]
+
+    const progressed = syncOnboardingProgress(kb)
+
+    expect(isOnboardingFieldComplete(progressed, "services")).toBe(true)
+    expect(getCompletedOnboardingFields(progressed)).toContain("services")
+    expect(getNextIncompleteOnboardingField(progressed, "services")).toBe("booking_policy")
+  })
+
+  it("keeps stored services when a restored client draft contains an empty services array", () => {
+    const stored = emptyKnowledgeBase()
+    stored.services = [
+      {
+        name: "HydraFacial",
+        category: "Skin",
+        description: "Hydrating facial treatment.",
+        duration: "45 minutes",
+      },
+    ]
+
+    const restored = mergeOnboardingDrafts(stored, emptyKnowledgeBase())
+
+    expect(restored.services).toHaveLength(1)
+    expect(restored.services[0]?.name).toBe("HydraFacial")
+    expect(restored.status.completedFields).toContain("services")
+  })
+
 
   it("knowledgeBaseSchema validates the empty KB", () => {
     const parsed = knowledgeBaseSchema.safeParse(emptyKnowledgeBase())
@@ -508,6 +549,32 @@ describe("runSetupAssistantTurn (mock provider)", () => {
     const hasMedicalConcern = result.concerns.some((c) => /medical|outcome|risk|guarantee/i.test(c))
     expect(hasMedicalConcern).toBe(true)
   })
+  it("never asks for services when a restored draft already has a service", async () => {
+    const draft = emptyKnowledgeBase()
+    draft.services = [
+      {
+        name: "Botox",
+        category: "Injectables",
+        description: "Consultation with a licensed provider.",
+        duration: "30 minutes",
+      },
+    ]
+
+    const result = await runSetupAssistantTurn({
+      history: [{ role: "assistant", content: "What services do you offer?" }],
+      userMessage: "Botox",
+      currentSection: "services",
+      draft,
+    })
+
+    expect(result.action).toBe("advance")
+    expect(result.nextSection).toBe("booking_policy")
+    expect(result.reply).toMatch(/consultation requests/i)
+    expect(result.reply).not.toMatch(/services do you offer|other services/i)
+    expect(result.completedFields).toContain("services")
+    expect(result.selectionReason).toMatch(/already_completed|valid_value/)
+  })
+
 
   it("marks status.complete when the assistant returns action=finish", async () => {
     // The mock fallback always returns "finish" on the review section.
@@ -649,8 +716,7 @@ describe("runSetupAssistantTurn (mock provider)", () => {
     await expectQuestion("Asia/Karachi", /services do you offer/i)
     expect(section).toBe("services")
 
-    await expectQuestion("Botox and facials.", /other services/i)
-    await expectQuestion("No more.", /consultation requests/i)
+    await expectQuestion("Botox and facials.", /consultation requests/i)
     expect(section).toBe("booking_policy")
 
     await expectQuestion("Manual follow-up.", /deposit/i)
@@ -660,9 +726,8 @@ describe("runSetupAssistantTurn (mock provider)", () => {
 
     await expectQuestion(
       "Do you offer Botox? Yes, after a consultation with a licensed provider.",
-      /another FAQ/i,
+      /standard pricing/i,
     )
-    await expectQuestion("No more.", /standard pricing/i)
     await expectQuestion("Use the standard disclaimers.", /what tone/i)
     expect(section).toBe("brand_voice")
 
