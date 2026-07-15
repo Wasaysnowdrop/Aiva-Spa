@@ -30,7 +30,7 @@ export type MockSupabase = {
   setAuthUser: (user: AuthUser) => void
   setResult: (
     table: string,
-    op: "select" | "insert" | "update" | "delete" | "upsert" | "rpc",
+    op: "select" | "insert" | "update" | "delete" | "upsert" | "rpc" | "updateUserById",
     result: OpResult,
   ) => void
   getCalls: () => Call[]
@@ -208,7 +208,8 @@ function buildClientWithSharedResults(
     admin: {
       updateUserById: async (...args: unknown[]) => {
         calls.push({ table: "auth", op: "updateUserById", args })
-        return { data: { user: authRef.current }, error: null }
+        const configured = results.get(keyOf("auth", "updateUserById"))
+        return configured ?? { data: { user: authRef.current }, error: null }
       },
       deleteUser: async () => ({ data: { user: null }, error: null }),
       createUser: async () => ({ data: { user: authRef.current }, error: null }),

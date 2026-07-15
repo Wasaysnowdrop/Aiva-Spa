@@ -19,6 +19,11 @@ import {
   isCaptured,
   isOnboardingFieldComplete,
 } from "./setup-assistant-schema"
+import {
+  logServicesDevelopment,
+  parseServicesInput,
+  validateServicesInput,
+} from "./services-input"
 
 export type SetupAssistantAction = "ask" | "summarize" | "advance" | "finish"
 
@@ -321,6 +326,7 @@ function recordAskedQuestion(kb: KnowledgeBase, reply: string): KnowledgeBase {
       askedQuestions: Array.from(
         new Set([...(kb.status?.askedQuestions ?? []), normalized]),
       ).slice(-100),
+      invalidAttempts: kb.status?.invalidAttempts ?? {},
       ...(kb.status?.completedAt ? { completedAt: kb.status.completedAt } : {}),
     },
   }
@@ -850,6 +856,97 @@ export async function runSetupAssistantTurn(
       model: "aiva-flow-guard",
     }
   }
+
+  // Services are intentionally deterministic. A natural-language owner answer
+  // must never be blocked by malformed or incomplete model JSON.
+  if (input.currentSection === "services") {
+    const validation = validateServicesInput(input.userMessage)
+    logServicesDevelopment("SERVICES_RAW_INPUT", { rawInput: input.userMessage })
+    logServicesDevelopment("SERVICES_VALIDATION_RESULT", {
+      cleanedInput: validation.cleaned,
+      valid: validation.valid,
+      reason: validation.reason ?? null,
+    })
+
+    if (!validation.valid) {
+      const attempts = (preparedDraft.status?.invalidAttempts?.services ?? 0) + 1
+      const invalidDraft = syncOnboardingProgress({
+        ...preparedDraft,
+        status: {
+          ...preparedDraft.status,
+          invalidAttempts: {
+            ...(preparedDraft.status?.invalidAttempts ?? {}),
+            services: attempts,
+          },
+        },
+      })
+      const reply = attempts >= 3
+        ? "Please enter service names, such as Botox, Dermal Fillers, HydraFacial, or Laser Hair Removal."
+        : "Please enter at least one service your business offers."
+      logServicesDevelopment("SERVICES_ATTEMPT_COUNT_CHANGED", {
+        previous: attempts - 1,
+        current: attempts,
+        reason: validation.reason,
+      })
+      return {
+        reply,
+        section: "services",
+        nextSection: null,
+        action: "ask",
+        concerns: [],
+        draft: invalidDraft,
+        pendingFields: invalidDraft.status.pendingFields,
+        completedFields: getCompletedOnboardingFields(invalidDraft),
+        selectionReason: "services_validation_failed",
+        durationMs: Date.now() - start,
+        provider: "mock",
+        model: "aiva-services-deterministic",
+      }
+    }
+
+    const services = parseServicesInput(input.userMessage)
+    logServicesDevelopment("SERVICES_AI_EXTRACTION_SKIPPED", {
+      reason: "deterministic_parser_is_authoritative",
+      serviceCount: services.length,
+    })
+    const servicesDraft = syncOnboardingProgress(
+      {
+        ...preparedDraft,
+        services,
+        status: {
+          ...preparedDraft.status,
+          invalidAttempts: {
+            ...(preparedDraft.status?.invalidAttempts ?? {}),
+            services: 0,
+          },
+        },
+      },
+      ["services"],
+    )
+    const nextField = getNextIncompleteOnboardingField(servicesDraft, "services")
+    const reply = `Saved. ${buildSetupAssistantSectionQuestion(nextField)}`
+    const guardedDraft = recordAskedQuestion(servicesDraft, reply)
+    logServicesDevelopment("SERVICES_STEP_ADVANCED", {
+      currentOnboardingStep: "services",
+      nextOnboardingStep: nextField,
+      serviceCount: services.length,
+      invalidAttempts: 0,
+    })
+    return {
+      reply,
+      section: "services",
+      nextSection: nextField,
+      action: "advance",
+      concerns: detectPricingConcerns(input.userMessage),
+      draft: guardedDraft,
+      pendingFields: guardedDraft.status.pendingFields,
+      completedFields: getCompletedOnboardingFields(guardedDraft),
+      selectionReason: "services_deterministic_validation_passed",
+      durationMs: Date.now() - start,
+      provider: "mock",
+      model: "aiva-services-deterministic",
+    }
+  }
   const system = buildSetupAssistantSystemPrompt()
   const user = buildSetupAssistantUserTurn(input)
   const history: ChatMessage[] = [
@@ -962,6 +1059,7 @@ export async function runSetupAssistantTurn(
     pendingFields: mergedCandidate.status?.pendingFields ?? [],
     completedFields: mergedCandidate.status?.completedFields ?? [],
     askedQuestions: mergedCandidate.status?.askedQuestions ?? [],
+    invalidAttempts: mergedCandidate.status?.invalidAttempts ?? {},
     ...(raw.action === "finish" ? { completedAt: new Date().toISOString() } : {}),
   }
   let progressedCandidate = syncOnboardingProgress(mergedCandidate, completedNow)

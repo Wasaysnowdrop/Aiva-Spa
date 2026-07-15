@@ -266,6 +266,7 @@ export function SetupAssistantExperience({
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const inputRef = React.useRef<HTMLTextAreaElement | null>(null)
   const finishingLaterRef = React.useRef(false)
+  const pendingSubmissionRef = React.useRef<string | null>(null)
   const cacheKey = React.useMemo(() => `aivaspa:onboarding:${user.id}`, [user.id])
   const [showResumeBanner, setShowResumeBanner] = React.useState(() =>
     typeof window !== "undefined" && window.location.search.includes("resume=1"),
@@ -333,7 +334,9 @@ export function SetupAssistantExperience({
 
   async function send(text?: string) {
     const trimmed = (text ?? input).trim()
-    if (!trimmed || sending) return
+    if (!trimmed || sending || pendingSubmissionRef.current) return
+    const submissionId = `onboarding_${user.id}_${makeId()}`
+    pendingSubmissionRef.current = submissionId
     setInput("")
     setError(null)
     setSavingState("saving")
@@ -355,23 +358,37 @@ export function SetupAssistantExperience({
           currentSection: section,
           draft,
           explicitEdit: editingSection === section,
+          submissionId,
         }),
       })
+      const responseData = (await res.json().catch(() => ({}))) as {
+        error?: string
+        errorType?: "VALIDATION_ERROR" | "SAVE_ERROR"
+        message?: string
+        reply?: string
+        section?: SetupAssistantSection
+        nextSection?: SetupAssistantSection | null
+        action?: "ask" | "summarize" | "advance" | "finish"
+        concerns?: string[]
+        draft?: KnowledgeBase
+        completedFields?: SetupAssistantSection[]
+        selectionReason?: string
+        savedAt?: string
+      }
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error((data as { error?: string }).error || `Request failed (${res.status})`)
+        if (responseData.errorType === "VALIDATION_ERROR" && responseData.draft) {
+          const validationReply = sanitize(responseData.message || "Please enter at least one service your business offers.")
+          setMessages((prev) => [...prev, {
+            id: makeId(), role: "assistant", content: validationReply, at: formatTime(new Date()),
+          }])
+          setDraft(responseData.draft)
+          setSavingState("saved")
+          setEditingSection(null)
+          return
+        }
+        throw new Error(responseData.message || responseData.error || `Request failed (${res.status})`)
       }
-      const data = (await res.json()) as {
-        reply: string
-        section: SetupAssistantSection
-        nextSection: SetupAssistantSection | null
-        action: "ask" | "summarize" | "advance" | "finish"
-        concerns: string[]
-        draft: KnowledgeBase
-        completedFields: SetupAssistantSection[]
-        selectionReason: string
-        savedAt: string
-      }
+      const data = responseData as Required<Pick<typeof responseData, "reply" | "section" | "nextSection" | "action" | "concerns" | "draft">> & typeof responseData
       const cleanReply = sanitize(data.reply || FALLBACK_REPLY)
       const aiMsg: ChatMessage = {
         id: makeId(),
@@ -400,6 +417,7 @@ export function SetupAssistantExperience({
       setInput(trimmed)
     } finally {
       setSending(false)
+      if (pendingSubmissionRef.current === submissionId) pendingSubmissionRef.current = null
     }
   }
 
@@ -715,6 +733,7 @@ export function SetupAssistantExperience({
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
                   onKeyDown={onKeyDown}
+                  disabled={sending}
                   placeholder={`Answer about ${SECTION_LABEL[section].toLowerCase()}…`}
                   rows={2}
                   maxLength={2000}

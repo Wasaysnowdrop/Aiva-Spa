@@ -20,6 +20,8 @@ import {
   type KnowledgeBase,
   type SetupAssistantSection,
 } from "@/lib/ai/setup-assistant-schema"
+import { buildSetupAssistantSectionQuestion } from "@/lib/ai/setup-assistant-prompt"
+import { logServicesDevelopment, validateServicesInput } from "@/lib/ai/services-input"
 import { recordAuditForUser } from "@/lib/audit"
 import { buildCorsHeaders } from "@/lib/security/cors"
 import { consume, getRequestIp, tooManyRequests } from "@/lib/security/limiter"
@@ -41,6 +43,7 @@ const requestSchema = z.object({
   resume: z.boolean().optional().default(false),
   explicitEdit: z.boolean().optional().default(false),
   operation: z.enum(["turn", "persist", "reset"]).optional().default("turn"),
+  submissionId: z.string().min(8).max(160).optional(),
 })
 
 function cors(request: Request) {
@@ -55,6 +58,7 @@ async function persistOnboardingDraft(
   userMetadata: Record<string, unknown>,
   draft: KnowledgeBase,
   section: SetupAssistantSection,
+  submissionId?: string,
 ): Promise<string> {
   const savedAt = new Date().toISOString()
   const admin = createAdminClient()
@@ -65,6 +69,7 @@ async function persistOnboardingDraft(
       onboarding_setup_section: section,
       onboarding_completed_fields: getCompletedOnboardingFields(draft),
       onboarding_setup_updated_at: savedAt,
+      ...(submissionId ? { onboarding_last_submission_id: submissionId } : {}),
     },
   })
   if (error) throw error
@@ -126,6 +131,64 @@ export async function POST(request: NextRequest) {
   draft = syncOnboardingProgress(draft)
 
   const section: SetupAssistantSection = body.currentSection
+  if (
+    body.operation === "turn" &&
+    body.submissionId &&
+    meta.onboarding_last_submission_id === body.submissionId
+  ) {
+    const stepCompleted = isOnboardingFieldComplete(draft, section)
+    if (section === "services" && !stepCompleted) {
+      const attempts = draft.status.invalidAttempts.services ?? 0
+      const message = attempts >= 3
+        ? "Please enter service names, such as Botox, Dermal Fillers, HydraFacial, or Laser Hair Removal."
+        : "Please enter at least one service your business offers."
+      return Response.json(
+        {
+          success: false,
+          duplicate: true,
+          errorType: "VALIDATION_ERROR",
+          message,
+          reply: message,
+          stepCompleted: false,
+          nextStep: "services",
+          section,
+          nextSection: null,
+          action: "ask",
+          concerns: [],
+          draft,
+          pendingFields: draft.status.pendingFields,
+          completedFields: getCompletedOnboardingFields(draft),
+          selectionReason: "duplicate_invalid_submission_ignored",
+          invalidAttemptCount: attempts,
+        },
+        { status: 422, headers: cors(request) },
+      )
+    }
+
+    const nextSection = stepCompleted
+      ? getNextIncompleteOnboardingField(draft, section)
+      : section
+    return Response.json(
+      {
+        success: true,
+        duplicate: true,
+        stepCompleted,
+        nextStep: nextSection,
+        reply: `Saved. ${buildSetupAssistantSectionQuestion(nextSection)}`,
+        section,
+        nextSection,
+        action: stepCompleted ? "advance" : "ask",
+        concerns: [],
+        draft,
+        pendingFields: draft.status.pendingFields,
+        completedFields: getCompletedOnboardingFields(draft),
+        selectionReason: "duplicate_submission_ignored",
+        services: section === "services" ? draft.services : undefined,
+      },
+      { headers: cors(request) },
+    )
+  }
+
   if (body.operation !== "turn") {
     const selectedSection =
       body.operation === "reset"
@@ -139,7 +202,7 @@ export async function POST(request: NextRequest) {
         : "progress_persisted_without_asking_question"
 
     try {
-      const savedAt = await persistOnboardingDraft(user.id, meta, draft, selectedSection)
+      const savedAt = await persistOnboardingDraft(user.id, meta, draft, selectedSection, body.submissionId)
       console.info("setup-assistant: question-selection", {
         currentOnboardingStep: section,
         completedFields: getCompletedOnboardingFields(draft),
@@ -173,6 +236,7 @@ export async function POST(request: NextRequest) {
     ""
   const spaNameHint = (user.user_metadata?.spa_name as string | undefined) ?? ""
 
+  let servicesSaveStarted = false
   try {
     const result = await runSetupAssistantTurn({
       history: body.history,
@@ -183,19 +247,60 @@ export async function POST(request: NextRequest) {
       spaName: spaNameHint,
       explicitEdit: body.explicitEdit,
     })
+    if (section === "services") logServicesDevelopment("SERVICES_SAVE_STARTED", {
+      userId: user.id,
+      submissionId: body.submissionId ?? null,
+      currentOnboardingStep: section,
+      serviceCount: result.draft.services.length,
+    })
+    servicesSaveStarted = section === "services"
 
     const savedAt = await persistOnboardingDraft(
       user.id,
       meta,
       result.draft,
       result.nextSection ?? result.section,
+      body.submissionId,
     )
+    if (section === "services") logServicesDevelopment("SERVICES_SAVE_SUCCESS", {
+      userId: user.id,
+      nextOnboardingStep: result.nextSection,
+      serviceCount: result.draft.services.length,
+    })
 
     void recordAuditForUser(user, `onboarding.setup_assistant_turn ${result.section} → ${result.action}`)
+
+    if (result.selectionReason === "services_validation_failed") {
+      return Response.json(
+        {
+          success: false,
+          errorType: "VALIDATION_ERROR",
+          message: result.reply,
+          reply: result.reply,
+          stepCompleted: false,
+          nextStep: "services",
+          section: "services",
+          nextSection: null,
+          action: "ask",
+          concerns: [],
+          draft: result.draft,
+          pendingFields: result.pendingFields,
+          completedFields: result.completedFields,
+          selectionReason: result.selectionReason,
+          invalidAttemptCount: result.draft.status.invalidAttempts.services ?? 0,
+          savedAt,
+        },
+        { status: 422, headers: cors(request) },
+      )
+    }
 
     return Response.json(
       {
         reply: result.reply,
+        success: true,
+        stepCompleted: result.action === "advance" || result.action === "finish",
+        nextStep: result.nextSection,
+        services: result.section === "services" ? result.draft.services : undefined,
         section: result.section,
         nextSection: result.nextSection,
         action: result.action,
@@ -213,6 +318,27 @@ export async function POST(request: NextRequest) {
     )
   } catch (err) {
     console.error("setup-assistant error", err)
+    const validServicesSaveFailed =
+      servicesSaveStarted && validateServicesInput(body.userMessage).valid
+    if (validServicesSaveFailed) {
+      const dbError = err as { message?: string; code?: string; details?: string; hint?: string }
+      console.error("SERVICES_SAVE_FAILED", {
+        message: dbError?.message ?? "Unknown save error",
+        code: dbError?.code ?? null,
+        details: dbError?.details ?? null,
+        hint: dbError?.hint ?? null,
+        userId: user.id,
+        submissionId: body.submissionId ?? null,
+      })
+      return Response.json(
+        {
+          success: false,
+          errorType: "SAVE_ERROR",
+          message: "Your services are valid, but we couldn't save them. Please try again.",
+        },
+        { status: 500, headers: cors(request) },
+      )
+    }
     const aiUnavailable = err instanceof SetupAssistantAiError
     return Response.json(
       {

@@ -746,7 +746,7 @@ describe("runSetupAssistantTurn (mock provider)", () => {
     expect(final.draft.status).toMatchObject({ complete: true })
     expect(final.draft.business?.website).toBe("wffmedspa.com")
     expect(final.draft.hours?.timezone).toBe("Asia/Karachi")
-    expect(final.draft.services).toHaveLength(1)
+    expect(final.draft.services).toHaveLength(2)
     expect(final.draft.booking_policy?.deposit.required).toBe(false)
     expect(final.draft.booking_policy?.cancellation.noticeHours).toBe(24)
     expect(final.draft.faqs[0]?.answer).toMatch(/licensed provider/i)

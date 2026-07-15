@@ -179,10 +179,11 @@ export const knowledgeBaseSchema = z.object({
       pendingFields: z.array(z.string()).default([]),
       completedFields: z.array(z.enum(SETUP_ASSISTANT_SECTIONS)).default([]),
       askedQuestions: z.array(z.string().max(500)).max(100).default([]),
+      invalidAttempts: z.partialRecord(z.enum(SETUP_ASSISTANT_SECTIONS), z.number().int().nonnegative()).default({}),
       completedAt: z.string().datetime().optional(),
     })
     .optional()
-    .default({ complete: false, pendingFields: [], completedFields: [], askedQuestions: [] }),
+    .default({ complete: false, pendingFields: [], completedFields: [], askedQuestions: [], invalidAttempts: {} }),
 })
 
 export type KnowledgeBase = z.infer<typeof knowledgeBaseSchema>
@@ -230,7 +231,7 @@ export const emptyKnowledgeBase = (): KnowledgeBase => ({
     channels: { email: true, sms: false },
     quietHours: { enabled: false, from: "22:00", to: "08:00" },
   },
-  status: { complete: false, pendingFields: [], completedFields: [], askedQuestions: [] },
+  status: { complete: false, pendingFields: [], completedFields: [], askedQuestions: [], invalidAttempts: {} },
 })
 
 export function isCaptured(value: unknown): boolean {
@@ -361,6 +362,7 @@ export function syncOnboardingProgress(
       pendingFields: countPendingFields(kb),
       completedFields,
       askedQuestions: kb.status?.askedQuestions ?? [],
+      invalidAttempts: kb.status?.invalidAttempts ?? {},
       ...(kb.status?.completedAt ? { completedAt: kb.status.completedAt } : {}),
     },
   }
@@ -377,6 +379,7 @@ export function clearOnboardingFieldCompletion(
       pendingFields: kb.status?.pendingFields ?? [],
       completedFields: (kb.status?.completedFields ?? []).filter((item) => item !== field),
       askedQuestions: kb.status?.askedQuestions ?? [],
+      invalidAttempts: kb.status?.invalidAttempts ?? {},
       ...(field !== "review" && kb.status?.completedAt
         ? { completedAt: kb.status.completedAt }
         : {}),
@@ -420,6 +423,10 @@ export function mergeOnboardingDrafts(
         ...(incoming.status?.askedQuestions ?? []),
       ]),
     ).slice(-100),
+    invalidAttempts: {
+      ...(stored.status?.invalidAttempts ?? {}),
+      ...(incoming.status?.invalidAttempts ?? {}),
+    },
     ...(incoming.status?.completedAt ?? stored.status?.completedAt
       ? { completedAt: incoming.status?.completedAt ?? stored.status?.completedAt }
       : {}),
