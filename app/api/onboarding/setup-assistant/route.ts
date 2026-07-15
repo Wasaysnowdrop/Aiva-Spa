@@ -22,6 +22,7 @@ import {
 } from "@/lib/ai/setup-assistant-schema"
 import { buildSetupAssistantSectionQuestion } from "@/lib/ai/setup-assistant-prompt"
 import { logServicesDevelopment, validateServicesInput } from "@/lib/ai/services-input"
+import { faqInputHash, logFaqDevelopment, validateFaqInput } from "@/lib/ai/faq-input"
 import { recordAuditForUser } from "@/lib/audit"
 import { buildCorsHeaders } from "@/lib/security/cors"
 import { consume, getRequestIp, tooManyRequests } from "@/lib/security/limiter"
@@ -44,6 +45,7 @@ const requestSchema = z.object({
   explicitEdit: z.boolean().optional().default(false),
   operation: z.enum(["turn", "persist", "reset"]).optional().default("turn"),
   submissionId: z.string().min(8).max(160).optional(),
+  messageId: z.string().min(3).max(160).optional(),
 })
 
 function cors(request: Request) {
@@ -137,11 +139,15 @@ export async function POST(request: NextRequest) {
     meta.onboarding_last_submission_id === body.submissionId
   ) {
     const stepCompleted = isOnboardingFieldComplete(draft, section)
-    if (section === "services" && !stepCompleted) {
-      const attempts = draft.status.invalidAttempts.services ?? 0
-      const message = attempts >= 3
-        ? "Please enter service names, such as Botox, Dermal Fillers, HydraFacial, or Laser Hair Removal."
-        : "Please enter at least one service your business offers."
+    if ((section === "services" || section === "faqs") && !stepCompleted) {
+      const attempts = draft.status.invalidAttempts[section] ?? 0
+      const message = section === "services"
+        ? attempts >= 3
+          ? "Please enter service names, such as Botox, Dermal Fillers, HydraFacial, or Laser Hair Removal."
+          : "Please enter at least one service your business offers."
+        : attempts >= 3
+          ? "Please provide one visitor question and its approved answer. Example: Question: Do you offer consultations? Answer: Yes, contact our team to schedule."
+          : "Please provide one visitor question and its approved answer."
       return Response.json(
         {
           success: false,
@@ -150,7 +156,7 @@ export async function POST(request: NextRequest) {
           message,
           reply: message,
           stepCompleted: false,
-          nextStep: "services",
+          nextStep: section,
           section,
           nextSection: null,
           action: "ask",
@@ -184,6 +190,7 @@ export async function POST(request: NextRequest) {
         completedFields: getCompletedOnboardingFields(draft),
         selectionReason: "duplicate_submission_ignored",
         services: section === "services" ? draft.services : undefined,
+        faqs: section === "faqs" ? draft.faqs : undefined,
       },
       { headers: cors(request) },
     )
@@ -237,6 +244,7 @@ export async function POST(request: NextRequest) {
   const spaNameHint = (user.user_metadata?.spa_name as string | undefined) ?? ""
 
   let servicesSaveStarted = false
+  let faqSaveStarted = false
   try {
     const result = await runSetupAssistantTurn({
       history: body.history,
@@ -246,6 +254,8 @@ export async function POST(request: NextRequest) {
       ownerName,
       spaName: spaNameHint,
       explicitEdit: body.explicitEdit,
+      submissionId: body.submissionId,
+      messageId: body.messageId,
     })
     if (section === "services") logServicesDevelopment("SERVICES_SAVE_STARTED", {
       userId: user.id,
@@ -254,6 +264,15 @@ export async function POST(request: NextRequest) {
       serviceCount: result.draft.services.length,
     })
     servicesSaveStarted = section === "services"
+    if (section === "faqs") logFaqDevelopment("FAQ_SAVE_STARTED", {
+      userId: user.id,
+      submissionId: body.submissionId ?? null,
+      messageId: body.messageId ?? null,
+      complianceInputHash: faqInputHash(body.userMessage),
+      currentOnboardingStep: section,
+      faqCount: result.draft.faqs.length,
+    })
+    faqSaveStarted = section === "faqs"
 
     const savedAt = await persistOnboardingDraft(
       user.id,
@@ -267,19 +286,33 @@ export async function POST(request: NextRequest) {
       nextOnboardingStep: result.nextSection,
       serviceCount: result.draft.services.length,
     })
+    if (section === "faqs") logFaqDevelopment("FAQ_SAVE_SUCCESS", {
+      userId: user.id,
+      submissionId: body.submissionId ?? null,
+      messageId: body.messageId ?? null,
+      complianceInputHash: faqInputHash(body.userMessage),
+      nextOnboardingStep: result.nextSection,
+      faqCount: result.draft.faqs.length,
+    })
 
     void recordAuditForUser(user, `onboarding.setup_assistant_turn ${result.section} → ${result.action}`)
 
-    if (result.selectionReason === "services_validation_failed") {
+    const validationFailed = result.selectionReason === "services_validation_failed"
+      || result.selectionReason === "faqs_validation_failed"
+      || result.selectionReason === "faqs_parsing_failed"
+    if (validationFailed) {
+      const errorType = result.selectionReason === "faqs_parsing_failed"
+        ? "PARSING_ERROR"
+        : "VALIDATION_ERROR"
       return Response.json(
         {
           success: false,
-          errorType: "VALIDATION_ERROR",
+          errorType,
           message: result.reply,
           reply: result.reply,
           stepCompleted: false,
-          nextStep: "services",
-          section: "services",
+          nextStep: section,
+          section,
           nextSection: null,
           action: "ask",
           concerns: [],
@@ -287,7 +320,7 @@ export async function POST(request: NextRequest) {
           pendingFields: result.pendingFields,
           completedFields: result.completedFields,
           selectionReason: result.selectionReason,
-          invalidAttemptCount: result.draft.status.invalidAttempts.services ?? 0,
+          invalidAttemptCount: result.draft.status.invalidAttempts[section] ?? 0,
           savedAt,
         },
         { status: 422, headers: cors(request) },
@@ -301,6 +334,7 @@ export async function POST(request: NextRequest) {
         stepCompleted: result.action === "advance" || result.action === "finish",
         nextStep: result.nextSection,
         services: result.section === "services" ? result.draft.services : undefined,
+        faqs: result.section === "faqs" ? result.draft.faqs : undefined,
         section: result.section,
         nextSection: result.nextSection,
         action: result.action,
@@ -335,6 +369,28 @@ export async function POST(request: NextRequest) {
           success: false,
           errorType: "SAVE_ERROR",
           message: "Your services are valid, but we couldn't save them. Please try again.",
+        },
+        { status: 500, headers: cors(request) },
+      )
+    }
+    const validFaqSaveFailed = faqSaveStarted && validateFaqInput(body.userMessage).valid
+    if (validFaqSaveFailed) {
+      const dbError = err as { message?: string; code?: string; details?: string; hint?: string }
+      console.error("FAQ_SAVE_FAILED", {
+        message: dbError?.message ?? "Unknown save error",
+        code: dbError?.code ?? null,
+        details: dbError?.details ?? null,
+        hint: dbError?.hint ?? null,
+        userId: user.id,
+        submissionId: body.submissionId ?? null,
+        messageId: body.messageId ?? null,
+        complianceInputHash: faqInputHash(body.userMessage),
+      })
+      return Response.json(
+        {
+          success: false,
+          errorType: "SAVE_ERROR",
+          message: "Your FAQ is valid, but we couldn't save it. Please try again.",
         },
         { status: 500, headers: cors(request) },
       )

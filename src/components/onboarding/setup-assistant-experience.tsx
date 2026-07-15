@@ -33,6 +33,11 @@ import {
   type SetupAssistantSection,
 } from "@/lib/ai/setup-assistant-schema"
 import { SECTION_ORDER } from "@/lib/ai/setup-assistant-prompt"
+import { faqInputHash } from "@/lib/ai/faq-input"
+import {
+  isComplianceResultStale,
+  type ComplianceRequestScope,
+} from "@/lib/ai/onboarding-compliance"
 
 type ChatRole = "user" | "assistant"
 
@@ -214,6 +219,14 @@ const SECTION_SUMMARY: Record<SetupAssistantSection, (kb: KnowledgeBase) => stri
 }
 
 type SavingState = "idle" | "saving" | "saved"
+type ScopedConcerns = {
+  section: SetupAssistantSection
+  sourceSection: SetupAssistantSection
+  submissionId: string
+  messageId: string
+  inputHash: string
+  values: string[]
+}
 type OnboardingCache = {
   version: 1
   draft: KnowledgeBase
@@ -256,7 +269,7 @@ export function SetupAssistantExperience({
   const [sending, setSending] = React.useState(false)
   const [savingState, setSavingState] = React.useState<SavingState>("idle")
   const [error, setError] = React.useState<string | null>(null)
-  const [concerns, setConcerns] = React.useState<string[]>([])
+  const [concerns, setConcerns] = React.useState<ScopedConcerns | null>(null)
   const [finalizing, setFinalizing] = React.useState(false)
   const [finalizeError, setFinalizeError] = React.useState<string | null>(null)
   const [showResetConfirm, setShowResetConfirm] = React.useState(false)
@@ -267,10 +280,17 @@ export function SetupAssistantExperience({
   const inputRef = React.useRef<HTMLTextAreaElement | null>(null)
   const finishingLaterRef = React.useRef(false)
   const pendingSubmissionRef = React.useRef<string | null>(null)
+  const activeSectionRef = React.useRef<SetupAssistantSection>(initialSection)
+  const latestComplianceRef = React.useRef<ComplianceRequestScope | null>(null)
+  const mountedRef = React.useRef(true)
   const cacheKey = React.useMemo(() => `aivaspa:onboarding:${user.id}`, [user.id])
   const [showResumeBanner, setShowResumeBanner] = React.useState(() =>
     typeof window !== "undefined" && window.location.search.includes("resume=1"),
   )
+
+  React.useEffect(() => () => {
+    mountedRef.current = false
+  }, [])
 
   const completedSections = React.useMemo(
     () => SECTION_ORDER.filter((item) => isSectionDone(draft, item)),
@@ -288,6 +308,7 @@ export function SetupAssistantExperience({
           ? getNextIncompleteOnboardingField(restoredDraft, cached.section)
           : cached.section
         setDraft(restoredDraft)
+        activeSectionRef.current = restoredSection
         setSection(restoredSection)
       }
       setCacheHydrated(true)
@@ -329,6 +350,9 @@ export function SetupAssistantExperience({
   }, [savingState])
   function selectSection(nextSection: SetupAssistantSection) {
     setEditingSection(isSectionDone(draft, nextSection) ? nextSection : null)
+    setConcerns(null)
+    latestComplianceRef.current = null
+    activeSectionRef.current = nextSection
     setSection(nextSection)
   }
 
@@ -336,7 +360,10 @@ export function SetupAssistantExperience({
     const trimmed = (text ?? input).trim()
     if (!trimmed || sending || pendingSubmissionRef.current) return
     const submissionId = `onboarding_${user.id}_${makeId()}`
+    const submittedSection = section
+    const complianceInputHash = faqInputHash(trimmed)
     pendingSubmissionRef.current = submissionId
+    setConcerns(null)
     setInput("")
     setError(null)
     setSavingState("saving")
@@ -346,6 +373,19 @@ export function SetupAssistantExperience({
       content: trimmed,
       at: formatTime(new Date()),
     }
+    const complianceRequest: ComplianceRequestScope = {
+      step: submittedSection,
+      submissionId,
+      messageId: userMsg.id,
+      inputHash: complianceInputHash,
+    }
+    latestComplianceRef.current = complianceRequest
+    const responseIsStale = () => isComplianceResultStale(complianceRequest, {
+      currentStep: activeSectionRef.current,
+      latestSubmissionId: latestComplianceRef.current?.submissionId ?? null,
+      latestInputHash: latestComplianceRef.current?.inputHash ?? null,
+      mounted: mountedRef.current,
+    })
     setMessages((prev) => [...prev, userMsg])
     setSending(true)
     try {
@@ -359,11 +399,12 @@ export function SetupAssistantExperience({
           draft,
           explicitEdit: editingSection === section,
           submissionId,
+          messageId: userMsg.id,
         }),
       })
       const responseData = (await res.json().catch(() => ({}))) as {
         error?: string
-        errorType?: "VALIDATION_ERROR" | "SAVE_ERROR"
+        errorType?: "VALIDATION_ERROR" | "PARSING_ERROR" | "SAVE_ERROR" | "COMPLIANCE_ERROR" | "NETWORK_ERROR"
         message?: string
         reply?: string
         section?: SetupAssistantSection
@@ -376,8 +417,27 @@ export function SetupAssistantExperience({
         savedAt?: string
       }
       if (!res.ok) {
-        if (responseData.errorType === "VALIDATION_ERROR" && responseData.draft) {
-          const validationReply = sanitize(responseData.message || "Please enter at least one service your business offers.")
+        if (
+          (responseData.errorType === "VALIDATION_ERROR" || responseData.errorType === "PARSING_ERROR")
+          && responseData.draft
+        ) {
+          if (responseIsStale()) {
+            if (submittedSection === "faqs" && process.env.NODE_ENV !== "production") {
+              console.info("FAQ_STALE_COMPLIANCE_IGNORED", {
+                currentOnboardingStep: activeSectionRef.current,
+                submittedStep: submittedSection,
+                submissionId,
+                messageId: userMsg.id,
+                complianceInputHash,
+              })
+            }
+            return
+          }
+          const validationReply = sanitize(
+            responseData.message || (submittedSection === "faqs"
+              ? "Please provide one visitor question and its approved answer."
+              : "Please enter at least one service your business offers."),
+          )
           setMessages((prev) => [...prev, {
             id: makeId(), role: "assistant", content: validationReply, at: formatTime(new Date()),
           }])
@@ -389,6 +449,19 @@ export function SetupAssistantExperience({
         throw new Error(responseData.message || responseData.error || `Request failed (${res.status})`)
       }
       const data = responseData as Required<Pick<typeof responseData, "reply" | "section" | "nextSection" | "action" | "concerns" | "draft">> & typeof responseData
+      if (responseIsStale()) {
+        if (submittedSection === "faqs" && process.env.NODE_ENV !== "production") {
+          console.info("FAQ_STALE_COMPLIANCE_IGNORED", {
+            currentOnboardingStep: activeSectionRef.current,
+            submittedStep: submittedSection,
+            submissionId,
+            messageId: userMsg.id,
+            complianceInputHash,
+          })
+        }
+        setSavingState("saved")
+        return
+      }
       const cleanReply = sanitize(data.reply || FALLBACK_REPLY)
       const aiMsg: ChatMessage = {
         id: makeId(),
@@ -400,19 +473,30 @@ export function SetupAssistantExperience({
       setDraft(data.draft)
       setEditingSection(null)
       setSavingState("saved")
-      if (data.concerns && data.concerns.length > 0) {
-        setConcerns((prev) => Array.from(new Set([...prev, ...data.concerns])))
-      }
+      setConcerns(data.concerns && data.concerns.length > 0
+        ? {
+            section: data.nextSection ?? data.section,
+            sourceSection: submittedSection,
+            submissionId,
+            messageId: aiMsg.id,
+            inputHash: complianceInputHash,
+            values: Array.from(new Set(data.concerns)),
+          }
+        : null)
       if (data.nextSection) {
+        activeSectionRef.current = data.nextSection
         setSection(data.nextSection)
-      } else if (data.section !== section) {
+      } else if (data.section !== submittedSection) {
+        activeSectionRef.current = data.section
         setSection(data.section)
       }
       if (data.action === "finish") {
         await publish(data.draft)
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Setup assistant error")
+      setError(e instanceof TypeError
+        ? "Network error. Check your connection and try again."
+        : e instanceof Error ? e.message : "Setup assistant error")
       setSavingState("idle")
       setInput(trimmed)
     } finally {
@@ -432,8 +516,10 @@ export function SetupAssistantExperience({
     setShowResetConfirm(false)
     setMessages([])
     setDraft(emptyKnowledgeBase())
+    latestComplianceRef.current = null
+    activeSectionRef.current = "business"
     setSection("business")
-    setConcerns([])
+    setConcerns(null)
     setError(null)
     window.localStorage.removeItem(cacheKey)
     setEditingSection(null)
@@ -690,10 +776,12 @@ export function SetupAssistantExperience({
                   )}
                 </div>
 
-                {concerns.length > 0 ? (
+                {concerns
+                && concerns.section === section
+                && concerns.messageId === focusedAssistant?.id ? (
                   <div className="mt-5 rounded-2xl border border-[#EB5757]/20 bg-[#EB5757]/5 p-4 text-xs text-[#E8B4B4]">
                     <div className="flex items-center gap-2 font-semibold text-[#EB7777]"><AlertTriangle className="size-3.5" /> Compliance note</div>
-                    <p className="mt-1.5 leading-5">{sanitize(concerns[concerns.length - 1])}</p>
+                    <p className="mt-1.5 leading-5">{sanitize(concerns.values[concerns.values.length - 1])}</p>
                   </div>
                 ) : null}
               </motion.div>

@@ -12,6 +12,8 @@ export type SetupAssistantTurnInput = {
   ownerName?: string
   explicitEdit?: boolean
   spaName?: string
+  submissionId?: string
+  messageId?: string
 }
 
 export type SetupAssistantSectionKey =

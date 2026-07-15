@@ -24,6 +24,7 @@ import {
   parseServicesInput,
   validateServicesInput,
 } from "./services-input"
+import { faqInputHash, logFaqDevelopment, validateFaqInput } from "./faq-input"
 
 export type SetupAssistantAction = "ask" | "summarize" | "advance" | "finish"
 
@@ -756,12 +757,14 @@ function safeParseAssistantJson(content: string): SetupAssistantRawResponse | nu
 
   return null
 }
-function detectPricingConcerns(text: string): string[] {
+function detectPricingConcerns(text: string, section?: SetupAssistantSection): string[] {
   const concerns: string[] = []
-  const dollar = text.match(/\$\s?\d+(\.\d+)?/)
-  if (dollar) {
+  const firmAmount = text.match(
+    /(?:[$\u00a3\u20ac]\s?\d+(?:\.\d+)?|\b(?:USD|GBP|EUR)\s?\d+(?:\.\d+)?|\b\d+(?:\.\d+)?\s*(?:dollars?|pounds?|euros?)\b)/i,
+  )
+  if ((section === "services" || section === "faqs") && firmAmount) {
     concerns.push(
-      `Firm price detected ("${dollar[0]}"). Downgrade to a range or "confirmed at consultation" before publishing.`,
+      `Firm price detected ("${firmAmount[0]}"). Downgrade to a range or "confirmed at consultation" before publishing.`,
     )
   }
   const medical = /\b(cure|guarantee|cure|diagnos|prescribe|side[-\s]?effect free|risk[-\s]?free)\b/i
@@ -937,7 +940,7 @@ export async function runSetupAssistantTurn(
       section: "services",
       nextSection: nextField,
       action: "advance",
-      concerns: detectPricingConcerns(input.userMessage),
+      concerns: detectPricingConcerns(input.userMessage, "services"),
       draft: guardedDraft,
       pendingFields: guardedDraft.status.pendingFields,
       completedFields: getCompletedOnboardingFields(guardedDraft),
@@ -945,6 +948,128 @@ export async function runSetupAssistantTurn(
       durationMs: Date.now() - start,
       provider: "mock",
       model: "aiva-services-deterministic",
+    }
+  }
+
+  // FAQ acceptance is deterministic and model-independent. The model may be
+  // used for secondary extraction later, but can never veto a valid pair.
+  if (input.currentSection === "faqs") {
+    const faqLogContext = {
+      currentOnboardingStep: "faqs",
+      submissionId: input.submissionId ?? null,
+      messageId: input.messageId ?? null,
+      complianceInputHash: faqInputHash(input.userMessage),
+    }
+    const validation = validateFaqInput(input.userMessage)
+    logFaqDevelopment("FAQ_RAW_INPUT", {
+      ...faqLogContext,
+      rawInputLength: input.userMessage.length,
+    })
+    logFaqDevelopment("FAQ_DETERMINISTIC_PARSE", {
+      ...faqLogContext,
+      faqCount: validation.faqs.length,
+      cleanedInput: validation.cleaned,
+    })
+    logFaqDevelopment("FAQ_VALIDATION_RESULT", {
+      ...faqLogContext,
+      valid: validation.valid,
+      reason: validation.reason ?? null,
+    })
+
+    if (!validation.valid) {
+      const attempts = (preparedDraft.status?.invalidAttempts?.faqs ?? 0) + 1
+      const invalidDraft = syncOnboardingProgress({
+        ...preparedDraft,
+        status: {
+          ...preparedDraft.status,
+          invalidAttempts: {
+            ...(preparedDraft.status?.invalidAttempts ?? {}),
+            faqs: attempts,
+          },
+        },
+      })
+      const reply = attempts >= 3
+        ? "Please provide one visitor question and its approved answer. Example: Question: Do you offer consultations? Answer: Yes, contact our team to schedule."
+        : "Please provide one visitor question and its approved answer."
+      logFaqDevelopment("FAQ_ATTEMPT_INCREMENTED", {
+        ...faqLogContext,
+        previous: attempts - 1,
+        current: attempts,
+        reason: validation.reason,
+      })
+      return {
+        reply,
+        section: "faqs",
+        nextSection: null,
+        action: "ask",
+        concerns: [],
+        draft: invalidDraft,
+        pendingFields: invalidDraft.status.pendingFields,
+        completedFields: getCompletedOnboardingFields(invalidDraft),
+        selectionReason: validation.reason === "UNPARSEABLE"
+          ? "faqs_parsing_failed"
+          : "faqs_validation_failed",
+        durationMs: Date.now() - start,
+        provider: "mock",
+        model: "aiva-faqs-deterministic",
+      }
+    }
+
+    logFaqDevelopment("FAQ_AI_PARSE_RESULT", {
+      ...faqLogContext,
+      skipped: true,
+      reason: "deterministic_parser_is_authoritative",
+      faqCount: validation.faqs.length,
+    })
+    logFaqDevelopment("FAQ_COMPLIANCE_STARTED", faqLogContext)
+    const concerns = detectPricingConcerns(input.userMessage, "faqs")
+    logFaqDevelopment("FAQ_COMPLIANCE_RESULT", {
+      ...faqLogContext,
+      warningCount: concerns.length,
+      containsSpecificAmount: concerns.some((concern) => concern.includes("Firm price detected")),
+    })
+
+    const faqsByQuestion = new Map<string, KnowledgeBase["faqs"][number]>()
+    for (const faq of [...preparedDraft.faqs, ...validation.faqs]) {
+      const key = faq.question.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()
+      if (key) faqsByQuestion.set(key, faq)
+    }
+    const faqsDraft = syncOnboardingProgress(
+      {
+        ...preparedDraft,
+        faqs: [...faqsByQuestion.values()].slice(0, 50),
+        status: {
+          ...preparedDraft.status,
+          invalidAttempts: {
+            ...(preparedDraft.status?.invalidAttempts ?? {}),
+            faqs: 0,
+          },
+        },
+      },
+      ["faqs"],
+    )
+    const nextField = getNextIncompleteOnboardingField(faqsDraft, "faqs")
+    const reply = `Saved. ${buildSetupAssistantSectionQuestion(nextField)}`
+    const guardedDraft = recordAskedQuestion(faqsDraft, reply)
+    logFaqDevelopment("FAQ_STEP_ADVANCED", {
+      ...faqLogContext,
+      nextOnboardingStep: nextField,
+      faqCount: validation.faqs.length,
+      invalidAttempts: 0,
+    })
+    return {
+      reply,
+      section: "faqs",
+      nextSection: nextField,
+      action: "advance",
+      concerns,
+      draft: guardedDraft,
+      pendingFields: guardedDraft.status.pendingFields,
+      completedFields: getCompletedOnboardingFields(guardedDraft),
+      selectionReason: "faqs_deterministic_validation_passed",
+      durationMs: Date.now() - start,
+      provider: "mock",
+      model: "aiva-faqs-deterministic",
     }
   }
   const system = buildSetupAssistantSystemPrompt()
@@ -1037,7 +1162,7 @@ export async function runSetupAssistantTurn(
 
   const concerns = [
     ...(raw.concerns ?? []),
-    ...detectPricingConcerns(input.userMessage),
+    ...detectPricingConcerns(input.userMessage, input.currentSection),
   ]
 
   const mergedCandidate = mergeCaptured(input.draft, raw)
