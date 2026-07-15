@@ -280,6 +280,7 @@ export function SetupAssistantExperience({
   const inputRef = React.useRef<HTMLTextAreaElement | null>(null)
   const finishingLaterRef = React.useRef(false)
   const pendingSubmissionRef = React.useRef<string | null>(null)
+  const pendingRequestControllerRef = React.useRef<AbortController | null>(null)
   const activeSectionRef = React.useRef<SetupAssistantSection>(initialSection)
   const latestComplianceRef = React.useRef<ComplianceRequestScope | null>(null)
   const mountedRef = React.useRef(true)
@@ -290,6 +291,7 @@ export function SetupAssistantExperience({
 
   React.useEffect(() => () => {
     mountedRef.current = false
+    pendingRequestControllerRef.current?.abort()
   }, [])
 
   const completedSections = React.useMemo(
@@ -349,6 +351,7 @@ export function SetupAssistantExperience({
     }
   }, [savingState])
   function selectSection(nextSection: SetupAssistantSection) {
+    pendingRequestControllerRef.current?.abort()
     setEditingSection(isSectionDone(draft, nextSection) ? nextSection : null)
     setConcerns(null)
     latestComplianceRef.current = null
@@ -362,6 +365,9 @@ export function SetupAssistantExperience({
     const submissionId = `onboarding_${user.id}_${makeId()}`
     const submittedSection = section
     const complianceInputHash = faqInputHash(trimmed)
+    const requestController = new AbortController()
+    pendingRequestControllerRef.current?.abort()
+    pendingRequestControllerRef.current = requestController
     pendingSubmissionRef.current = submissionId
     setConcerns(null)
     setInput("")
@@ -386,6 +392,22 @@ export function SetupAssistantExperience({
       latestInputHash: latestComplianceRef.current?.inputHash ?? null,
       mounted: mountedRef.current,
     })
+    const logStaleResponse = () => {
+      if (process.env.NODE_ENV === "production") return
+      const event = submittedSection === "brand_voice"
+        ? "TONE_STALE_RESPONSE_IGNORED"
+        : submittedSection === "faqs"
+          ? "FAQ_STALE_COMPLIANCE_IGNORED"
+          : null
+      if (!event) return
+      console.info(event, {
+        currentOnboardingStep: activeSectionRef.current,
+        submittedStep: submittedSection,
+        submissionId,
+        messageId: userMsg.id,
+        complianceInputHash,
+      })
+    }
     setMessages((prev) => [...prev, userMsg])
     setSending(true)
     try {
@@ -395,16 +417,17 @@ export function SetupAssistantExperience({
         body: JSON.stringify({
           history: messages.map((m) => ({ role: m.role, content: m.content })),
           userMessage: trimmed,
-          currentSection: section,
+          currentSection: submittedSection,
           draft,
-          explicitEdit: editingSection === section,
+          explicitEdit: editingSection === submittedSection,
           submissionId,
           messageId: userMsg.id,
         }),
+        signal: requestController.signal,
       })
       const responseData = (await res.json().catch(() => ({}))) as {
         error?: string
-        errorType?: "VALIDATION_ERROR" | "PARSING_ERROR" | "SAVE_ERROR" | "COMPLIANCE_ERROR" | "NETWORK_ERROR"
+        errorType?: "VALIDATION_ERROR" | "PARSING_ERROR" | "SAVE_ERROR" | "COMPLIANCE_ERROR" | "NETWORK_ERROR" | "AI_TIMEOUT" | "MALFORMED_AI_RESPONSE"
         message?: string
         reply?: string
         section?: SetupAssistantSection
@@ -422,15 +445,7 @@ export function SetupAssistantExperience({
           && responseData.draft
         ) {
           if (responseIsStale()) {
-            if (submittedSection === "faqs" && process.env.NODE_ENV !== "production") {
-              console.info("FAQ_STALE_COMPLIANCE_IGNORED", {
-                currentOnboardingStep: activeSectionRef.current,
-                submittedStep: submittedSection,
-                submissionId,
-                messageId: userMsg.id,
-                complianceInputHash,
-              })
-            }
+            logStaleResponse()
             return
           }
           const validationReply = sanitize(
@@ -450,16 +465,7 @@ export function SetupAssistantExperience({
       }
       const data = responseData as Required<Pick<typeof responseData, "reply" | "section" | "nextSection" | "action" | "concerns" | "draft">> & typeof responseData
       if (responseIsStale()) {
-        if (submittedSection === "faqs" && process.env.NODE_ENV !== "production") {
-          console.info("FAQ_STALE_COMPLIANCE_IGNORED", {
-            currentOnboardingStep: activeSectionRef.current,
-            submittedStep: submittedSection,
-            submissionId,
-            messageId: userMsg.id,
-            complianceInputHash,
-          })
-        }
-        setSavingState("saved")
+        logStaleResponse()
         return
       }
       const cleanReply = sanitize(data.reply || FALLBACK_REPLY)
@@ -494,13 +500,21 @@ export function SetupAssistantExperience({
         await publish(data.draft)
       }
     } catch (e) {
+      const aborted = e instanceof Error && e.name === "AbortError"
+      if (aborted || responseIsStale()) {
+        logStaleResponse()
+        return
+      }
       setError(e instanceof TypeError
         ? "Network error. Check your connection and try again."
         : e instanceof Error ? e.message : "Setup assistant error")
       setSavingState("idle")
       setInput(trimmed)
     } finally {
-      setSending(false)
+      if (pendingRequestControllerRef.current === requestController) {
+        pendingRequestControllerRef.current = null
+        if (mountedRef.current) setSending(false)
+      }
       if (pendingSubmissionRef.current === submissionId) pendingSubmissionRef.current = null
     }
   }

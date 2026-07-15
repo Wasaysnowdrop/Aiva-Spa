@@ -127,7 +127,7 @@ export const disclaimersSchema = z.object({
 
 export const brandVoiceSchema = z.object({
   tone: z.enum(["formal", "warm", "casual", "playful", "luxury"]).default("warm"),
-  customTone: z.string().max(200).optional().default(""),
+  customTone: z.string().max(500).optional().default(""),
   greeting: z.string().min(1).max(400).default(
     "Hi! Are you looking to book a consultation or ask about a treatment?",
   ),

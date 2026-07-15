@@ -23,6 +23,11 @@ import {
 import { buildSetupAssistantSectionQuestion } from "@/lib/ai/setup-assistant-prompt"
 import { logServicesDevelopment, validateServicesInput } from "@/lib/ai/services-input"
 import { faqInputHash, logFaqDevelopment, validateFaqInput } from "@/lib/ai/faq-input"
+import {
+  logToneDevelopment,
+  toneInputHash,
+  validateToneInput,
+} from "@/lib/ai/tone-input"
 import { recordAuditForUser } from "@/lib/audit"
 import { buildCorsHeaders } from "@/lib/security/cors"
 import { consume, getRequestIp, tooManyRequests } from "@/lib/security/limiter"
@@ -61,6 +66,9 @@ async function persistOnboardingDraft(
   draft: KnowledgeBase,
   section: SetupAssistantSection,
   submissionId?: string,
+  submissionStep?: SetupAssistantSection,
+  inputHash?: string,
+  messageId?: string,
 ): Promise<string> {
   const savedAt = new Date().toISOString()
   const admin = createAdminClient()
@@ -72,6 +80,9 @@ async function persistOnboardingDraft(
       onboarding_completed_fields: getCompletedOnboardingFields(draft),
       onboarding_setup_updated_at: savedAt,
       ...(submissionId ? { onboarding_last_submission_id: submissionId } : {}),
+      ...(submissionStep ? { onboarding_last_submission_step: submissionStep } : {}),
+      ...(inputHash ? { onboarding_last_input_hash: inputHash } : {}),
+      ...(messageId ? { onboarding_last_message_id: messageId } : {}),
     },
   })
   if (error) throw error
@@ -133,21 +144,28 @@ export async function POST(request: NextRequest) {
   draft = syncOnboardingProgress(draft)
 
   const section: SetupAssistantSection = body.currentSection
-  if (
-    body.operation === "turn" &&
-    body.submissionId &&
-    meta.onboarding_last_submission_id === body.submissionId
-  ) {
+  const inputHash = toneInputHash(body.userMessage)
+  const repeatedSubmissionId = Boolean(
+    body.submissionId && meta.onboarding_last_submission_id === body.submissionId,
+  )
+  const repeatedStepInput = meta.onboarding_last_submission_step === section
+    && meta.onboarding_last_input_hash === inputHash
+  if (body.operation === "turn" && (repeatedSubmissionId || repeatedStepInput)) {
     const stepCompleted = isOnboardingFieldComplete(draft, section)
-    if ((section === "services" || section === "faqs") && !stepCompleted) {
+    if (
+      (section === "services" || section === "faqs" || section === "brand_voice")
+      && !stepCompleted
+    ) {
       const attempts = draft.status.invalidAttempts[section] ?? 0
       const message = section === "services"
         ? attempts >= 3
           ? "Please enter service names, such as Botox, Dermal Fillers, HydraFacial, or Laser Hair Removal."
           : "Please enter at least one service your business offers."
-        : attempts >= 3
-          ? "Please provide one visitor question and its approved answer. Example: Question: Do you offer consultations? Answer: Yes, contact our team to schedule."
-          : "Please provide one visitor question and its approved answer."
+        : section === "faqs"
+          ? attempts >= 3
+            ? "Please provide one visitor question and its approved answer. Example: Question: Do you offer consultations? Answer: Yes, contact our team to schedule."
+            : "Please provide one visitor question and its approved answer."
+          : "Please describe the tone your receptionist should use."
       return Response.json(
         {
           success: false,
@@ -174,13 +192,24 @@ export async function POST(request: NextRequest) {
     const nextSection = stepCompleted
       ? getNextIncompleteOnboardingField(draft, section)
       : section
+    if (section === "brand_voice") {
+      logToneDevelopment("TONE_DUPLICATE_SUBMISSION_IGNORED", {
+        submissionId: body.submissionId ?? null,
+        onboardingSessionId: user.id,
+        currentOnboardingStep: section,
+        inputHash,
+        stepCompleted,
+      })
+    }
     return Response.json(
       {
         success: true,
         duplicate: true,
         stepCompleted,
         nextStep: nextSection,
-        reply: `Saved. ${buildSetupAssistantSectionQuestion(nextSection)}`,
+        reply: section === "brand_voice"
+          ? `Your tone preference was already saved. ${buildSetupAssistantSectionQuestion(nextSection)}`
+          : `Saved. ${buildSetupAssistantSectionQuestion(nextSection)}`,
         section,
         nextSection,
         action: stepCompleted ? "advance" : "ask",
@@ -191,6 +220,15 @@ export async function POST(request: NextRequest) {
         selectionReason: "duplicate_submission_ignored",
         services: section === "services" ? draft.services : undefined,
         faqs: section === "faqs" ? draft.faqs : undefined,
+        tone: section === "brand_voice"
+          ? {
+              raw: draft.brand_voice?.customTone ?? "",
+              summary: draft.brand_voice?.customTone || draft.brand_voice?.tone || "warm",
+              avoid: draft.brand_voice?.avoidPhrases ?? [],
+            }
+          : undefined,
+        normalizationStatus: section === "brand_voice" ? "fallback" : undefined,
+        fallbackApplied: section === "brand_voice" ? true : undefined,
       },
       { headers: cors(request) },
     )
@@ -245,6 +283,7 @@ export async function POST(request: NextRequest) {
 
   let servicesSaveStarted = false
   let faqSaveStarted = false
+  let toneSaveStarted = false
   try {
     const result = await runSetupAssistantTurn({
       history: body.history,
@@ -273,6 +312,17 @@ export async function POST(request: NextRequest) {
       faqCount: result.draft.faqs.length,
     })
     faqSaveStarted = section === "faqs"
+    toneSaveStarted = section === "brand_voice"
+      && result.selectionReason === "brand_voice_deterministic_fallback_completed"
+    if (toneSaveStarted) {
+      logToneDevelopment("TONE_SAVE_STARTED", {
+        submissionId: body.submissionId ?? null,
+        onboardingSessionId: user.id,
+        messageId: body.messageId ?? null,
+        currentOnboardingStep: section,
+        inputHash,
+      })
+    }
 
     const savedAt = await persistOnboardingDraft(
       user.id,
@@ -280,6 +330,9 @@ export async function POST(request: NextRequest) {
       result.draft,
       result.nextSection ?? result.section,
       body.submissionId,
+      section,
+      inputHash,
+      body.messageId,
     )
     if (section === "services") logServicesDevelopment("SERVICES_SAVE_SUCCESS", {
       userId: user.id,
@@ -294,12 +347,24 @@ export async function POST(request: NextRequest) {
       nextOnboardingStep: result.nextSection,
       faqCount: result.draft.faqs.length,
     })
+    if (toneSaveStarted) {
+      logToneDevelopment("TONE_SAVE_SUCCESS", {
+        submissionId: body.submissionId ?? null,
+        onboardingSessionId: user.id,
+        messageId: body.messageId ?? null,
+        currentOnboardingStep: section,
+        inputHash,
+        nextOnboardingStep: result.nextSection,
+        saveResult: "success",
+      })
+    }
 
     void recordAuditForUser(user, `onboarding.setup_assistant_turn ${result.section} → ${result.action}`)
 
     const validationFailed = result.selectionReason === "services_validation_failed"
       || result.selectionReason === "faqs_validation_failed"
       || result.selectionReason === "faqs_parsing_failed"
+      || result.selectionReason === "brand_voice_validation_failed"
     if (validationFailed) {
       const errorType = result.selectionReason === "faqs_parsing_failed"
         ? "PARSING_ERROR"
@@ -335,6 +400,16 @@ export async function POST(request: NextRequest) {
         nextStep: result.nextSection,
         services: result.section === "services" ? result.draft.services : undefined,
         faqs: result.section === "faqs" ? result.draft.faqs : undefined,
+        saved: true,
+        normalizationStatus: result.normalizationStatus,
+        fallbackApplied: result.fallbackApplied,
+        tone: result.section === "brand_voice"
+          ? {
+              raw: result.draft.brand_voice?.customTone ?? body.userMessage,
+              summary: result.draft.brand_voice?.customTone || result.draft.brand_voice?.tone || body.userMessage,
+              avoid: result.draft.brand_voice?.avoidPhrases ?? [],
+            }
+          : undefined,
         section: result.section,
         nextSection: result.nextSection,
         action: result.action,
@@ -395,10 +470,35 @@ export async function POST(request: NextRequest) {
         { status: 500, headers: cors(request) },
       )
     }
+    const validToneSaveFailed = toneSaveStarted && validateToneInput(body.userMessage).valid
+    if (validToneSaveFailed) {
+      const dbError = err as { message?: string; code?: string; details?: string; hint?: string }
+      logToneDevelopment("TONE_SAVE_FAILED", {
+        submissionId: body.submissionId ?? null,
+        onboardingSessionId: user.id,
+        messageId: body.messageId ?? null,
+        currentOnboardingStep: section,
+        inputHash,
+        saveResult: "failed",
+        errorCode: dbError?.code ?? null,
+      })
+      return Response.json(
+        {
+          success: false,
+          saved: false,
+          errorType: "SAVE_ERROR",
+          message: "We couldn't save your tone preference. Please try again.",
+        },
+        { status: 500, headers: cors(request) },
+      )
+    }
     const aiUnavailable = err instanceof SetupAssistantAiError
     return Response.json(
       {
         error: err instanceof Error ? err.message : "Setup assistant error",
+        errorType: aiUnavailable ? err.errorType : "NETWORK_ERROR",
+        fallbackApplied: false,
+        saved: false,
         ...(aiUnavailable ? { code: err.code } : {}),
       },
       { status: aiUnavailable ? 503 : 500, headers: cors(request) },

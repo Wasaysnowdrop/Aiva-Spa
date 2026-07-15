@@ -25,6 +25,12 @@ import {
   validateServicesInput,
 } from "./services-input"
 import { faqInputHash, logFaqDevelopment, validateFaqInput } from "./faq-input"
+import {
+  logToneDevelopment,
+  parseToneInput,
+  toneInputHash,
+  validateToneInput,
+} from "./tone-input"
 
 export type SetupAssistantAction = "ask" | "summarize" | "advance" | "finish"
 
@@ -49,14 +55,25 @@ export type SetupAssistantTurnResult = {
   durationMs: number
   provider: "nara" | "mock"
   model: string
+  normalizationStatus?: "ai" | "fallback" | "not_applicable"
+  fallbackApplied?: boolean
 }
 
 export class SetupAssistantAiError extends Error {
   readonly code = "SETUP_ASSISTANT_AI_UNAVAILABLE"
+  readonly errorType: "AI_TIMEOUT" | "MALFORMED_AI_RESPONSE" | "NETWORK_ERROR"
 
   constructor(message: string, options?: ErrorOptions) {
     super(message, options)
     this.name = "SetupAssistantAiError"
+    const reason = options?.cause instanceof Error
+      ? `${options.cause.name} ${options.cause.message}`
+      : String(options?.cause ?? "")
+    this.errorType = /abort|timeout/i.test(reason)
+      ? "AI_TIMEOUT"
+      : /incomplete|invalid JSON|captured\./i.test(reason)
+        ? "MALFORMED_AI_RESPONSE"
+        : "NETWORK_ERROR"
   }
 }
 
@@ -67,24 +84,43 @@ function allowMockSetupAssistant(): boolean {
 function setupAssistantUnavailableMessage(error: unknown): string {
   const reason = error instanceof Error ? error.message : ""
   if (/NARA_API_KEY is not (configured|set)/i.test(reason)) {
-    return "NARA_API_KEY is missing from this Vercel deployment. Add it to the active environment and redeploy; your progress is safe."
+    return "NARA_API_KEY is missing from this deployment. Add it to the active environment and redeploy, then try again."
   }
   if (/Nara API request failed \(401\)/i.test(reason)) {
-    return "Nara rejected the API key loaded by this Vercel deployment. Replace NARA_API_KEY with the active sk-nry key value and redeploy; your progress is safe."
+    return "Nara rejected the configured API key. Replace NARA_API_KEY with the active key and redeploy, then try again."
   }
   if (/Nara API request failed \(403\)/i.test(reason)) {
-    return "Nara authenticated the key, but this account cannot use NARA_MODEL. Confirm the plan includes mistral-medium-3-5 and the account is active; your progress is safe."
+    return "Nara authenticated the key, but this account cannot use NARA_MODEL. Confirm the configured model and account access, then try again."
   }
   if (/Nara API request failed \(404\)/i.test(reason)) {
-    return "Nara could not find the configured endpoint or model. Use https://router.bynara.id/v1 and mistral-medium-3-5, then redeploy; your progress is safe."
+    return "Nara could not find the configured endpoint or model. Check NARA_API_BASE_URL and NARA_MODEL, then try again."
   }
   if (/Nara API request failed \(429\)/i.test(reason)) {
-    return "Nara is temporarily rate-limited. Wait a moment and retry; your progress is safe."
+    return "Nara is temporarily rate-limited. Wait a moment and try again."
   }
   if (/abort|timeout/i.test(reason)) {
-    return "Nara took too long to respond. Please retry; your progress is safe."
+    return "Nara took too long to respond. Your answer was not saved; please try again."
   }
-  return "The AI setup assistant is temporarily unavailable. Your progress is safe; please try again."
+  return "The AI setup assistant is temporarily unavailable. Your answer was not saved; please try again."
+}
+
+const TEMPORARY_AI_RETRY_DELAYS_MS = [500, 1500] as const
+
+function isTemporarySetupAssistantAiError(error: unknown): boolean {
+  const reason = error instanceof Error ? `${error.name} ${error.message}` : String(error)
+  return /AbortError|abort|timeout|fetch failed|network|ECONNRESET|ETIMEDOUT|request failed \((408|429|500|502|503|504)\)/i.test(
+    reason,
+  )
+}
+
+async function waitForSetupAssistantRetry(retryIndex: number): Promise<void> {
+  const configuredDelay = TEMPORARY_AI_RETRY_DELAYS_MS[retryIndex]
+  if (configuredDelay === undefined) return
+  const delayMs = process.env.NODE_ENV === "test" ? 0 : configuredDelay
+  if (delayMs === 0) return
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, delayMs)
+  })
 }
 
 function normalizeTimezone(tz: string): string {
@@ -1072,6 +1108,117 @@ export async function runSetupAssistantTurn(
       model: "aiva-faqs-deterministic",
     }
   }
+  // Brand Voice is a simple owner preference, so valid input is saved
+  // deterministically and never blocked by optional provider normalization.
+  if (input.currentSection === "brand_voice") {
+    const startedAt = Date.now()
+    const validation = validateToneInput(input.userMessage)
+    const toneLogContext = {
+      submissionId: input.submissionId ?? null,
+      onboardingSessionId: null,
+      messageId: input.messageId ?? null,
+      currentOnboardingStep: "brand_voice",
+      inputHash: toneInputHash(input.userMessage),
+    }
+    logToneDevelopment("TONE_RAW_INPUT", {
+      ...toneLogContext,
+      rawInputLength: input.userMessage.length,
+    })
+    logToneDevelopment("TONE_VALIDATION_RESULT", {
+      ...toneLogContext,
+      valid: validation.valid,
+      reason: validation.reason ?? null,
+    })
+
+    if (!validation.valid) {
+      const attempts = (preparedDraft.status?.invalidAttempts?.brand_voice ?? 0) + 1
+      const invalidDraft = syncOnboardingProgress({
+        ...preparedDraft,
+        status: {
+          ...preparedDraft.status,
+          invalidAttempts: {
+            ...(preparedDraft.status?.invalidAttempts ?? {}),
+            brand_voice: attempts,
+          },
+        },
+      })
+      logToneDevelopment("TONE_ATTEMPT_INCREMENTED", {
+        ...toneLogContext,
+        previous: attempts - 1,
+        current: attempts,
+      })
+      return {
+        reply: "Please describe the tone your receptionist should use.",
+        section: "brand_voice",
+        nextSection: null,
+        action: "ask",
+        concerns: [],
+        draft: invalidDraft,
+        pendingFields: invalidDraft.status.pendingFields,
+        completedFields: getCompletedOnboardingFields(invalidDraft),
+        selectionReason: "brand_voice_validation_failed",
+        normalizationStatus: "not_applicable",
+        fallbackApplied: false,
+        durationMs: Date.now() - start,
+        provider: "mock",
+        model: "aiva-tone-deterministic",
+      }
+    }
+
+    const brandVoice = parseToneInput(input.userMessage, preparedDraft.brand_voice)
+    if (!brandVoice) {
+      throw new Error("Tone validation passed but deterministic parsing failed")
+    }
+    logToneDevelopment("TONE_AI_REQUEST_STARTED", {
+      ...toneLogContext,
+      skipped: true,
+      reason: "simple_field_uses_deterministic_normalization",
+    })
+    logToneDevelopment("TONE_FALLBACK_APPLIED", {
+      ...toneLogContext,
+      reason: "original_wording_is_authoritative",
+      requestDurationMs: Date.now() - startedAt,
+    })
+    const toneDraft = syncOnboardingProgress(
+      {
+        ...preparedDraft,
+        brand_voice: brandVoice,
+        status: {
+          ...preparedDraft.status,
+          invalidAttempts: {
+            ...(preparedDraft.status?.invalidAttempts ?? {}),
+            brand_voice: 0,
+          },
+        },
+      },
+      ["brand_voice"],
+    )
+    const nextField = getNextIncompleteOnboardingField(toneDraft, "brand_voice")
+    const reply = `Your tone preference was saved. We used your original wording. ${buildSetupAssistantSectionQuestion(nextField)}`
+    const guardedDraft = recordAskedQuestion(toneDraft, reply)
+    logToneDevelopment("TONE_STEP_COMPLETED", {
+      ...toneLogContext,
+      nextOnboardingStep: nextField,
+      requestDurationMs: Date.now() - startedAt,
+    })
+    return {
+      reply,
+      section: "brand_voice",
+      nextSection: nextField,
+      action: "advance",
+      concerns: [],
+      draft: guardedDraft,
+      pendingFields: guardedDraft.status.pendingFields,
+      completedFields: getCompletedOnboardingFields(guardedDraft),
+      selectionReason: "brand_voice_deterministic_fallback_completed",
+      normalizationStatus: "fallback",
+      fallbackApplied: true,
+      durationMs: Date.now() - start,
+      provider: "mock",
+      model: "aiva-tone-deterministic",
+    }
+  }
+
   const system = buildSetupAssistantSystemPrompt()
   const user = buildSetupAssistantUserTurn(input)
   const history: ChatMessage[] = [
@@ -1084,8 +1231,10 @@ export async function runSetupAssistantTurn(
   let model = "aiva-mock-1"
   let provider: "nara" | "mock" = "mock"
   let lastAiError: unknown
+  let formatCorrectionUsed = false
+  let transportRetryCount = 0
 
-  for (let attempt = 0; attempt < 2 && !raw; attempt += 1) {
+  for (let attempt = 0; attempt < 3 && !raw; attempt += 1) {
     try {
       const attemptMessages =
         attempt === 0
@@ -1105,13 +1254,15 @@ export async function runSetupAssistantTurn(
         messages: attemptMessages,
         responseFormat: { type: "json_object" },
         failureMode: "throw",
-        options: { temperature: 0.2, maxTokens: 1800, timeoutMs: 28_000 },
+        options: { temperature: 0.2, maxTokens: 1800, timeoutMs: 12_000 },
       })
       model = result.model
       provider = result.provider
       const parsedRaw = safeParseAssistantJson(result.content)
       if (!parsedRaw) {
         lastAiError = new Error("Nara returned an incomplete or invalid JSON response")
+        if (formatCorrectionUsed) break
+        formatCorrectionUsed = true
         continue
       }
 
@@ -1122,11 +1273,23 @@ export async function runSetupAssistantTurn(
         lastAiError = new Error(
           `captured.${issue?.path.join(".") || "unknown"}: ${issue?.message || "invalid schema"}`,
         )
+        if (formatCorrectionUsed) break
+        formatCorrectionUsed = true
         continue
       }
       raw = parsedRaw
     } catch (error) {
       lastAiError = error
+      if (
+        !isTemporarySetupAssistantAiError(error)
+        || transportRetryCount >= TEMPORARY_AI_RETRY_DELAYS_MS.length
+      ) break
+      console.warn("setup-assistant: retrying temporary Nara failure", {
+        retry: transportRetryCount + 1,
+        delayMs: TEMPORARY_AI_RETRY_DELAYS_MS[transportRetryCount],
+      })
+      await waitForSetupAssistantRetry(transportRetryCount)
+      transportRetryCount += 1
     }
   }
 

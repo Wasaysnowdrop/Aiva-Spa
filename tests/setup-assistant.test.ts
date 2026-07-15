@@ -731,9 +731,7 @@ describe("runSetupAssistantTurn (mock provider)", () => {
     await expectQuestion("Use the standard disclaimers.", /what tone/i)
     expect(section).toBe("brand_voice")
 
-    await expectQuestion("Warm.", /greeting/i)
-    await expectQuestion("Hi! How can I help with your treatment inquiry?", /phrases.*avoid/i)
-    await expectQuestion("No more.", /email address/i)
+    await expectQuestion("Use a warm, professional, calm, and reassuring tone with clear and concise responses.", /email address/i)
     expect(section).toBe("notifications")
 
     await expectQuestion("owner@wffmedspa.com", /ready to save/i)
@@ -751,7 +749,7 @@ describe("runSetupAssistantTurn (mock provider)", () => {
     expect(final.draft.booking_policy?.cancellation.noticeHours).toBe(24)
     expect(final.draft.faqs[0]?.answer).toMatch(/licensed provider/i)
     expect(final.draft.disclaimers?.standardAccepted).toBe(true)
-    expect(final.draft.brand_voice?.greeting).toMatch(/How can I help/i)
+    expect(final.draft.brand_voice?.customTone).toMatch(/warm, professional, calm/i)
     expect(final.draft.notifications?.emailRecipients).toEqual(["owner@wffmedspa.com"])
   })
 
