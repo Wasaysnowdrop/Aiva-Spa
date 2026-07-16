@@ -21,7 +21,7 @@ import { AnimatePresence, motion } from "framer-motion"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { finalizeSetupAssistant } from "@/app/actions/setup-assistant"
+import { finalizeSetupAssistant, type FinalizeSetupResult } from "@/app/actions/setup-assistant"
 import {
   SETUP_ASSISTANT_SECTIONS,
   emptyKnowledgeBase,
@@ -272,6 +272,7 @@ export function SetupAssistantExperience({
   const [concerns, setConcerns] = React.useState<ScopedConcerns | null>(null)
   const [finalizing, setFinalizing] = React.useState(false)
   const [finalizeError, setFinalizeError] = React.useState<string | null>(null)
+  const [finalizeDebug, setFinalizeDebug] = React.useState<FinalizeSetupResult | null>(null)
   const [showResetConfirm, setShowResetConfirm] = React.useState(false)
   const [editingSection, setEditingSection] = React.useState<SetupAssistantSection | null>(null)
   const [cacheHydrated, setCacheHydrated] = React.useState(false)
@@ -582,10 +583,12 @@ export function SetupAssistantExperience({
   async function publish(finalDraft: KnowledgeBase = draft) {
     setFinalizing(true)
     setFinalizeError(null)
+    setFinalizeDebug(null)
     try {
       const result = await finalizeSetupAssistant(finalDraft)
       if (!result.ok) {
         setFinalizeError(result.error ?? "Failed to publish")
+        setFinalizeDebug(result)
         return
       }
       window.localStorage.removeItem(cacheKey)
@@ -813,6 +816,18 @@ export function SetupAssistantExperience({
                 ))}
               </div>
               {finalizeError ? <div className="mt-3 rounded-xl border border-[#EB5757]/30 bg-[#EB5757]/10 px-3 py-2 text-xs text-[#EB7777]">{finalizeError}</div> : null}
+              {process.env.NODE_ENV === "development" && finalizeDebug ? (
+                <div className="mt-2 rounded-xl border border-amber-400/25 bg-amber-400/5 px-3 py-2 font-mono text-[11px] leading-5 text-amber-200">
+                  <div>Publish failed</div>
+                  <div>Stage: {finalizeDebug.stage ?? "unknown"}</div>
+                  <div>Code: {finalizeDebug.code ?? "unknown"}</div>
+                  <div>Table/RPC: {finalizeDebug.table ?? "unknown"}</div>
+                  {finalizeDebug.failedService ? <div>Service: {finalizeDebug.failedService}</div> : null}
+                  {finalizeDebug.normalizedCategory ? <div>Category sent: {finalizeDebug.normalizedCategory}</div> : null}
+                  {finalizeDebug.details ? <div>Details: {finalizeDebug.details}</div> : null}
+                  {finalizeDebug.hint ? <div>Hint: {finalizeDebug.hint}</div> : null}
+                </div>
+              ) : null}
               <Button onClick={() => void publish()} disabled={finalizing} className="mt-4 h-12 w-full rounded-2xl bg-[#E2E54B] font-semibold text-[#08090A] hover:bg-[#EEF06A]">
                 {finalizing ? <><Loader2 className="size-4 animate-spin" /> Publishing…</> : <><FileText className="size-4" /> Publish knowledge base <ArrowRight className="ml-auto size-4" /></>}
               </Button>

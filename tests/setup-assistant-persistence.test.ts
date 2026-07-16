@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { installSupabaseMocks } from "./helpers/mock-supabase"
 import { emptyKnowledgeBase } from "@/lib/ai/setup-assistant-schema"
@@ -31,6 +31,10 @@ describe("onboarding knowledge-base persistence", () => {
   beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   it("publishes all owner data and completion metadata in one RPC transaction", async () => {
@@ -78,7 +82,13 @@ describe("onboarding knowledge-base persistence", () => {
 
     expect(result).toEqual({
       ok: false,
-      errorType: "PUBLISH_FAILED",
+      errorType: "DATABASE_ERROR",
+      stage: "publish_rpc",
+      code: undefined,
+      table: RPC,
+      failedService: undefined,
+      originalCategory: undefined,
+      normalizedCategory: undefined,
       error: "We couldn't publish your knowledge base. Nothing was changed. Please try again.",
     })
     expect(result.error).not.toContain("insert failed")
@@ -86,6 +96,34 @@ describe("onboarding knowledge-base persistence", () => {
     expect(admin.getCalls().filter((call) => call.op === "insert" || call.op === "delete")).toEqual([])
   })
 
+  it("returns the exact RPC stage and code in development", async () => {
+    vi.stubEnv("NODE_ENV", "development")
+    const { server, admin } = installSupabaseMocks()
+    server.setAuthUser(onboardingUser("user-onboarding-debug"))
+    admin.setResult(RPC, "rpc", {
+      data: null,
+      error: {
+        code: "PGRST202",
+        message: "Could not find the function public.publish_onboarding_knowledge_base",
+        details: "Searched for the function in the schema cache",
+        hint: "Apply the publish migration",
+      },
+    })
+
+    const { finalizeSetupAssistant } = await import("@/app/actions/setup-assistant")
+    const result = await finalizeSetupAssistant(configuredDraft())
+
+    expect(result).toMatchObject({
+      ok: false,
+      errorType: "DATABASE_ERROR",
+      stage: "publish_rpc",
+      code: "PGRST202",
+      table: RPC,
+      error: "Could not find the function public.publish_onboarding_knowledge_base",
+      details: "Searched for the function in the schema cache",
+      hint: "Apply the publish migration",
+    })
+  })
   it("does not expose a Postgres category constraint error", async () => {
     const { server, admin } = installSupabaseMocks()
     server.setAuthUser(onboardingUser("user-onboarding-3"))

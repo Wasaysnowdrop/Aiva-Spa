@@ -36,6 +36,10 @@ BEGIN
   DROP POLICY IF EXISTS "Users can insert own guardrails" ON public.knowledge_guardrails;
   DROP POLICY IF EXISTS "Users can update own guardrails" ON public.knowledge_guardrails;
   DROP POLICY IF EXISTS "Users can delete own guardrails" ON public.knowledge_guardrails;
+  DROP POLICY IF EXISTS "Users can view own knowledge guardrails" ON public.knowledge_guardrails;
+  DROP POLICY IF EXISTS "Users can insert own knowledge guardrails" ON public.knowledge_guardrails;
+  DROP POLICY IF EXISTS "Users can update own knowledge guardrails" ON public.knowledge_guardrails;
+  DROP POLICY IF EXISTS "Users can delete own knowledge guardrails" ON public.knowledge_guardrails;
 END $$;
 
 -- Ensure user_id column exists

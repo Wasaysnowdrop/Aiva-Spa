@@ -75,7 +75,12 @@ declare
   v_widget_id uuid;
   v_settings_id uuid;
   v_affected integer := 0;
+  v_stage text := 'authentication';
+  v_error_detail text;
+  v_error_hint text;
 begin
+  raise log 'PUBLISH_STARTED user_id=% operation=publish_onboarding_knowledge_base', p_user_id;
+
   if p_user_id is null then
     raise exception using errcode = '22023', message = 'PUBLISH_USER_REQUIRED';
   end if;
@@ -83,7 +88,9 @@ begin
   if not exists (select 1 from auth.users where id = p_user_id) then
     raise exception using errcode = '22023', message = 'PUBLISH_USER_NOT_FOUND';
   end if;
+  raise log 'PUBLISH_AUTH_VALIDATED user_id=%', p_user_id;
 
+  v_stage := 'services_validation';
   if exists (
     select 1
     from jsonb_to_recordset(coalesce(p_services, '[]'::jsonb))
@@ -102,7 +109,9 @@ begin
   ) then
     raise exception using errcode = '22023', message = 'INVALID_SERVICE_CATEGORY';
   end if;
+  raise log 'PUBLISH_SERVICES_VALIDATED user_id=%', p_user_id;
 
+  v_stage := 'services_upsert';
   with source_services as (
     select distinct on (lower(regexp_replace(btrim(service.name), '\s+', ' ', 'g')))
       regexp_replace(btrim(service.name), '\s+', ' ', 'g') as name,
@@ -152,7 +161,9 @@ begin
       from jsonb_to_recordset(coalesce(p_services, '[]'::jsonb)) as service(name text)
       where lower(regexp_replace(btrim(service.name), '\s+', ' ', 'g')) = existing.normalized_name
     );
+  raise log 'PUBLISH_SERVICES_SAVED user_id=% rows=%', p_user_id, v_services;
 
+  v_stage := 'faqs';
   delete from public.knowledge_faqs where user_id = p_user_id;
   insert into public.knowledge_faqs (user_id, question, answer, category, updated_at)
   select
@@ -165,7 +176,9 @@ begin
     as faq(question text, answer text, category text)
   where nullif(btrim(faq.question), '') is not null;
   get diagnostics v_faqs = row_count;
+  raise log 'PUBLISH_FAQS_SAVED user_id=% rows=%', p_user_id, v_faqs;
 
+  v_stage := 'policies';
   delete from public.knowledge_guardrails where user_id = p_user_id;
   insert into public.knowledge_guardrails (
     user_id, title, body, description, rule_type, enabled, is_active, updated_at
@@ -190,7 +203,9 @@ begin
     )
   where nullif(btrim(guardrail.title), '') is not null;
   get diagnostics v_guardrails = row_count;
+  raise log 'PUBLISH_POLICIES_SAVED user_id=% rows=%', p_user_id, v_guardrails;
 
+  v_stage := 'brand_voice';
   select id into v_widget_id
   from public.widget_config
   order by created_at asc
@@ -232,7 +247,9 @@ begin
     where id = v_widget_id;
   end if;
   v_widget_updated := true;
+  raise log 'PUBLISH_BRAND_VOICE_SAVED user_id=%', p_user_id;
 
+  v_stage := 'business_settings';
   select id into v_settings_id
   from public.spa_settings
   order by created_at asc
@@ -249,6 +266,7 @@ begin
     v_settings_updated := true;
   end if;
 
+  v_stage := 'publish_status';
   update auth.users
   set raw_user_meta_data = coalesce(p_user_metadata, '{}'::jsonb),
       updated_at = now()
@@ -257,6 +275,8 @@ begin
   if v_affected <> 1 then
     raise exception using errcode = 'P0001', message = 'PUBLISH_METADATA_FAILED';
   end if;
+  raise log 'PUBLISH_NOTIFICATIONS_SAVED user_id=%', p_user_id;
+  raise log 'PUBLISH_STATUS_UPDATED user_id=%', p_user_id;
 
   return jsonb_build_object(
     'services', v_services,
@@ -265,6 +285,18 @@ begin
     'widgetUpdated', v_widget_updated,
     'settingsUpdated', v_settings_updated
   );
+exception when others then
+  get stacked diagnostics
+    v_error_detail = pg_exception_detail,
+    v_error_hint = pg_exception_hint;
+  raise log 'PUBLISH_FAILED user_id=% stage=% code=% message=% detail=% hint=%',
+    p_user_id, v_stage, sqlstate, sqlerrm, v_error_detail, v_error_hint;
+  raise log 'PUBLISH_ROLLED_BACK user_id=% stage=%', p_user_id, v_stage;
+  raise exception using
+    errcode = sqlstate,
+    message = format('PUBLISH_STAGE=%s; %s', v_stage, sqlerrm),
+    detail = v_error_detail,
+    hint = v_error_hint;
 end;
 $$;
 

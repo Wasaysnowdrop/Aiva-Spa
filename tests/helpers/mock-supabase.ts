@@ -17,7 +17,7 @@ import { vi } from "vitest"
 
 export type OpResult = {
   data: unknown
-  error: { message: string } | null
+  error: { message: string; code?: string; details?: string; hint?: string } | null
   count?: number
 }
 
