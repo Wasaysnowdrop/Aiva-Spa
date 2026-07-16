@@ -79,16 +79,7 @@ import {
 } from "@/app/actions/knowledge"
 import { loadKnowledgeBaseAction } from "@/app/actions/knowledge-load"
 import { toast } from "sonner"
-
-const SERVICE_CATEGORIES = [
-  "Injectables",
-  "Laser Treatments",
-  "Facials",
-  "Skin Rejuvenation",
-  "Body Treatments",
-  "Wellness",
-  "Other",
-] as const
+import { SERVICE_CATEGORIES } from "@/lib/kb/service-categories"
 
 const suggestedKnowledgeCategoryOptions: KnowledgeCategory[] = [...SERVICE_CATEGORIES]
 
@@ -117,7 +108,7 @@ type ServiceDraft = {
 
 const emptyServiceDraft: ServiceDraft = {
   name: "",
-  category: "Skin",
+  category: "Facials",
   description: "",
   pricingRule: "",
   duration: "",
@@ -262,7 +253,7 @@ export function KnowledgeBaseEditor() {
       toast.error("Service name is required")
       return
     }
-    const category = draft.category.trim()
+    const category = draft.category
     if (!category) {
       toast.error("Category is required")
       return
@@ -1280,7 +1271,7 @@ function ServiceDialog({
               id="svc-cat"
               list="kb-category-suggestions"
               value={draft.category}
-              onChange={(e) => setDraft({ ...draft, category: e.target.value })}
+              onChange={(e) => setDraft({ ...draft, category: e.target.value as KnowledgeCategory })}
               placeholder="e.g. Facials"
               maxLength={80}
               autoComplete="off"

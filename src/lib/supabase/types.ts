@@ -1,3 +1,5 @@
+import { normalizeServiceCategory, type ServiceCategory } from "@/lib/kb/service-categories"
+
 export type Json =
   | string
   | number
@@ -10,7 +12,7 @@ export type LeadStatus = "new" | "contacted" | "booked" | "lost"
 export type LeadSource = "Website Chat" | "Mobile" | "Direct Link"
 export type TeamRole = "Owner" | "Manager" | "Staff" | "Receptionist"
 export type TeamMemberStatus = "active" | "invited" | "suspended"
-export type KnowledgeCategory = string
+export type KnowledgeCategory = ServiceCategory
 export type FaqCategory = "General" | "Pricing" | "Booking" | "Safety" | "Hours"
 export type NotificationChannel = "Email" | "SMS"
 export type NotificationStatus = "delivered" | "pending" | "failed"
@@ -399,8 +401,7 @@ function optionalUuidValue(value: unknown): string | null {
 }
 
 export function mapKnowledgeService(row: DbRecord): KnowledgeService {
-  const rawCategory = stringValue(row.category, "")
-  const category = rawCategory.trim() ? rawCategory.trim() : "Skin"
+  const category = normalizeServiceCategory(row.category, stringValue(row.name, ""))
   return {
     id: stringValue(row.id),
     userId: optionalUuidValue(row.user_id ?? row.userId),

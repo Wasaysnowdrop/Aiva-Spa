@@ -12,11 +12,20 @@ import { recordAuditForUser } from "@/lib/audit"
 import { invalidateKnowledgeCache } from "@/lib/ai/retrieval"
 import { checkActionLimit } from "@/lib/security/check-action-limit"
 import { LIMITS } from "@/lib/security/limits"
-import type { KnowledgeCategory, FaqCategory, WidgetConfig } from "@/lib/supabase/types"
+import type { FaqCategory, WidgetConfig } from "@/lib/supabase/types"
+import {
+  dedupeServicesByNormalizedName,
+  isServiceCategory,
+  normalizeServiceCategory,
+  normalizeServiceName,
+  SERVICE_CATEGORIES,
+} from "@/lib/kb/service-categories"
 
 export type FinalizeSetupResult = {
   ok: boolean
   error?: string
+  errorType?: "AUTH_ERROR" | "VALIDATION_ERROR" | "INVALID_SERVICE_CATEGORY" | "PUBLISH_FAILED"
+  invalidServices?: Array<{ name: string; category: string }>
   inserted?: {
     services: number
     faqs: number
@@ -24,23 +33,6 @@ export type FinalizeSetupResult = {
     widgetUpdated: boolean
     settingsUpdated: boolean
   }
-}
-
-function toServiceCategory(input: string): KnowledgeCategory {
-  const trimmed = (input || "").trim()
-  if (!trimmed) return "Skin"
-  const map: Record<string, KnowledgeCategory> = {
-    Injectables: "Injectables",
-    Skin: "Skin",
-    Body: "Body",
-    Laser: "Laser",
-    Facial: "Skin",
-    Facials: "Skin",
-    Wellness: "Wellness",
-  }
-  if (map[trimmed]) return map[trimmed]
-  const titled = trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
-  return titled.length > 80 ? titled.slice(0, 80) : titled
 }
 
 function toFaqCategory(input: string): FaqCategory {
@@ -102,6 +94,20 @@ function buildLogoInitial(brand: string): string {
   if (!trimmed) return "M"
   return trimmed[0]!.toUpperCase()
 }
+function originalServiceCategories(draftInput: unknown): Map<string, unknown> {
+  const categories = new Map<string, unknown>()
+  if (!draftInput || typeof draftInput !== "object") return categories
+  const rawServices = (draftInput as { services?: unknown }).services
+  if (!Array.isArray(rawServices)) return categories
+  for (const rawService of rawServices) {
+    if (!rawService || typeof rawService !== "object") continue
+    const service = rawService as { name?: unknown; category?: unknown }
+    if (typeof service.name !== "string") continue
+    const key = normalizeServiceName(service.name)
+    if (key && !categories.has(key)) categories.set(key, service.category ?? null)
+  }
+  return categories
+}
 
 export async function finalizeSetupAssistant(
   draftInput: unknown,
@@ -114,16 +120,21 @@ export async function finalizeSetupAssistant(
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) {
-    return { ok: false, error: "Not authenticated" }
+    return { ok: false, errorType: "AUTH_ERROR", error: "Not authenticated" }
   }
 
   const parsed = knowledgeBaseSchema.safeParse(draftInput)
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid KB" }
+    return {
+      ok: false,
+      errorType: "VALIDATION_ERROR",
+      error: parsed.error.issues[0]?.message ?? "Invalid KB",
+    }
   }
   const kb = parsed.data
 
   const admin = createAdminClient()
+  const originalCategories = originalServiceCategories(draftInput)
 
   const brandName = buildBrandName(kb, pickStr(user.user_metadata?.spa_name))
   const widget = {
@@ -143,125 +154,51 @@ export async function finalizeSetupAssistant(
     extendedKb: kb as unknown as Record<string, unknown>,
   }
 
-  const persistenceErrors: string[] = []
-  let widgetUpdated = false
-  try {
-    const { data: existing } = await admin
-      .from("widget_config")
-      .select("*")
-      .limit(1)
-      .maybeSingle()
-    if (existing) {
-      const snake: Record<string, unknown> = {
-        brand_name: widget.brandName,
-        logo_initial: widget.logoInitial,
-        welcome_message: widget.welcomeMessage,
-        consent_text: widget.consentText,
-        working_hours: widget.workingHours,
-        extended_kb: widget.extendedKb,
-      }
-      const { error } = await admin
-        .from("widget_config")
-        .update(snake as never)
-        .eq("id", (existing as { id: string }).id)
-      if (!error) widgetUpdated = true
-      else {
-        persistenceErrors.push(`widget_config: ${error.message}`)
-        console.warn("widget_config update failed", error.message)
-      }
-    } else {
-      const { error } = await admin.from("widget_config").insert({
-        brand_name: widget.brandName,
-        logo_initial: widget.logoInitial,
-        primary_color: widget.primaryColor,
-        position: widget.position,
-        welcome_message: widget.welcomeMessage,
-        proactive_enabled: widget.proactiveEnabled,
-        proactive_delay_seconds: widget.proactiveDelaySeconds,
-        proactive_message: widget.proactiveMessage,
-        show_branding: widget.showBranding,
-        collect_email: widget.collectEmail,
-        collect_phone: widget.collectPhone,
-        consent_text: widget.consentText,
-        working_hours: widget.workingHours,
-        extended_kb: widget.extendedKb,
-      } as never)
-      if (!error) widgetUpdated = true
-      else {
-        persistenceErrors.push(`widget_config: ${error.message}`)
-        console.warn("widget_config insert failed", error.message)
-      }
-    }
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "unknown error"
-    persistenceErrors.push(`widget_config: ${message}`)
-    console.warn("widget_config persist failed", e)
-  }
+  const normalizedServices = dedupeServicesByNormalizedName(
+    (kb.services ?? []).map((service) => ({
+      ...service,
+      name: service.name.trim().replace(/\s+/g, " "),
+      category: normalizeServiceCategory(service.category, service.name),
+    })),
+  )
+  const serviceRows = normalizedServices.map((service) => ({
+    name: service.name,
+    category: service.category,
+    description: service.description,
+    pricing_rule: service.priceRange
+      ? `Indicative range ${service.priceRange.currency} ${service.priceRange.min}–${service.priceRange.max} ${service.priceRange.unit} (indicative only)`
+      : "Confirmed at consultation",
+    duration: service.duration || "",
+    active: true,
+  }))
 
-  const ownedKnowledgeTables = [
-    "knowledge_services",
-    "knowledge_faqs",
-    "knowledge_guardrails",
-  ] as const
-  for (const table of ownedKnowledgeTables) {
-    const { error } = await admin.from(table).delete().eq("user_id", user.id)
-    if (error) persistenceErrors.push(`${table} cleanup: ${error.message}`)
-  }
-
-  let servicesInserted = 0
-  if (kb.services && kb.services.length > 0) {
-    try {
-      const rows = kb.services.map((s) => ({
-        user_id: user.id,
-        name: s.name,
-        category: toServiceCategory(s.category),
-        description: s.description,
-        pricing_rule: s.priceRange
-          ? `Indicative range ${s.priceRange.currency} ${s.priceRange.min}–${s.priceRange.max} ${s.priceRange.unit} (indicative only)`
-          : "Confirmed at consultation",
-        duration: s.duration || "",
-        active: true,
-      }))
-      const { data, error } = await admin
-        .from("knowledge_services")
-        .insert(rows as never)
-        .select("id")
-      if (!error && Array.isArray(data)) servicesInserted = data.length
-      else if (error) {
-        persistenceErrors.push(`knowledge_services: ${error.message}`)
-        console.warn("knowledge_services insert failed", error.message)
-      }
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "unknown error"
-      persistenceErrors.push(`knowledge_services: ${message}`)
-      console.warn("knowledge_services persist failed", e)
+  const invalidServices = normalizedServices.filter((service) => !isServiceCategory(service.category))
+  if (invalidServices.length > 0) {
+    console.error("KNOWLEDGE_SERVICE_PUBLISH_FAILED", {
+      userId: user.id,
+      allowedCategories: SERVICE_CATEGORIES,
+      services: invalidServices.map((service) => ({
+        serviceName: service.name,
+        originalCategory: originalCategories.get(normalizeServiceName(service.name)) ?? null,
+        normalizedCategory: service.category,
+      })),
+    })
+    return {
+      ok: false,
+      errorType: "INVALID_SERVICE_CATEGORY",
+      error: "We couldn't publish one or more services because their categories were not recognised. The issue has been logged. Please try again.",
+      invalidServices: invalidServices.map((service) => ({
+        name: service.name,
+        category: service.category,
+      })),
     }
   }
 
-  let faqsInserted = 0
-  if (kb.faqs && kb.faqs.length > 0) {
-    try {
-      const rows = kb.faqs.map((f) => ({
-        user_id: user.id,
-        question: f.question,
-        answer: f.answer,
-        category: toFaqCategory(f.category),
-      }))
-      const { data, error } = await admin
-        .from("knowledge_faqs")
-        .insert(rows as never)
-        .select("id")
-      if (!error && Array.isArray(data)) faqsInserted = data.length
-      else if (error) {
-        persistenceErrors.push(`knowledge_faqs: ${error.message}`)
-        console.warn("knowledge_faqs insert failed", error.message)
-      }
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "unknown error"
-      persistenceErrors.push(`knowledge_faqs: ${message}`)
-      console.warn("knowledge_faqs persist failed", e)
-    }
-  }
+  const faqRows = (kb.faqs ?? []).map((faq) => ({
+    question: faq.question,
+    answer: faq.answer,
+    category: toFaqCategory(faq.category),
+  }))
 
   const guardrailRows = [
     kb.disclaimers?.pricing
@@ -275,87 +212,108 @@ export async function finalizeSetupAssistant(
       description: `The AI must not use the phrase "${phrase}".`,
       rule_type: "general",
     })),
-  ].filter((row): row is { title: string; description: string; rule_type: string } => Boolean(row))
-
-  let guardrailsInserted = 0
-  if (guardrailRows.length > 0) {
-    const rows = guardrailRows.map((row) => ({
+  ]
+    .filter((row): row is { title: string; description: string; rule_type: string } => Boolean(row))
+    .map((row) => ({
       ...row,
       body: row.description,
       enabled: true,
       is_active: true,
-      user_id: user.id,
     }))
-    const { data, error } = await admin
-      .from("knowledge_guardrails")
-      .insert(rows as never)
-      .select("id")
-    if (!error && Array.isArray(data)) guardrailsInserted = data.length
-    else if (error) persistenceErrors.push(`knowledge_guardrails: ${error.message}`)
+
+  const normalizedKb: KnowledgeBase = { ...kb, services: normalizedServices }
+  const website = pickStr(kb.business?.website)
+  const address = kb.business?.addresses?.[0]
+    ? `${kb.business.addresses[0].line1}${
+        kb.business.addresses[0].city ? `, ${kb.business.addresses[0].city}` : ""
+      }${kb.business.addresses[0].region ? `, ${kb.business.addresses[0].region}` : ""}`
+    : ""
+  const meta: Record<string, unknown> = {
+    ...user.user_metadata,
+    spa_name: brandName,
+    onboarding_kb: normalizedKb,
+    onboarding_completed: true,
+    onboarding_completed_at: new Date().toISOString(),
+  }
+  if (website) meta.website = website
+  if (kb.notifications?.emailRecipients?.[0]) {
+    meta.notification_email = kb.notifications.emailRecipients[0]
+  }
+  if (kb.brand_voice?.tone) meta.brand_tone = kb.brand_voice.tone
+  if (kb.brand_voice?.greeting) meta.widget_greeting = kb.brand_voice.greeting
+  delete meta.onboarding_kb_draft
+  delete meta.onboarding_setup_section
+
+  const rpcPayload = {
+    p_user_id: user.id,
+    p_services: serviceRows,
+    p_faqs: faqRows,
+    p_guardrails: guardrailRows,
+    p_widget: {
+      brand_name: widget.brandName,
+      logo_initial: widget.logoInitial,
+      primary_color: widget.primaryColor,
+      position: widget.position,
+      welcome_message: widget.welcomeMessage,
+      proactive_enabled: widget.proactiveEnabled,
+      proactive_delay_seconds: widget.proactiveDelaySeconds,
+      proactive_message: widget.proactiveMessage,
+      show_branding: widget.showBranding,
+      collect_email: widget.collectEmail,
+      collect_phone: widget.collectPhone,
+      consent_text: widget.consentText,
+      working_hours: widget.workingHours,
+      extended_kb: normalizedKb,
+    },
+    p_settings: { spa_name: brandName, website, address },
+    p_user_metadata: meta,
   }
 
-  let settingsUpdated = false
-  try {
-    const website = pickStr(kb.business?.website)
-    const address =
-      kb.business?.addresses?.[0]
-        ? `${kb.business.addresses[0].line1}${
-            kb.business.addresses[0].city ? `, ${kb.business.addresses[0].city}` : ""
-          }${kb.business.addresses[0].region ? `, ${kb.business.addresses[0].region}` : ""}`
-        : ""
-    const { data: existing } = await admin
-      .from("spa_settings")
-      .select("id")
-      .limit(1)
-      .maybeSingle()
-    if (existing) {
-      const payload: Record<string, unknown> = {}
-      if (brandName) payload.spa_name = brandName
-      if (website) payload.website = website
-      if (address) payload.address = address
-      if (Object.keys(payload).length > 0) {
-        const { error } = await admin
-          .from("spa_settings")
-          .update(payload as never)
-          .eq("id", (existing as { id: string }).id)
-        if (!error) settingsUpdated = true
-        else console.warn("spa_settings update failed", error.message)
-      } else {
-        settingsUpdated = true
-      }
+  const { data: publishData, error: publishError } = await admin.rpc(
+    "publish_onboarding_knowledge_base" as never,
+    rpcPayload as never,
+  )
+
+  if (publishError) {
+    const databaseError = publishError as {
+      message?: string
+      code?: string
+      details?: string
+      hint?: string
     }
-  } catch (e) {
-    console.warn("spa_settings persist failed", e)
-  }
-
-  if (persistenceErrors.length > 0) {
+    console.error("KNOWLEDGE_SERVICE_PUBLISH_FAILED", {
+      userId: user.id,
+      allowedCategories: SERVICE_CATEGORIES,
+      services: serviceRows.map((service) => ({
+        serviceName: service.name,
+        originalCategory: originalCategories.get(normalizeServiceName(service.name)) ?? null,
+        normalizedCategory: service.category,
+      })),
+      database: {
+        message: databaseError.message,
+        code: databaseError.code,
+        details: databaseError.details,
+        hint: databaseError.hint,
+      },
+    })
+    const categoryFailure = /INVALID_SERVICE_CATEGORY|knowledge_services_category_check/i.test(
+      `${databaseError.message ?? ""} ${databaseError.details ?? ""}`,
+    )
     return {
       ok: false,
-      error: `Knowledge base publish failed: ${persistenceErrors.join("; ")}`,
+      errorType: categoryFailure ? "INVALID_SERVICE_CATEGORY" : "PUBLISH_FAILED",
+      error: categoryFailure
+        ? "We couldn't publish one or more services because their categories were not recognised. The issue has been logged. Please try again."
+        : "We couldn't publish your knowledge base. Nothing was changed. Please try again.",
     }
   }
 
-  try {
-    const meta: Record<string, unknown> = {
-      ...user.user_metadata,
-      spa_name: brandName,
-      onboarding_kb: kb,
-      onboarding_completed: true,
-      onboarding_completed_at: new Date().toISOString(),
-    }
-    const website = pickStr(kb.business?.website)
-    if (website) meta.website = website
-    if (kb.notifications?.emailRecipients && kb.notifications.emailRecipients[0]) {
-      meta.notification_email = kb.notifications.emailRecipients[0]
-    }
-    if (kb.brand_voice?.tone) meta.brand_tone = kb.brand_voice.tone
-    if (kb.brand_voice?.greeting) meta.widget_greeting = kb.brand_voice.greeting
-    delete meta.onboarding_kb_draft
-    delete meta.onboarding_setup_section
-    await admin.auth.admin.updateUserById(user.id, { user_metadata: meta })
-  } catch (e) {
-    console.warn("user_metadata persist failed", e)
-  }
+  const published = (publishData ?? {}) as Partial<NonNullable<FinalizeSetupResult["inserted"]>>
+  const servicesInserted = Number(published.services ?? serviceRows.length)
+  const faqsInserted = Number(published.faqs ?? faqRows.length)
+  const guardrailsInserted = Number(published.guardrails ?? guardrailRows.length)
+  const widgetUpdated = published.widgetUpdated ?? true
+  const settingsUpdated = published.settingsUpdated ?? false
 
   invalidateKnowledgeCache()
   recordAuditForUser(user, `onboarding.finalized services=${servicesInserted} faqs=${faqsInserted} guardrails=${guardrailsInserted}`)

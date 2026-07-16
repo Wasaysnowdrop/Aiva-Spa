@@ -30,7 +30,7 @@ const baseKb: KnowledgeBundle = {
       id: "s2",
       userId: null,
       name: "HydraFacial",
-      category: "Skin",
+      category: "Skin Rejuvenation",
       description: "Deep cleansing and hydration.",
       pricingRule: "Per session",
       duration: "50 min",

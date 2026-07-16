@@ -217,8 +217,16 @@ function buildClientWithSharedResults(
     },
   }
 
-  const client = { from, auth, rpc: (...args: unknown[]) => from(args[0] as string).rpc() }
+  const client = {
+    from,
+    auth,
+    rpc: (functionName: string, ...args: unknown[]) => {
+      calls.push({ table: functionName, op: "rpc", args })
+      const result = results.get(keyOf(functionName, "rpc")) ?? defaultResult("rpc")
+      return buildThenable(result.data, result.error, result.count)
+    },
 
+  }
   const self = {
     client,
     results,

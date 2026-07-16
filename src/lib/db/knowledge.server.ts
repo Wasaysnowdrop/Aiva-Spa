@@ -14,6 +14,7 @@ import {
   mapKnowledgeGuardrail,
 } from "@/lib/supabase/types"
 
+import { normalizeServiceCategory } from "@/lib/kb/service-categories"
 // ---------------------------------------------------------------------------
 // Admin client: uses the service-role key → bypasses RLS entirely.
 // We do user-scoping ourselves in every query via `.eq("user_id", …)`.
@@ -76,7 +77,7 @@ function serviceToSnake(
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = {}
   if ("name" in s) payload.name = s.name
-  if ("category" in s) payload.category = s.category
+  if ("category" in s) payload.category = normalizeServiceCategory(s.category, s.name ?? "")
   if ("description" in s) payload.description = s.description
   if ("pricingRule" in s) payload.pricing_rule = s.pricingRule
   if ("duration" in s) payload.duration = s.duration

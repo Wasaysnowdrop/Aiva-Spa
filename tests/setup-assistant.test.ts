@@ -227,7 +227,7 @@ describe("setup assistant KB helpers", () => {
     stored.services = [
       {
         name: "HydraFacial",
-        category: "Skin",
+        category: "Skin Rejuvenation",
         description: "Hydrating facial treatment.",
         duration: "45 minutes",
       },
@@ -246,19 +246,22 @@ describe("setup assistant KB helpers", () => {
     expect(parsed.success).toBe(true)
   })
 
-  it("knowledgeBaseSchema rejects an unknown service category", () => {
+  it("knowledgeBaseSchema normalizes an unknown service category to the safe fallback", () => {
     const bad = {
       ...emptyKnowledgeBase(),
       services: [
         {
-          name: "Botox",
+          name: "Mystery Service",
           category: "Bogus",
           description: "Test",
         },
       ],
     }
     const parsed = knowledgeBaseSchema.safeParse(bad)
-    expect(parsed.success).toBe(false)
+    expect(parsed.success).toBe(true)
+    if (parsed.success) {
+      expect(parsed.data.services[0]?.category).toBe("Other")
+    }
   })
 
   it("accepts a priceRange with indicativeOnly:false at the schema level (the LLM enforces the rule)", () => {

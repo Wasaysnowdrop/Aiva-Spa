@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import type { KnowledgeBaseService } from "./setup-assistant-schema"
+import { normalizeServiceCategory } from "@/lib/kb/service-categories"
 
 const MEANINGLESS_SERVICES_ANSWERS = new Set([
   "yes", "no", "ok", "okay", "skip", "none", "i don't know", "i dont know", "not sure",
@@ -8,10 +9,16 @@ const MEANINGLESS_SERVICES_ANSWERS = new Set([
 
 const SERVICE_PREFIX = /^(?:(?:we|our (?:business|spa|clinic))\s+)?(?:offer|offers|provide|provides|specialize in|specializes in)\s+|^our services include\s+/i
 
-const serviceExtractionItemSchema = z.object({
-  name: z.string().trim().min(2).max(120),
-  description: z.string().trim().max(500).optional().default(""),
-})
+const serviceExtractionItemSchema = z
+  .object({
+    name: z.string().trim().min(2).max(120),
+    category: z.string().trim().max(80).catch("").optional().default(""),
+    description: z.string().trim().max(500).optional().default(""),
+  })
+  .transform((service) => ({
+    ...service,
+    category: normalizeServiceCategory(service.category, service.name),
+  }))
 
 /** Schema kept at the AI boundary if service extraction is re-enabled later. */
 export const servicesExtractionResponseSchema = z.object({
@@ -48,11 +55,7 @@ export function validateServicesInput(input: string): ServicesValidationResult {
 }
 
 function inferCategory(name: string): KnowledgeBaseService["category"] {
-  if (/botox|filler|inject|dysport|xeomin|sculptra|kybella/i.test(name)) return "Injectables"
-  if (/laser|ipl|hair removal/i.test(name)) return "Laser"
-  if (/body|contour|coolsculpt|emsculpt/i.test(name)) return "Body"
-  if (/facial|skin|peel|micro|acne|prp|hydra|rejuven/i.test(name)) return "Skin"
-  return "Other"
+  return normalizeServiceCategory(undefined, name)
 }
 
 function looksLikeKnownService(value: string): boolean {

@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import { normalizeServiceCategory } from "@/lib/kb/service-categories"
+
 export const SETUP_ASSISTANT_SECTIONS = [
   "business",
   "hours",
@@ -63,21 +65,26 @@ export const hoursSchema = z.object({
   open247: z.boolean().optional().default(false),
 })
 
-export const serviceSchema = z.object({
-  name: z.string().min(1).max(120),
-  category: z.enum(["Injectables", "Skin", "Body", "Laser", "Other"]),
-  description: z.string().min(1).max(500),
-  duration: z.string().max(80).optional().default(""),
-  priceRange: z
-    .object({
-      min: z.number().nonnegative(),
-      max: z.number().nonnegative(),
-      currency: z.string().max(8).default("USD"),
-      unit: z.string().max(40).default("per session"),
-      indicativeOnly: z.boolean().default(true),
-    })
-    .optional(),
-})
+export const serviceSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    category: z.string().trim().max(80).catch("").optional().default(""),
+    description: z.string().min(1).max(500),
+    duration: z.string().max(80).optional().default(""),
+    priceRange: z
+      .object({
+        min: z.number().nonnegative(),
+        max: z.number().nonnegative(),
+        currency: z.string().max(8).default("USD"),
+        unit: z.string().max(40).default("per session"),
+        indicativeOnly: z.boolean().default(true),
+      })
+      .optional(),
+  })
+  .transform((service) => ({
+    ...service,
+    category: normalizeServiceCategory(service.category, service.name),
+  }))
 
 export const servicesSchema = z
   .array(serviceSchema)

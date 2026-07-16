@@ -23,17 +23,23 @@ import { invalidateKnowledgeCache } from "@/lib/ai/retrieval"
 import { createClient } from "@/lib/supabase/server"
 import type { FaqCategory, KnowledgeCategory, GuardrailRuleType } from "@/lib/supabase/types"
 import { GUARDRAIL_RULE_TYPES } from "@/lib/supabase/types"
+import { normalizeServiceCategory } from "@/lib/kb/service-categories"
 
 const faqCategoryValues = ["General", "Pricing", "Booking", "Safety", "Hours"] as const
 
-const serviceSchema = z.object({
-  name: z.string().min(1).max(120),
-  category: z.string().trim().min(1).max(80),
-  description: z.string().max(2000).optional().default(""),
-  pricingRule: z.string().max(200).optional().default(""),
-  duration: z.string().max(80).optional().default(""),
-  active: z.boolean().optional().default(true),
-})
+const serviceSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    category: z.string().trim().max(80).optional().default("Other"),
+    description: z.string().max(2000).optional().default(""),
+    pricingRule: z.string().max(200).optional().default(""),
+    duration: z.string().max(80).optional().default(""),
+    active: z.boolean().optional().default(true),
+  })
+  .transform((service) => ({
+    ...service,
+    category: normalizeServiceCategory(service.category, service.name),
+  }))
 
 const faqSchema = z.object({
   question: z.string().min(1).max(500),
@@ -67,6 +73,9 @@ async function actorName(): Promise<string> {
 
 function friendlyError(e: unknown, fallback: string): string {
   const raw = e instanceof Error ? e.message : fallback
+  if (/knowledge_services_category_check|check constraint/i.test(raw)) {
+    return "That service category is not supported. Choose a category from the list and try again."
+  }
   if (/row-level security|violates row-level security/i.test(raw)) {
     return "Database rejected the write (RLS). Apply supabase/migrations/00025_kb_bulletproof_rls.sql on the remote DB (`npx supabase db push`), then restart the Next.js dev server and clear .next cache: `Remove-Item -Recurse -Force .next; npm run dev`."
   }
@@ -79,7 +88,7 @@ function friendlyError(e: unknown, fallback: string): string {
   if (/permission denied/i.test(raw)) {
     return "Supabase service role key is missing or wrong. Check SUPABASE_SERVICE_ROLE_KEY in .env.local."
   }
-  return raw
+  return process.env.NODE_ENV === "production" ? fallback : raw
 }
 
 export async function createServiceAction(

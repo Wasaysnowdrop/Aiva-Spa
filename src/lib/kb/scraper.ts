@@ -1,3 +1,9 @@
+import {
+  normalizeServiceCategory,
+  SERVICE_CATEGORIES,
+  type ServiceCategory,
+} from "@/lib/kb/service-categories"
+
 /**
  * Lightweight HTML scraper for the Knowledge Base onboarding flow.
  *
@@ -18,7 +24,7 @@ export type ScrapedService = {
   description: string
   pricingRule: string
   duration: string
-  category: string
+  category: ServiceCategory
 }
 
 export type ScrapedFaq = {
@@ -36,7 +42,6 @@ export type ScrapedKnowledge = {
   fetchedAt: string
 }
 
-const SERVICE_CATEGORIES = ["Injectables", "Skin", "Body", "Laser"] as const
 
 const PRICE_RE = /(?:[$€£¥]\s?\d[\d,]*(?:\.\d{1,2})?|\d[\d,]*(?:\.\d{1,2})?\s?(?:USD|EUR|GBP|CAD|AUD)|\b(?:starts? at|from)\b\s?[$€£]?\s?\d[\d,]*(?:\.\d{1,2})?)/i
 
@@ -266,18 +271,8 @@ function pickFaqCategory(question: string): string {
   return "General"
 }
 
-function guessServiceCategory(name: string): string {
-  const n = name.toLowerCase()
-  if (/(botox|dysport|xeomin|jeuveau|filler|fillers|juvederm|restylane|sculptra|radiesse|kybella|prp|prf|lip|cheek|chin|temple|undereye|tear|nasolabial)/.test(n)) {
-    return "Injectables"
-  }
-  if (/(laser|ipl|bbl|morpheus|thermage|ultherapy|coolsculpting|cool sculpting|emsculpt|clear and brilliant|rf|radio ?frequency)/.test(n)) {
-    return "Laser"
-  }
-  if (/(body|weight|semaglutide|tirzepatide|emsculpt|sculpting|contour)/.test(n)) {
-    return "Body"
-  }
-  return "Skin"
+function guessServiceCategory(name: string): ServiceCategory {
+  return normalizeServiceCategory(undefined, name)
 }
 
 function looksLikeServiceName(text: string): boolean {
