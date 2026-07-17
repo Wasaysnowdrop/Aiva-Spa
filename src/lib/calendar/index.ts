@@ -12,6 +12,7 @@ export type DaySchedule = {
 
 export type CalendarSettingsRow = {
   id: string
+  userId: string
   spaId: string
   bookingDurationMinutes: number
   bufferMinutes: number
@@ -27,6 +28,7 @@ export type CalendarSettingsRow = {
 
 export type CalendarBookingRow = {
   id: string
+  userId: string
   spaId: string
   leadId: string | null
   source: "widget" | "api" | "lead" | "manual"
@@ -106,6 +108,7 @@ function mapSettings(row: Record<string, unknown>): CalendarSettingsRow {
     : [1440, 60]
   return {
     id: String(row.id),
+    userId: String(row.user_id ?? row.userId ?? ""),
     spaId: String(row.spa_id ?? row.spaId ?? "default"),
     bookingDurationMinutes:
       typeof row.booking_duration_minutes === "number"
@@ -129,6 +132,7 @@ function mapSettings(row: Record<string, unknown>): CalendarSettingsRow {
 function mapBooking(row: Record<string, unknown>): CalendarBookingRow {
   return {
     id: String(row.id),
+    userId: String(row.user_id ?? row.userId ?? ""),
     spaId: String(row.spa_id ?? row.spaId ?? "default"),
     leadId: typeof row.lead_id === "string" ? (row.lead_id as string) : null,
     source: ((row.source as CalendarBookingRow["source"]) ?? "widget"),
@@ -169,9 +173,17 @@ export async function getOrCreateCalendarSettings(
   const existing = await getCalendarSettings(spaId)
   if (existing) return existing
   const admin = createAdminClient()
+  const { data: install } = await admin
+    .from("widget_installs")
+    .select("user_id")
+    .eq("widget_key", spaId)
+    .limit(1)
+    .maybeSingle()
+  const userId = (install as { user_id?: string } | null)?.user_id
+  if (!userId) throw new Error("Calendar owner could not be resolved")
   const { data, error } = await admin
     .from("calendar_settings")
-    .insert({ spa_id: spaId } as never)
+    .insert({ spa_id: spaId, user_id: userId } as never)
     .select("*")
     .single()
   if (error || !data) {
@@ -393,6 +405,7 @@ export async function createBooking(
     new Date(endAt.getTime() + duration * 60_000).toISOString(),
   )
   const overlaps = conflict.some((b) => {
+    if (input.leadId && b.leadId === input.leadId) return false
     const bs = new Date(b.startAt).getTime()
     const be = new Date(b.endAt).getTime()
     return startAt.getTime() < be && endAt.getTime() > bs
@@ -402,81 +415,56 @@ export async function createBooking(
   }
 
   const admin = createAdminClient()
-  const { data, error } = await admin
-    .from("calendar_bookings")
-    .insert({
-      spa_id: input.spaId,
-      lead_id: input.leadId ?? null,
-      source: input.source ?? "widget",
-      start_at: startAt.toISOString(),
-      end_at: endAt.toISOString(),
-      duration_minutes: duration,
-      service: input.service ?? "Consultation",
-      notes: input.notes ?? null,
-      status: "confirmed",
-    } as never)
-    .select("*")
-    .single()
+  const payload = {
+    user_id: settings.userId,
+    spa_id: input.spaId,
+    lead_id: input.leadId ?? null,
+    source: input.source ?? "widget",
+    start_at: startAt.toISOString(),
+    end_at: endAt.toISOString(),
+    duration_minutes: duration,
+    service: input.service ?? "Consultation",
+    notes: input.notes ?? null,
+    timezone: settings.workingHours.tz,
+    status: "confirmed",
+  }
+  const { data: existing } = input.leadId
+    ? await admin
+        .from("calendar_bookings")
+        .select("id")
+        .eq("user_id", settings.userId)
+        .eq("lead_id", input.leadId)
+        .in("status", ["pending", "booked", "confirmed"])
+        .limit(1)
+        .maybeSingle()
+    : { data: null }
+  const existingId = (existing as { id?: string } | null)?.id
+  const mutation = existingId
+    ? admin.from("calendar_bookings").update(payload as never).eq("id", existingId)
+    : admin.from("calendar_bookings").insert(payload as never)
+  const { data, error } = await mutation.select("*").single()
   if (error || !data) {
     return { ok: false, error: error?.message ?? "Failed to create booking" }
   }
   const booking = mapBooking(data as Record<string, unknown>)
 
-  const reminders = await scheduleRemindersForBooking(booking, settings)
-
-  return { ok: true, booking, reminders }
-}
-
-async function scheduleRemindersForBooking(
-  booking: CalendarBookingRow,
-  settings: CalendarSettingsRow,
-): Promise<CalendarReminderRow[]> {
-  if (settings.reminderOffsetsMinutes.length === 0) return []
-  const admin = createAdminClient()
-  const { data: lead } = booking.leadId
-    ? await admin
-        .from("leads")
-        .select("id, name, email, phone")
-        .eq("id", booking.leadId)
-        .maybeSingle()
-    : { data: null }
-
-  const recipients: { channel: "email" | "sms"; recipient: string }[] = []
-  const leadRow = (lead ?? null) as { email?: string; phone?: string } | null
-  if (leadRow?.email) recipients.push({ channel: "email", recipient: leadRow.email })
-  if (leadRow?.phone) recipients.push({ channel: "sms", recipient: leadRow.phone })
-
-  if (recipients.length === 0) return []
-
-  const startMs = new Date(booking.startAt).getTime()
-  const rows = recipients.flatMap((r) =>
-    settings.reminderOffsetsMinutes.map((offset) => ({
-      booking_id: booking.id,
-      channel: r.channel,
-      recipient: r.recipient,
-      send_at: new Date(startMs - offset * 60_000).toISOString(),
-    })),
-  )
-
-  const { data, error } = await admin
+  const { data: reminderRows } = await admin
     .from("calendar_reminders")
-    .insert(rows as never)
     .select("*")
-  if (error || !data) {
-    console.error(describeDbError("scheduleRemindersForBooking", error))
-    return []
-  }
-  return (data as Record<string, unknown>[]).map((r) => ({
+    .eq("booking_id", booking.id)
+  const reminders = ((reminderRows ?? []) as unknown as Record<string, unknown>[]).map((r) => ({
     id: String(r.id),
     bookingId: String(r.booking_id),
-    channel: (r.channel as "email" | "sms") ?? "email",
+    channel: String(r.channel) as "email" | "sms",
     recipient: String(r.recipient),
     sendAt: String(r.send_at),
     sentAt: typeof r.sent_at === "string" ? r.sent_at : null,
     error: typeof r.error === "string" ? r.error : null,
-    attempts: typeof r.attempts === "number" ? r.attempts : 0,
-    createdAt: String(r.created_at ?? new Date().toISOString()),
+    attempts: Number(r.attempts ?? 0),
+    createdAt: String(r.created_at),
   }))
+
+  return { ok: true, booking, reminders }
 }
 
 export async function listBookings(

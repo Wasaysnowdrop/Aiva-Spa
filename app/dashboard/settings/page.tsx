@@ -47,81 +47,8 @@ export default async function SettingsPage() {
   const periodEnd = refreshedSubscription.row?.periodEnd ?? new Date().toISOString();
   const trialStartedAt = refreshedSubscription.row?.trialStartedAt ?? null;
 
-  // API section data — scope everything to the signed-in user.
+  // API keys remain available; outgoing webhooks are intentionally not exposed in Settings.
   const apiKeys = await listApiKeys().catch(() => [])
-  const userId = user?.id ?? null
-  let rawWebhooks: unknown[] = []
-  try {
-    const query = supabase
-      .from("webhooks")
-      .select("id, url, secret, events, active, description, created_at")
-      .order("created_at", { ascending: false })
-    const scoped = userId ? query.eq("user_id", userId) : query.eq("user_id", "00000000-0000-0000-0000-000000000000")
-    const { data } = await scoped
-    rawWebhooks = (data ?? []) as unknown[]
-  } catch {
-    rawWebhooks = []
-  }
-  let rawDeliveries: unknown[] = []
-  try {
-    const query = supabase
-      .from("webhook_deliveries")
-      .select("id, webhook_id, event, response_status, success, attempt, duration_ms, delivered_at, created_at, error")
-      .order("created_at", { ascending: false })
-      .limit(25)
-    const scoped = userId ? query.eq("user_id", userId) : query.eq("user_id", "00000000-0000-0000-0000-000000000000")
-    const { data } = await scoped
-    rawDeliveries = (data ?? []) as unknown[]
-  } catch {
-    rawDeliveries = []
-  }
-
-  const initialWebhooks = (rawWebhooks ?? []).map((w) => {
-    const r = w as {
-      id: string
-      url: string
-      secret: string
-      events: string[]
-      active: boolean
-      description: string
-      created_at: string
-    }
-    return {
-      id: r.id,
-      url: r.url,
-      description: r.description ?? "",
-      events: r.events ?? [],
-      active: r.active,
-      createdAt: r.created_at,
-      secret: r.secret,
-    }
-  })
-  const initialDeliveries = (rawDeliveries ?? []).map((d) => {
-    const r = d as {
-      id: string
-      webhook_id: string
-      event: string
-      response_status: number | null
-      success: boolean
-      attempt: number
-      duration_ms: number | null
-      delivered_at: string | null
-      created_at: string
-      error: string | null
-    }
-    return {
-      id: r.id,
-      webhook_id: r.webhook_id,
-      event: r.event,
-      response_status: r.response_status,
-      success: r.success,
-      attempt: r.attempt,
-      duration_ms: r.duration_ms,
-      delivered_at: r.delivered_at,
-      created_at: r.created_at,
-      error: r.error,
-    }
-  })
 
   let initialChannels: NotificationChannelConfig[] = []
   let initialLogs: NotificationLog[] = []
@@ -170,8 +97,6 @@ export default async function SettingsPage() {
           }}
           api={{
             initialKeys: apiKeys,
-            initialWebhooks,
-            initialDeliveries,
           }}
         />
       </div>

@@ -81,7 +81,7 @@ export function SettingsView({
             { v: "notifications" as const, label: "Notifications", icon: Bell },
             { v: "privacy" as const, label: "Privacy & data", icon: Shield },
             { v: "billing" as const, label: "Billing", icon: CreditCard },
-            { v: "api" as const, label: "API & webhooks", icon: KeyRound },
+            { v: "api" as const, label: "API", icon: KeyRound },
           ]
         ).map((item) => {
           const Icon = item.icon
@@ -260,7 +260,7 @@ function AccountSection({
           <div className="mt-4 space-y-3 rounded-xl border border-[#EB5757]/30 bg-[#EB5757]/5 p-4">
             <p className="text-sm font-semibold text-[#F7F8F8]">Are you absolutely sure?</p>
             <p className="text-xs text-[#8A8F98]">
-              This will wipe all leads, conversations, API keys, webhooks, and
+              This will wipe all leads, conversations, API keys, and
               widget installs. Type <code className="rounded bg-[#0B0C0E] px-1 py-0.5 font-mono text-[#F7F8F8]">DELETE</code> to confirm.
             </p>
             <Input

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
   Bot,
@@ -37,13 +38,15 @@ import type { Lead, NotificationLog, TeamMember } from "@/lib/supabase/types"
 import { mapLead, mapNotificationLog } from "@/lib/supabase/types"
 import { cn, formatDateTime, formatRelativeTime } from "@/lib/utils"
 import { useRealtimeSubscription } from "@/lib/hooks/use-realtime"
-import { updateLeadStatus } from "@/lib/db/leads"
+import { isActiveBooking, mapCalendarBooking, type CalendarBooking } from "@/lib/calendar/shared"
+import { updateBookingStatusAction } from "@/app/actions/calendar"
 import {
   deleteLeadAction,
   findDuplicateAction,
   reopenLeadChatAction,
   sendLeadMessageAction,
   updateLeadNotesAction,
+  updateLeadStatusAction,
 } from "@/app/actions/leads"
 import {
   MergeDuplicatesDialog,
@@ -66,16 +69,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-type CalendarEventRow = {
-  id: string
-  lead_id: string | null
-  start_at: string
-  end_at: string
-  service: string
-  status: string
-  notes: string | null
-  created_at: string
-}
 
 const statusOptions = [
   { value: "new" as const, label: "New" },
@@ -101,9 +94,10 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
     getId: (item) => item.id,
   })
 
-  const { data: events } = useRealtimeSubscription<CalendarEventRow>({
+  const { data: events, setData: setEvents } = useRealtimeSubscription<CalendarBooking>({
     table: "calendar_bookings",
     initialData: [],
+    mapRow: (row) => mapCalendarBooking(row),
     getId: (item) => item.id,
   })
 
@@ -126,14 +120,16 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
     .filter((m): m is TeamMember => Boolean(m?.id))
     .map((m) => ({ ...m }))
   const safeEvents = (Array.isArray(events) ? events : [])
-    .filter((e): e is CalendarEventRow => Boolean(e?.id))
+    .filter((e): e is CalendarBooking => Boolean(e?.id))
     .map((e) => ({ ...e }))
   const leadNotifications = (Array.isArray(notificationLogs) ? notificationLogs : [])
     .filter((log): log is NotificationLog => Boolean(log?.id) && log.leadId === safeInitialLead.id)
     .slice(0, 5)
 
   const calendarEvent = safeInitialLead?.id
-    ? safeEvents.find((e) => e.lead_id === safeInitialLead.id)
+    ? safeEvents
+        .filter((event) => event.leadId === safeInitialLead.id)
+        .sort((a, b) => Number(isActiveBooking(b.status)) - Number(isActiveBooking(a.status)) || b.createdAt.localeCompare(a.createdAt))[0]
     : undefined
 
   const lead: Lead = (safeInitialLead?.id
@@ -153,6 +149,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
   const [deleteOpen, setDeleteOpen] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
   const [reopening, setReopening] = React.useState(false)
+  const [cancellingBooking, setCancellingBooking] = React.useState(false)
 
   React.useEffect(() => {
     if (!safeLead?.id) {
@@ -212,7 +209,8 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
     setStatus(newStatus)
     setUpdating(true)
     try {
-      await updateLeadStatus(safeLead.id, newStatus)
+      const result = await updateLeadStatusAction(safeLead.id, newStatus)
+      if (!result.ok) throw new Error(result.error)
       toast.success("Status updated")
     } catch {
       setStatus(safeLead?.status ?? "new")
@@ -222,6 +220,21 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
     }
   }
 
+  const handleCancelBooking = async () => {
+    if (!calendarEvent || cancellingBooking) return
+    setCancellingBooking(true)
+    try {
+      const result = await updateBookingStatusAction(calendarEvent.id, "cancelled")
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      setEvents((current) => current.map((event) => event.id === result.data.id ? result.data : event))
+      toast.success("Booking cancelled")
+    } finally {
+      setCancellingBooking(false)
+    }
+  }
   const handleSaveNote = async () => {
     if (!safeLead?.id) {
       toast.error("Lead is not loaded yet")
@@ -711,8 +724,8 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
                   {calendarEvent.service}
                 </p>
                 <p className="mt-1 text-[10px] text-[#8A8F98]">
-                  {formatDateTime(calendarEvent.start_at)} →{" "}
-                  {formatDateTime(calendarEvent.end_at)}
+                  {formatDateTime(calendarEvent.startAt)} →{" "}
+                  {formatDateTime(calendarEvent.endAt)}
                 </p>
                 <div className="mt-2 flex items-center gap-1.5">
                   <span className="inline-flex items-center gap-1 rounded-md border border-[#4CB782]/30 bg-[#4CB782]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#4CB782]">
@@ -724,13 +737,28 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
                     {calendarEvent.notes}
                   </p>
                 ) : null}
+                <div className="mt-2 grid gap-1.5 sm:grid-cols-3">
+                  <Button asChild size="xs" variant="outline">
+                    <Link href={`/dashboard/calendar?booking=${calendarEvent.id}`}>View booking</Link>
+                  </Button>
+                  {isActiveBooking(calendarEvent.status) ? <Button asChild size="xs" variant="outline">
+                    <Link href={`/dashboard/calendar?reschedule=${calendarEvent.id}`}>Reschedule</Link>
+                  </Button> : null}
+                  {isActiveBooking(calendarEvent.status) ? <Button size="xs" variant="ghost" className="text-[#EB5757] hover:text-[#EB5757]" disabled={cancellingBooking} onClick={() => void handleCancelBooking()}>
+                    {cancellingBooking ? <Loader2 className="size-3 animate-spin" /> : null} Cancel
+                  </Button> : null}
+                </div>
               </div>
             </div>
           ) : (
-            <p className="mt-3 text-[10px] text-[#8A8F98]">
-              No calendar booking linked. The visitor gave a free-text time, or
-              the calendar is not yet enabled for this spa.
-            </p>
+            <div className="mt-3">
+              <p className="text-[10px] text-[#8A8F98]">
+                No exact appointment time is linked yet. Free-text preferences stay unscheduled until your team confirms a slot.
+              </p>
+              <Button asChild size="xs" variant="outline" className="mt-2 w-full">
+                <Link href={`/dashboard/calendar?lead=${safeLead.id}`}>Schedule booking</Link>
+              </Button>
+            </div>
           )}
         </div>
 
