@@ -143,22 +143,13 @@ export const brandVoiceSchema = z.object({
 })
 
 export const notificationsSchema = z.object({
-  emailRecipients: z.array(z.string().email()).max(20).optional().default([]),
-  smsRecipients: z.array(z.string().regex(/^\+?[0-9 ()-]{7,20}$/)).max(20).optional().default([]),
-  escalationEmail: z.string().email().or(z.literal("")).optional().default(""),
-  escalationPhone: z
-    .string()
-    .regex(/^\+?[0-9 ()-]{7,20}$/)
-    .or(z.literal(""))
-    .optional()
-    .default(""),
+  emailRecipients: z.array(z.string().email()).max(20).optional().default([]),  escalationEmail: z.string().email().or(z.literal("")).optional().default(""),
   channels: z
     .object({
       email: z.boolean().default(true),
-      sms: z.boolean().default(false),
     })
     .optional()
-    .default({ email: true, sms: false }),
+    .default({ email: true }),
   quietHours: z
     .object({
       enabled: z.boolean().default(false),
@@ -232,10 +223,8 @@ export const emptyKnowledgeBase = (): KnowledgeBase => ({
   },
   notifications: {
     emailRecipients: [],
-    smsRecipients: [],
     escalationEmail: "",
-    escalationPhone: "",
-    channels: { email: true, sms: false },
+    channels: { email: true },
     quietHours: { enabled: false, from: "22:00", to: "08:00" },
   },
   status: { complete: false, pendingFields: [], completedFields: [], askedQuestions: [], invalidAttempts: {} },
@@ -285,7 +274,7 @@ export function countPendingFields(kb: KnowledgeBase): string[] {
   if (!isCaptured(kb.business?.name)) pending.push("business.name")
   if (!kb.services || kb.services.length === 0) pending.push("services")
   if (!kb.faqs || kb.faqs.length === 0) pending.push("faqs")
-  if (!isCaptured(kb.notifications?.emailRecipients) && !isCaptured(kb.notifications?.smsRecipients))
+  if (!isCaptured(kb.notifications?.emailRecipients))
     pending.push("notifications")
   if (!kb.hours?.schedule || kb.hours.schedule.length === 0) pending.push("hours.schedule")
   return pending
@@ -296,9 +285,7 @@ function hasHours(kb: KnowledgeBase): boolean {
 }
 
 function hasNotificationRecipient(kb: KnowledgeBase): boolean {
-  return Boolean(
-    kb.notifications?.emailRecipients?.length || kb.notifications?.smsRecipients?.length,
-  )
+  return Boolean(kb.notifications?.emailRecipients?.length)
 }
 
 /**

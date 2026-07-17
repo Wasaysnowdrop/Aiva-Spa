@@ -43,7 +43,7 @@ export const SECTION_INTRO: Record<SetupAssistantSectionKey, string> = {
   brand_voice:
     "Tone and phrasing. This shapes every reply the AI sends to visitors.",
   notifications:
-    "Where should new leads go? You can add emails and SMS numbers.",
+    "Which email addresses should receive new lead notifications?",
   review:
     "Final review. Here is the full knowledge base the AI will use. Confirm to publish.",
 }
@@ -91,10 +91,9 @@ const SECTION_FIELD_GUIDANCE: Record<SetupAssistantSectionKey, string> = {
 - preferPhrases: array of strings the AI should prefer`,
   notifications: `
 - emailRecipients: array of emails
-- smsRecipients: array of E.164-ish phone strings
-- escalationEmail, escalationPhone: for VIP / urgent leads
-- channels: { email: boolean, sms: boolean }
-- quietHours: { enabled, from: "HH:MM", to: "HH:MM" } — do not send SMS in this window`,
+- escalationEmail: for VIP / urgent leads
+- channels: { email: boolean }
+- quietHours: { enabled, from: "HH:MM", to: "HH:MM" } - optional delivery window`,
   review:
     "Do not capture new fields in this section. Summarise the full KB and ask for final confirmation.",
 }

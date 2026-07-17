@@ -12,7 +12,6 @@ import {
   Copy,
   Globe,
   HelpCircle,
-  KeyRound,
   Lightbulb,
   Link2,
   Mail,
@@ -309,7 +308,7 @@ export function GuideView({
                 For developers & power users
               </p>
               <p className="text-xs text-[#8A8F98]">
-                Architecture overview, JS API, webhooks, API keys.
+                Architecture overview, widget controls, and webhooks.
               </p>
             </div>
           </div>
@@ -323,7 +322,7 @@ export function GuideView({
         {showAdvanced ? (
           <div className="space-y-6 p-4 pt-2">
             <ArchitectureSection spaTimezone={spaTimezone} />
-            <ApiSection />
+            <WidgetControlsSection />
             <WebhooksSection />
             <DeepTroubleshoot website={website} />
           </div>
@@ -1149,13 +1148,13 @@ function ArchitectureSection({ spaTimezone }: { spaTimezone: string }) {
             n={4}
             icon={Mail}
             title="Lead capture (when consent is given)"
-            body="createPublicLead() dedups by phone/email, inserts/merges into leads, dispatches email/SMS notifications via Resend + Twilio, fires conversation.completed webhooks, and increments monthly usage."
+            body="createPublicLead() dedups by phone/email, inserts/merges into leads, dispatches email notifications through Resend, fires conversation.completed webhooks, and increments monthly usage."
           />
           <FlowStep
             n={5}
             icon={Webhook}
             title="Your tools (optional)"
-            body="Register webhook URLs and API keys in Settings. AivaSpa HMAC-signs every payload so your CRM, Zapier, or in-house service can verify it came from you."
+            body="AivaSpa HMAC-signs outbound webhook payloads so your CRM, Zapier, or in-house service can verify the sender."
           />
         </ol>
         <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1176,14 +1175,7 @@ function ArchitectureSection({ spaTimezone }: { spaTimezone: string }) {
             path="/api/leads"
             auth="public"
             note="Direct lead save from any source. Deduped by phone/email."
-          />
-          <EndpointRow
-            method="POST"
-            path="/api/v1/leads"
-            auth="Bearer aiva_live_…"
-            note="Server-to-server lead create. Requires the leads:write scope."
-          />
-          <EndpointRow
+          /><EndpointRow
             method="POST"
             path="/embed/{`<spaId>`}/loader"
             auth="public"
@@ -1281,13 +1273,13 @@ function EndpointRow({
   )
 }
 
-function ApiSection() {
+function WidgetControlsSection() {
   return (
     <section className="flex flex-col gap-4">
       <SectionHeader
-        id="api"
+        id="widget-controls"
         icon={Wrench}
-        title="Programmatic control (JS API)"
+        title="Widget controls"
         description="Open, close, refresh, or destroy the widget from your own code. Mounted on the page as window.AivaSpa."
       />
       <div className="rounded-2xl border border-[#23252A] bg-[#0B0C0E] p-5">
@@ -1330,53 +1322,10 @@ function WebhooksSection() {
       <SectionHeader
         id="webhooks"
         icon={Webhook}
-        title="Server-to-server: API keys & webhooks"
-        description="Push leads into your CRM, Zapier, or your own backend. No browser required."
+        title="Outbound webhooks"
+        description="Send signed lead events to your CRM, Zapier, or your own backend."
       />
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <div className="rounded-2xl border border-[#23252A] bg-[#0B0C0E] p-5">
-          <div className="flex items-center gap-2">
-            <KeyRound className="size-4 text-[#E2E54B]" />
-            <h3 className="text-sm font-semibold text-[#F7F8F8]">API keys</h3>
-          </div>
-          <p className="mt-2 text-xs text-[#8A8F98]">
-            Create a server key from{" "}
-            <a
-              href="/dashboard/settings"
-              className="text-[#E2E54B] underline-offset-4 hover:underline"
-            >
-              Settings → API keys
-            </a>
-            . The plaintext is shown once and prefixed{" "}
-            <code className="rounded bg-[#1A1B1E] px-1 py-0.5 font-mono text-[10px] text-[#F7F8F8]">
-              aiva_live_
-            </code>{" "}
-            (or{" "}
-            <code className="rounded bg-[#1A1B1E] px-1 py-0.5 font-mono text-[10px] text-[#F7F8F8]">
-              aiva_test_
-            </code>
-            ). The server stores a SHA-256 hash, never the raw key.
-          </p>
-          <CodeBlock
-            label="POST /api/v1/leads"
-            code={`curl -X POST https://YOUR-DOMAIN/api/v1/leads \\
-  -H "Authorization: Bearer aiva_live_…" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "name": "Sarah Khan",
-    "phone": "+14155551234",
-    "email": "sarah@example.com",
-    "service": "Botox",
-    "preferredTime": "Tomorrow 3 PM",
-    "consentGiven": true
-  }'`}
-          />
-          <p className="mt-2 text-[10px] text-[#62666D]">
-            Scopes available: leads:write, leads:read, webhooks:read,
-            webhooks:write.
-          </p>
-        </div>
-        <div className="rounded-2xl border border-[#23252A] bg-[#0B0C0E] p-5">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2"><div className="rounded-2xl border border-[#23252A] bg-[#0B0C0E] p-5">
           <div className="flex items-center gap-2">
             <Plug className="size-4 text-[#E2E54B]" />
             <h3 className="text-sm font-semibold text-[#F7F8F8]">Outbound webhooks</h3>

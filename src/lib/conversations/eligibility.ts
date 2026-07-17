@@ -12,7 +12,6 @@ export const CONVERSATION_CHANNELS = [
   "website_widget",
   "onboarding_assistant",
   "dashboard_internal",
-  "sms",
   "email",
 ] as const
 

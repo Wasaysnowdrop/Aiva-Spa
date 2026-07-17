@@ -4,14 +4,16 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/server"
+import { recordAudit } from "@/lib/audit"
 import { checkActionLimit } from "@/lib/security/check-action-limit"
 import { LIMITS } from "@/lib/security/limits"
 import {
   activatePaidPlan,
   dismissTrialPopup,
   ensureTrialSubscription,
+  getSubscriptionForUser,
 } from "@/lib/subscription"
-import { PLANS, type PlanId } from "@/lib/subscription/plans"
+import { PLANS, planRank, type PlanId } from "@/lib/subscription/plans"
 
 export type CheckoutResult = {
   ok: boolean
@@ -100,10 +102,16 @@ export async function fakeCheckout(formData: FormData): Promise<CheckoutResult> 
   // Simulate payment latency
   await new Promise((resolve) => setTimeout(resolve, 600))
 
+  const before = await getSubscriptionForUser(user.id, supabase)
+  if (planRank(planId) > planRank(before.planId)) {
+    void recordAudit({ userName: "subscription", userId: user.id, action: `UPGRADE_STARTED from=${before.planId} to=${planId}` })
+  }
   const result = await activatePaidPlan(user.id, planId, interval, cardLast4)
   if (!result.ok) {
     return { ok: false, error: result.error }
   }
+
+  void recordAudit({ userName: "subscription", userId: user.id, action: `SUBSCRIPTION_PLAN_CHANGED from=${before.planId} to=${result.plan} effective_at=${result.effectiveAt ?? "immediate"}` })
 
   revalidatePath("/dashboard")
   revalidatePath("/pricing")

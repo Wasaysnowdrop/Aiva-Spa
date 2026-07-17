@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { installSupabaseMocks } from "./helpers/mock-supabase"
+import { installSupabaseMocks, seedActiveSubscription } from "./helpers/mock-supabase"
 
 beforeEach(() => {
   vi.resetModules()
@@ -28,6 +28,7 @@ describe("updateWidgetBranding", () => {
   it("rejects when no widget config exists", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_1", email: "owner@spa.com" })
+    seedActiveSubscription(server, "u_1")
     server.setResult("widget_config", "select", { data: null, error: null })
     const { updateWidgetBranding } = await import("@/app/actions/widget")
     const result = await updateWidgetBranding({ brandName: "New Name" })
@@ -40,6 +41,7 @@ describe("updateWidgetBranding", () => {
   it("updates brandName and writes an audit log", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_1", email: "owner@spa.com" })
+    seedActiveSubscription(server, "u_1")
     server.setResult("widget_config", "select", { data: [widgetRow], error: null })
     server.setResult("widget_config", "update", { data: null, error: null })
     server.setResult("audit_logs", "insert", { data: null, error: null })
@@ -69,6 +71,7 @@ describe("updateNotificationChannel", () => {
   it("updates the enabled flag and recipients", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_1", email: "owner@spa.com" })
+    seedActiveSubscription(server, "u_1")
     server.setResult("notification_channels", "select", {
       data: [{ channel: "email" }],
       error: null,
@@ -94,6 +97,7 @@ describe("updateNotificationChannel", () => {
   it("filters the update by the signed-in user's id (owner-scoping)", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_owner", email: "owner@spa.com" })
+    seedActiveSubscription(server, "u_owner")
     server.setResult("notification_channels", "select", {
       data: [{ channel: "email" }],
       error: null,
@@ -120,6 +124,7 @@ describe("createNotificationChannelAction", () => {
   it("inserts with user_id set when no existing row is found", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_new", email: "new@spa.com" })
+    seedActiveSubscription(server, "u_new")
     // No existing row for this user, no legacy NULL row.
     server.setResult("notification_channels", "select", { data: null, error: null })
     server.setResult("notification_channels", "insert", {
@@ -146,6 +151,7 @@ describe("createNotificationChannelAction", () => {
   it("rejects an invalid recipient email", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_x", email: "x@spa.com" })
+    seedActiveSubscription(server, "u_x")
     server.setResult("notification_channels", "select", { data: null, error: null })
     server.setResult("audit_logs", "insert", { data: null, error: null })
 
@@ -164,6 +170,7 @@ describe("sendTestNotificationAction", () => {
   it("rejects an invalid recipient", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_t", email: "t@spa.com" })
+    seedActiveSubscription(server, "u_t")
 
     const { sendTestNotificationAction } = await import("@/app/actions/widget")
     const result = await sendTestNotificationAction({ recipient: "not-an-email" })
@@ -173,6 +180,7 @@ describe("sendTestNotificationAction", () => {
   it("returns ok=true when Resend responds 200", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_t", email: "t@spa.com" })
+    seedActiveSubscription(server, "u_t")
     server.setResult("notification_channels", "select", {
       data: [{ recipients: ["alex@spa.com"] }],
       error: null,
@@ -199,6 +207,7 @@ describe("sendTestNotificationAction", () => {
   it("returns ok=false (provider=log) when RESEND_API_KEY is not set", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_t", email: "t@spa.com" })
+    seedActiveSubscription(server, "u_t")
     server.setResult("notification_channels", "select", {
       data: [{ recipients: ["alex@spa.com"] }],
       error: null,

@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
-import { getCurrentSubscription } from "@/lib/subscription"
+import { getEntitlementContextForUser, assertPlanLimit, EntitlementError } from "@/lib/subscription/entitlements.server"
 import { PLANS } from "@/lib/subscription/plans"
 
 export type WidgetInstall = {
@@ -82,7 +82,8 @@ export async function createWidgetInstall(
     return { ok: false, code: "invalid", error: "Please enter a valid domain (e.g. yourmedspa.com)." }
   }
 
-  const subscription = await getCurrentSubscription()
+  const context = await getEntitlementContextForUser(userId)
+  const subscription = context.subscription
   if (!subscription.isActive) {
     return {
       ok: false,
@@ -90,19 +91,15 @@ export async function createWidgetInstall(
       error: "You need an active subscription to add a new widget install.",
     }
   }
-
-  const plan = PLANS[subscription.planId]
-  const max = plan.maxWidgets
-  if (max !== Number.MAX_SAFE_INTEGER) {
-    const existing = await listWidgetInstalls(userId)
-    const activeCount = existing.filter((i) => i.active).length
-    if (activeCount >= max) {
-      return {
-        ok: false,
-        code: "limit",
-        error: `Your ${plan.name} plan allows up to ${max} widget install${max === 1 ? "" : "s"}. Upgrade to add more.`,
-      }
+  const existing = await listWidgetInstalls(userId)
+  const activeCount = existing.filter((i) => i.active).length
+  try {
+    assertPlanLimit(context, "widgets", activeCount)
+  } catch (error) {
+    if (error instanceof EntitlementError) {
+      return { ok: false, code: "limit", error: error.message }
     }
+    throw error
   }
 
   const supabase = await createClient()
@@ -161,7 +158,8 @@ export type WidgetUsageSummary = {
 }
 
 export async function getWidgetUsageSummary(userId: string): Promise<WidgetUsageSummary> {
-  const subscription = await getCurrentSubscription()
+  const context = await getEntitlementContextForUser(userId)
+  const subscription = context.subscription
   const plan = PLANS[subscription.planId]
   const installs = await listWidgetInstalls(userId)
   const active = installs.filter((i) => i.active).length

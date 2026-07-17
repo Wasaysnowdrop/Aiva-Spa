@@ -4,7 +4,7 @@ import {
   type SubscriptionRow,
   type SubscriptionSnapshot,
 } from "@/lib/subscription"
-import { PLANS, TRIAL_PLAN_ID, TRIAL_QUOTA } from "@/lib/subscription/plans"
+import { PLANS, TRIAL_PLAN_ID, TRIAL_QUOTA, isPlanId } from "@/lib/subscription/plans"
 
 type RawSubscription = {
   id: string
@@ -21,13 +21,16 @@ type RawSubscription = {
   trial_used: boolean
   trial_popup_dismissed_at: string | null
   canceled_at: string | null
+  pending_plan?: string | null
+  pending_plan_effective_at?: string | null
+  billing_variant_id?: string | null
 }
 
 function mapSubscription(row: RawSubscription): SubscriptionRow {
   return {
     id: row.id,
     userId: row.user_id,
-    plan: (row.plan as SubscriptionRow["plan"]) ?? "starter",
+    plan: isPlanId(row.plan) ? row.plan : "starter",
     status: (row.status as SubscriptionRow["status"]) ?? "trialing",
     billingInterval:
       (row.billing_interval as "monthly" | "yearly") ?? "monthly",
@@ -40,7 +43,10 @@ function mapSubscription(row: RawSubscription): SubscriptionRow {
     trialUsed: row.trial_used,
     trialPopupDismissedAt: row.trial_popup_dismissed_at,
     canceledAt: row.canceled_at,
-  }
+      pendingPlan: isPlanId(row.pending_plan) ? row.pending_plan : null,
+    pendingPlanEffectiveAt: row.pending_plan_effective_at ?? null,
+    billingVariantId: row.billing_variant_id ?? null,
+}
 }
 
 function mapRow(row: RawSubscription): SubscriptionRow {

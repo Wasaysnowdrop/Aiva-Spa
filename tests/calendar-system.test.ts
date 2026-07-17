@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
@@ -47,7 +47,6 @@ describe("calendar booking mapping", () => {
       timezone: "America/Los_Angeles",
       status: "confirmed",
       reminder_email_enabled: true,
-      reminder_sms_enabled: false,
     })
     expect(booking).toMatchObject({
       id: "booking-1",
@@ -55,7 +54,6 @@ describe("calendar booking mapping", () => {
       leadId: "lead-1",
       service: "Botox",
       reminderEmailEnabled: true,
-      reminderSmsEnabled: false,
     })
     expect(isActiveBooking(booking.status)).toBe(true)
     expect(isActiveBooking("cancelled")).toBe(false)
@@ -86,7 +84,9 @@ describe("calendar migration contract", () => {
   it("queues only enabled reminders for active future bookings", () => {
     expect(migration).toContain("sync_calendar_booking_reminders")
     expect(migration).toContain("new.reminder_email_enabled")
-    expect(migration).toContain("new.reminder_sms_enabled")
+    const retirement = readFileSync(resolve(process.cwd(), "supabase/migrations/00034_plan_entitlements_api_sms_retirement.sql"), "utf8")
+    expect(retirement).toContain("values (new.user_id, new.id, 'email'")
+    expect(retirement).not.toContain("values (new.user_id, new.id, 'sms'")
     expect(migration).toContain("new.start_at <= now()")
   })
   it("validates settings and reminder relationships, not only caller ownership", () => {
@@ -102,19 +102,17 @@ describe("calendar migration contract", () => {
 })
 
 describe("Settings API cleanup", () => {
-  it("keeps API key management and removes the outgoing webhook UI", () => {
-    const apiSection = readFileSync(
-      resolve(process.cwd(), "src/components/dashboard/api-section.tsx"),
-      "utf8",
-    )
+  it("removes API key management and keeps the retired route controlled", () => {
     const settings = readFileSync(
       resolve(process.cwd(), "src/components/dashboard/settings-view.tsx"),
       "utf8",
     )
-    expect(apiSection).toContain("Generate key")
-    expect(apiSection).not.toContain("Outgoing webhooks")
-    expect(apiSection).not.toContain("Add endpoint")
-    expect(settings).toContain('label: "API"')
-    expect(settings).not.toContain('label: "API & webhooks"')
+    const route = readFileSync(
+      resolve(process.cwd(), "app/api/v1/leads/route.ts"),
+      "utf8",
+    )
+    expect(existsSync(resolve(process.cwd(), "src/components/dashboard/api-section.tsx"))).toBe(false)
+    expect(settings).not.toContain('label: "API"')
+    expect(route).toContain('"FEATURE_DISABLED"')
   })
 })

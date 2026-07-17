@@ -3,9 +3,11 @@ import { redirect } from "next/navigation"
 
 import { CalendarView } from "@/components/dashboard/calendar-view"
 import { DashboardHeader } from "@/components/dashboard/dashboard-header"
+import { FeatureLocked } from "@/components/dashboard/feature-locked"
 import { mapCalendarBooking } from "@/lib/calendar/shared"
 import { createClient } from "@/lib/supabase/server"
 import { mapLead } from "@/lib/supabase/types"
+import { getSubscriptionForUser } from "@/lib/subscription"
 
 export const dynamic = "force-dynamic"
 
@@ -24,6 +26,10 @@ export default async function CalendarPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect("/login?redirectTo=/dashboard/calendar")
+  const subscription = await getSubscriptionForUser(user.id, supabase)
+  if (!subscription.hasAccess("calendar_booking_links")) {
+    return <FeatureLocked title="Calendar is a Growth feature" description="Upgrade to Growth to manage bookings and email reminders." requiredPlan="growth" />
+  }
 
   const { data: installs } = await supabase
     .from("widget_installs")

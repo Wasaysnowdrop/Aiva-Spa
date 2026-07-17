@@ -12,7 +12,7 @@ export default async function AdminNotificationsPage() {
     <>
       <AdminTopBar
         title="Notification deliveries"
-        subtitle={`${rows.length} most recent email/SMS attempts`}
+        subtitle={`${rows.length} most recent email attempts`}
       />
       <div className="p-5">
         <NotificationsTable rows={rows} pageSize={50} empty="No notifications sent yet." />

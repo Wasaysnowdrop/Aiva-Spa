@@ -33,7 +33,7 @@ import { Logo } from "@/components/logo";
 export const metadata: Metadata = {
   title: "AivaSpa | The 24/7 AI receptionist for med spas",
   description:
-    "AivaSpa greets every med spa website visitor, answers treatment questions from your approved knowledge base, captures consultation leads, and pings your staff instantly by email or SMS.",
+    "AivaSpa greets every med spa website visitor, answers treatment questions from your approved knowledge base, captures consultation leads, and pings your staff instantly by email.",
 };
 
 const navLinks = [
@@ -130,7 +130,7 @@ const faqs = [
   },
   {
     q: "What happens to leads after they're captured?",
-    a: "Leads are saved to your dashboard with full transcript, source URL, and after-hours flag. You and your staff receive an instant email and SMS, and the lead is queued for follow-up — no lead is ever lost.",
+    a: "Leads are saved to your dashboard with full transcript, source URL, and after-hours flag. You and your staff receive an instant email, and the lead is queued for follow-up — no lead is ever lost.",
   },
   {
     q: "Can my team manage the knowledge base and branding?",
@@ -151,7 +151,7 @@ const footerColumns = [
   {
     title: "Features",
     color: "#E2E54B",
-    links: ["24/7 receptionist", "Approved KB answers", "Lead capture", "Email + SMS alerts", "Custom branding", "Multi-location"],
+    links: ["24/7 receptionist", "Approved KB answers", "Lead capture", "Email alerts", "Custom branding", "Multi-location"],
   },
   {
     title: "Company",
@@ -192,7 +192,7 @@ const stepList = [
   {
     step: "04",
     title: "Capture & notify",
-    body: "AivaSpa greets visitors, captures leads, and sends email + SMS to your team the moment a lead comes in.",
+    body: "AivaSpa greets visitors, captures leads, and sends email to your team the moment a lead comes in.",
   },
 ];
 

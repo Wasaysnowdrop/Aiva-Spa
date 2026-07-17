@@ -24,6 +24,7 @@ export async function getNotificationChannelsClient(): Promise<
     let query = supabase
       .from("notification_channels")
       .select("*")
+      .in("channel", ["email", "daily_summary"])
       .order("channel")
     query = user
       ? query.eq("user_id", user.id)
@@ -102,6 +103,7 @@ export async function getNotificationLogs(): Promise<NotificationLog[]> {
     const { data, error } = await supabase
       .from("notification_logs")
       .select("*")
+      .eq("channel", "Email")
       .order("sent_at", { ascending: false })
       .limit(20)
     if (error) {

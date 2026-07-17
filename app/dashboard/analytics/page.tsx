@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 
 import { AnalyticsView } from "@/components/dashboard/analytics-view";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
+import { FeatureLocked } from "@/components/dashboard/feature-locked";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { getLeads } from "@/lib/leads";
 import { getWidgetConfig } from "@/lib/db/widget.server";
+import { getCurrentSubscription } from "@/lib/subscription";
 
 export const metadata: Metadata = {
   title: "Analytics | AivaSpa Dashboard",
@@ -12,6 +14,10 @@ export const metadata: Metadata = {
 };
 
 export default async function AnalyticsPage() {
+  const subscription = await getCurrentSubscription()
+  if (!subscription.hasAccess("conversion_analytics")) {
+    return <FeatureLocked title="Analytics is a Growth feature" description="Upgrade to Growth for conversion trends, visitor intelligence, and performance insights." requiredPlan="growth" />
+  }
   const [leads, widget] = await Promise.all([
     getLeads(),
     getWidgetConfig().catch(() => null),

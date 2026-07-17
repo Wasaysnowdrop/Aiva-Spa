@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 
 import { ConversationsList } from "@/components/dashboard/conversations-list";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
+import { FeatureLocked } from "@/components/dashboard/feature-locked";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { getLeads, getLiveChatSessions } from "@/lib/leads";
+import { getCurrentSubscription } from "@/lib/subscription";
 
 export const metadata: Metadata = {
   title: "Conversations | AivaSpa Dashboard",
@@ -18,6 +20,10 @@ export default async function ConversationsPage({
   searchParams: Promise<{ conversation?: string }>
 }) {
   const { conversation } = await searchParams
+  const subscription = await getCurrentSubscription()
+  if (!subscription.hasAccess("conversation_history")) {
+    return <FeatureLocked title="Conversation history is a Growth feature" description="Upgrade to Growth to search and review complete visitor transcripts." requiredPlan="growth" />
+  }
   const [leads, liveSessions] = await Promise.all([
     getLeads(),
     getLiveChatSessions(60).catch(() => []),

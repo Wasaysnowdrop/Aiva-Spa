@@ -254,6 +254,33 @@ export function makeSupabaseClient(): MockSupabase & { results: Map<string, OpRe
   return buildClientWithSharedResults(new Map<string, OpResult>())
 }
 
+export function seedActiveSubscription(
+  mock: MockSupabase,
+  userId: string,
+  plan: "starter" | "growth" | "pro" = "pro",
+) {
+  const quotas = { starter: 300, growth: 1_500, pro: 5_000 } as const
+  mock.setResult("subscriptions", "select", {
+    data: {
+      id: `sub_${userId}`,
+      user_id: userId,
+      plan,
+      status: "active",
+      billing_interval: "monthly",
+      monthly_quota: quotas[plan],
+      conversations_used: 0,
+      period_start: "2026-07-01T00:00:00Z",
+      period_end: "2099-12-31T23:59:59Z",
+      trial_started_at: null,
+      trial_ends_at: null,
+      trial_popup_dismissed_at: null,
+      canceled_at: null,
+      pending_plan: null,
+      pending_plan_effective_at: null,
+    },
+    error: null,
+  })
+}
 /**
  * Install the Supabase mock onto @/lib/supabase/server, client, and admin.
  * Returns the mock objects so individual tests can configure per-table results.

@@ -27,7 +27,7 @@ const dataWeCollect = [
 
 const howWeUse = [
   "To operate the AI receptionist and deliver chat responses from your approved knowledge base.",
-  "To capture, deduplicate, and route consultation leads to your dashboard, email, and SMS.",
+  "To capture, deduplicate, and route consultation leads to your dashboard and email.",
   "To send you notifications about new leads, system updates, billing, and security alerts.",
   "To keep your account, workspace, and visitor data secure.",
   "To improve retrieval quality, monitor for abuse, and provide customer support.",
@@ -35,7 +35,7 @@ const howWeUse = [
 ];
 
 const howWeShare = [
-  "With subprocessors that help us run the service — for example our hosting provider, our AI model provider, our email and SMS providers, and our payment processor. A current list is available on request.",
+  "With subprocessors that help us run the service — for example our hosting provider, our AI model provider, our email provider, and our payment processor. A current list is available on request.",
   "With your team members and other authorized users inside your workspace.",
   "With your connected integrations when you explicitly enable them (for example Google Calendar).",
   "If we are legally required to do so, or to protect the rights, property, or safety of AivaSpa, our customers, or others.",

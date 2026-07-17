@@ -13,6 +13,7 @@ import {
 } from "@/components/landing/motion-primitives";
 import { Logo } from "@/components/logo";
 import { createClient } from "@/lib/supabase/server";
+import { PLAN_ENTITLEMENTS, PLAN_ORDER, PLANS, type PlanId } from "@/lib/subscription/plans";
 
 export const metadata: Metadata = {
   title: "Pricing | AivaSpa",
@@ -40,91 +41,46 @@ type Plan = {
   highlights: { label: string; value: string }[];
 };
 
-const plans: Plan[] = [
-  {
-    name: "Starter",
-    label: "For single-location med spas",
-    price: "$79",
+const planDescriptions: Record<PlanId, string> = {
+  starter: "Everything a small med spa needs to answer visitor questions, capture leads, and notify staff.",
+  growth: "Built for med spas that want more bookings, smarter lead handling, and better follow-up automation.",
+  pro: "For med spa groups that need multi-location routing, white-label branding, custom setup, and priority support.",
+}
+
+const plans: Plan[] = PLAN_ORDER.map((planId) => {
+  const plan = PLANS[planId]
+  const entitlements = PLAN_ENTITLEMENTS[planId]
+  const highlights =
+    planId === "growth"
+      ? [
+          { label: "Conversations", value: `${entitlements.monthlyConversations.toLocaleString()} / mo` },
+          { label: "Locations", value: `Up to ${entitlements.locations}` },
+          { label: "Languages", value: `${entitlements.languages} incl. RTL` },
+        ]
+      : planId === "pro"
+        ? [
+            { label: "Conversations", value: `${entitlements.monthlyConversations.toLocaleString()} / mo` },
+            { label: "Locations", value: `Up to ${entitlements.locations}` },
+            { label: "White-label", value: "Custom domain" },
+          ]
+        : [
+            { label: "Conversations", value: `${entitlements.monthlyConversations.toLocaleString()} / mo` },
+            { label: "Widgets", value: String(entitlements.widgets) },
+            { label: "Locations", value: String(entitlements.locations) },
+          ]
+  return {
+    name: plan.name,
+    label: plan.tagline,
+    price: planId === "pro" ? `From $${plan.priceMonthly}` : `$${plan.priceMonthly}`,
     period: "/month",
-    description:
-      "Everything a small med spa needs to answer visitor questions, capture leads, and notify staff.",
-    cta: { label: "Choose Starter", href: "/checkout/starter" },
-    accent: "#22D3EE",
-    features: [
-      "AI chat widget for your website",
-      "Answers from your approved knowledge base",
-      "Lead capture: name, phone, email, service, preferred time",
-      "Email notifications to staff",
-      "Basic leads dashboard",
-      "Standard widget branding and colors",
-      "Basic FAQ and service answers",
-      "Safe fallback for medical questions",
-      "Done-for-you setup included",
-    ],
-    highlights: [
-      { label: "Conversations", value: "300 / mo" },
-      { label: "Widgets", value: "1" },
-      { label: "Locations", value: "1" },
-    ],
-  },
-  {
-    name: "Growth",
-    label: "For active med spas",
-    price: "$149",
-    period: "/month",
-    description:
-      "Built for med spas that want more bookings, smarter lead handling, and better follow-up automation.",
-    cta: { label: "Start 7-day free trial", href: "/checkout/growth" },
-    featured: true,
-    accent: "#E2E54B",
-    features: [
-      "Everything in Starter",
-      "Up to 1,500 conversations/month",
-      "Full conversation history and transcripts",
-      "Lead scoring, tagging, and custom lead fields",
-      "Service-specific routing and hot-lead alerts",
-      "Calendar booking link support",
-      "Conversion funnel analytics",
-      "Visitor intelligence: location, device, referrer",
-      "Custom widget colors and greeting",
-      "Slack and Microsoft Teams notifications",
-      "Multi-language widget support",
-    ],
-    highlights: [
-      { label: "Conversations", value: "1,500 / mo" },
-      { label: "Locations", value: "1–2" },
-      { label: "Languages", value: "12 incl. RTL" },
-    ],
-  },
-  {
-    name: "Pro",
-    label: "For multi-location groups",
-    price: "From $299",
-    period: "/month",
-    description:
-      "For med spa groups that need multi-location routing, white-label branding, custom setup, and priority support.",
-    cta: { label: "Book demo", href: "mailto:sales@aivaspa.com?subject=Book%20a%20demo" },
-    accent: "#FF77E9",
-    features: [
-      "Everything in Growth",
-      "Up to 5 locations and unlimited widgets",
-      "Up to 5,000 conversations/month",
-      "White-label widget: hide AivaSpa branding",
-      "Custom domain support",
-      "Role-based access: owner, manager, staff, receptionist",
-      "Multi-location calendar routing",
-      "Advanced analytics",
-      "Audit log and HIPAA compliance reports",
-      "Dedicated account manager",
-      "White-glove setup included",
-    ],
-    highlights: [
-      { label: "Conversations", value: "5,000 / mo" },
-      { label: "Locations", value: "Up to 5" },
-      { label: "White-label", value: "Custom domain" },
-    ],
-  },
-];
+    description: planDescriptions[planId],
+    cta: { label: plan.cta, href: plan.ctaHref },
+    featured: planId === "growth",
+    accent: plan.accent,
+    features: plan.features,
+    highlights,
+  }
+})
 
 const comparisonRows: { feature: string; starter: string; growth: string; pro: string }[] = [
   { feature: "AI chat widget", starter: "1 website", growth: "2 websites", pro: "Unlimited" },
@@ -136,7 +92,7 @@ const comparisonRows: { feature: string; starter: string; growth: string; pro: s
   { feature: "Conversation history", starter: "—", growth: "Full history", pro: "Full history" },
   { feature: "Lead scoring and tagging", starter: "—", growth: "✓", pro: "✓" },
   { feature: "Calendar booking support", starter: "—", growth: "✓", pro: "Multi-location" },
-  { feature: "SMS and email reminders", starter: "—", growth: "✓ if configured", pro: "✓ if configured" },
+  { feature: "Email reminders", starter: "—", growth: "Included", pro: "Included" },
   { feature: "Visitor intelligence", starter: "—", growth: "Location, device, referrer", pro: "Location, device, referrer" },
   { feature: "Custom widget colors", starter: "Standard", growth: "Custom", pro: "White-label" },
   { feature: "Slack and Teams notifications", starter: "—", growth: "✓", pro: "✓" },
@@ -187,7 +143,7 @@ const footerColumns = [
   {
     title: "Features",
     color: "#E2E54B",
-    links: ["24/7 receptionist", "Approved KB answers", "Lead capture", "Email + SMS alerts", "Custom branding", "Multi-location"],
+    links: ["24/7 receptionist", "Approved KB answers", "Lead capture", "Email alerts", "Custom branding", "Multi-location"],
   },
   {
     title: "Company",

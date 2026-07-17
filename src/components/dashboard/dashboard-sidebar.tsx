@@ -43,7 +43,7 @@ export type SidebarUser = {
   spaName: string | null
   planName?: string | null
   planId?: string | null
-  planStatus?: "trialing" | "active" | "canceled" | "expired" | "none" | null
+  planStatus?: "trialing" | "active" | "canceled" | "expired" | "paused" | "payment_failed" | "none" | null
   trialDaysRemaining?: number
 }
 

@@ -7,8 +7,11 @@ import {
   TRIAL_QUOTA,
   getPlan,
   type PlanId,
-  type PlanPermissions,
+  type FeatureKey,
+  getPlanEntitlements,
+  isPlanId,
   planAllowsFeature,
+  planRank,
 } from "./plans"
 
 export type SubscriptionStatus =
@@ -16,6 +19,8 @@ export type SubscriptionStatus =
   | "active"
   | "canceled"
   | "expired"
+  | "paused"
+  | "payment_failed"
   | "none"
 
 export type SubscriptionRow = {
@@ -33,6 +38,9 @@ export type SubscriptionRow = {
   trialPopupDismissedAt: string | null
   trialUsed: boolean
   canceledAt: string | null
+  pendingPlan?: PlanId | null
+  pendingPlanEffectiveAt?: string | null
+  billingVariantId?: string | null
 }
 
 export type SubscriptionSnapshot = {
@@ -49,7 +57,7 @@ export type SubscriptionSnapshot = {
   quota: number
   used: number
   remaining: number
-  hasAccess: (feature: keyof PlanPermissions) => boolean
+  hasAccess: (feature: FeatureKey) => boolean
   canStartTrial: boolean
 }
 
@@ -68,13 +76,16 @@ type RawSubscription = {
   trial_popup_dismissed_at: string | null
   trial_used: boolean
   canceled_at: string | null
+  pending_plan?: string | null
+  pending_plan_effective_at?: string | null
+  billing_variant_id?: string | null
 }
 
 function mapRow(row: RawSubscription): SubscriptionRow {
   return {
     id: row.id,
     userId: row.user_id,
-    plan: (row.plan as PlanId) ?? "starter",
+    plan: isPlanId(row.plan) ? row.plan : "starter",
     status: (row.status as SubscriptionStatus) ?? "trialing",
     billingInterval: (row.billing_interval as "monthly" | "yearly") ?? "monthly",
     monthlyQuota: row.monthly_quota,
@@ -86,6 +97,9 @@ function mapRow(row: RawSubscription): SubscriptionRow {
     trialPopupDismissedAt: row.trial_popup_dismissed_at,
     trialUsed: row.trial_used ?? false,
     canceledAt: row.canceled_at,
+    pendingPlan: row.pending_plan && row.pending_plan in PLANS ? row.pending_plan as PlanId : null,
+    pendingPlanEffectiveAt: row.pending_plan_effective_at ?? null,
+    billingVariantId: row.billing_variant_id ?? null,
   }
 }
 
@@ -132,19 +146,23 @@ export function deriveSnapshot(
   }
 
   const isTrialing = status === "trialing"
-  const isActive = status === "active" || status === "trialing"
+  const canceledStillEntitled = status === "canceled" && periodEnd.getTime() > now.getTime()
+  const isActive = status === "active" || status === "trialing" || canceledStillEntitled
   const isLocked = !isActive
+  const pendingEffective = row.pendingPlan && row.pendingPlanEffectiveAt
+    ? new Date(row.pendingPlanEffectiveAt).getTime() <= now.getTime()
+    : false
+  const plan = getPlan(pendingEffective ? row.pendingPlan : row.plan)
+  const canonicalQuota = getPlanEntitlements(plan.id).monthlyConversations
 
   const isQuotaExhausted =
     isActive &&
-    row.monthlyQuota !== Number.MAX_SAFE_INTEGER &&
-    row.conversationsUsed >= row.monthlyQuota
+    canonicalQuota !== Number.MAX_SAFE_INTEGER &&
+    row.conversationsUsed >= canonicalQuota
 
   const trialDaysRemaining = trialEndsAt
     ? Math.max(0, Math.ceil((trialEndsAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
     : 0
-
-  const plan = getPlan(row.plan)
 
   return {
     row: { ...row, status },
@@ -157,13 +175,13 @@ export function deriveSnapshot(
     isQuotaExhausted,
     trialDaysRemaining,
     trialEndsAt,
-    quota: row.monthlyQuota,
+    quota: canonicalQuota,
     used: row.conversationsUsed,
     remaining:
-      row.monthlyQuota === Number.MAX_SAFE_INTEGER
+      canonicalQuota === Number.MAX_SAFE_INTEGER
         ? Number.MAX_SAFE_INTEGER
-        : Math.max(0, row.monthlyQuota - row.conversationsUsed),
-    hasAccess: (feature: keyof PlanPermissions) =>
+        : Math.max(0, canonicalQuota - row.conversationsUsed),
+    hasAccess: (feature: FeatureKey) =>
       isActive && planAllowsFeature(plan.id, feature),
     canStartTrial: !row.trialUsed && !row.trialStartedAt,
   }
@@ -171,8 +189,9 @@ export function deriveSnapshot(
 
 export async function getSubscriptionForUser(
   userId: string,
+  client?: SupabaseClient,
 ): Promise<SubscriptionSnapshot> {
-  const supabase = await createClient()
+  const supabase = client ?? (await createClient())
   const { data, error } = await supabase
     .from("subscriptions")
     .select("*")
@@ -278,7 +297,7 @@ export async function ensureTrialSubscription(
 }
 
 export type UpgradeResult =
-  | { ok: true; plan: PlanId }
+  | { ok: true; plan: PlanId; effectiveAt: string | null }
   | { ok: false; error: string }
 
 export async function activatePaidPlan(
@@ -291,32 +310,68 @@ export async function activatePaidPlan(
   if (!plan) return { ok: false, error: "Unknown plan." }
 
   const supabase = await createClient()
-  const { data: existing } = await supabase
+  const { data: existingData, error: existingError } = await supabase
     .from("subscriptions")
-    .select("id")
+    .select("*")
     .eq("user_id", userId)
     .maybeSingle()
+  if (existingError) return { ok: false, error: existingError.message }
 
+  const existing = existingData ? mapRow(existingData as RawSubscription) : null
   const now = new Date()
-  const periodEnd = nextPeriodEnd(now)
+  const currentPeriodEnd = existing ? new Date(existing.periodEnd) : null
+  const currentStillActive = existing ? deriveSnapshot(existing, now).isActive : false
+  const isDowngrade =
+    currentStillActive &&
+    existing &&
+    planRank(planId) < planRank(existing.plan) &&
+    currentPeriodEnd &&
+    currentPeriodEnd.getTime() > now.getTime()
 
+  const variantId =
+    planId === "starter"
+      ? process.env.LEMON_SQUEEZY_STARTER_VARIANT_ID
+      : planId === "growth"
+        ? process.env.LEMON_SQUEEZY_GROWTH_VARIANT_ID
+        : process.env.LEMON_SQUEEZY_PRO_VARIANT_ID
+
+  if (isDowngrade && existing && currentPeriodEnd) {
+    const { error } = await supabase
+      .from("subscriptions")
+      .update({
+        pending_plan: planId,
+        pending_plan_effective_at: currentPeriodEnd.toISOString(),
+        billing_variant_id: variantId ?? null,
+      } as never)
+      .eq("id", existing.id)
+      .eq("user_id", userId)
+    if (error) return { ok: false, error: error.message }
+    return { ok: true, plan: planId, effectiveAt: currentPeriodEnd.toISOString() }
+  }
+
+  const periodEnd = interval === "yearly"
+    ? new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000)
+    : nextPeriodEnd(now)
   const payload = {
     plan: plan.id,
     status: "active",
     billing_interval: interval,
-    monthly_quota: plan.monthlyQuota,
+    monthly_quota: getPlanEntitlements(plan.id).monthlyConversations,
     conversations_used: 0,
     period_start: now.toISOString(),
     period_end: periodEnd.toISOString(),
     canceled_at: null,
+    pending_plan: null,
+    pending_plan_effective_at: null,
+    billing_variant_id: variantId ?? null,
   }
 
-  const existingId = (existing as { id?: string } | null)?.id
-  if (existingId) {
+  if (existing?.id) {
     const { error } = await supabase
       .from("subscriptions")
       .update(payload as never)
-      .eq("id", existingId)
+      .eq("id", existing.id)
+      .eq("user_id", userId)
     if (error) return { ok: false, error: error.message }
   } else {
     const { error } = await supabase
@@ -325,12 +380,8 @@ export async function activatePaidPlan(
     if (error) return { ok: false, error: error.message }
   }
 
-  // Persist card last 4 on the auth user metadata so settings can show it
-  await supabase.auth.updateUser({
-    data: { card_last4: cardLast4 },
-  })
-
-  return { ok: true, plan: plan.id }
+  await supabase.auth.updateUser({ data: { card_last4: cardLast4 } })
+  return { ok: true, plan: plan.id, effectiveAt: null }
 }
 
 export async function dismissTrialPopup(userId: string) {

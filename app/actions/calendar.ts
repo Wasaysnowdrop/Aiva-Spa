@@ -8,6 +8,7 @@ import { mapCalendarBooking, type CalendarBooking, type CalendarBookingStatus } 
 import { checkActionLimit } from "@/lib/security/check-action-limit"
 import { LIMITS } from "@/lib/security/limits"
 import { createClient } from "@/lib/supabase/server"
+import { EntitlementError, entitlementErrorPayload, requireFeatureForUser } from "@/lib/subscription/entitlements.server"
 
 export type CalendarActionResult<T = void> =
   | { ok: true; data: T }
@@ -25,14 +26,19 @@ export type SaveBookingInput = {
   timezone: string
   notes?: string
   reminderEmailEnabled: boolean
-  reminderSmsEnabled: boolean
 }
 
 async function requireCalendarUser() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect("/login?redirectTo=/dashboard/calendar")
-  return { supabase, user }
+  try {
+    await requireFeatureForUser(user.id, "calendar_booking_links", supabase)
+  } catch (error) {
+    if (error instanceof EntitlementError) return { supabase, user, entitlementError: entitlementErrorPayload(error) }
+    throw error
+  }
+  return { supabase, user, entitlementError: null }
 }
 
 function validTimeZone(timeZone: string): boolean {
@@ -49,7 +55,8 @@ export async function saveBookingAction(
 ): Promise<CalendarActionResult<CalendarBooking>> {
   const limit = await checkActionLimit(LIMITS.calendarBookings)
   if (!limit.ok) return { ok: false, error: limit.error, errorType: "RATE_LIMITED" }
-  const { supabase, user } = await requireCalendarUser()
+  const { supabase, user, entitlementError } = await requireCalendarUser()
+  if (entitlementError) return entitlementError
   const startAt = new Date(input.startAtIso)
   const duration = Math.round(Number(input.durationMinutes))
   const service = input.service.trim()
@@ -158,7 +165,6 @@ export async function saveBookingAction(
     timezone,
     notes: input.notes?.trim() || null,
     reminder_email_enabled: input.reminderEmailEnabled,
-    reminder_sms_enabled: input.reminderSmsEnabled,
     status: "confirmed",
   }
 
@@ -197,7 +203,8 @@ export async function updateBookingStatusAction(
 ): Promise<CalendarActionResult<CalendarBooking>> {
   const limit = await checkActionLimit(LIMITS.calendarBookings)
   if (!limit.ok) return { ok: false, error: limit.error, errorType: "RATE_LIMITED" }
-  const { supabase, user } = await requireCalendarUser()
+  const { supabase, user, entitlementError } = await requireCalendarUser()
+  if (entitlementError) return entitlementError
   if (!bookingId || !["confirmed", "completed", "cancelled", "no_show"].includes(status)) {
     return { ok: false, error: "Invalid booking status.", errorType: "VALIDATION_ERROR" }
   }

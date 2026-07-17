@@ -273,7 +273,7 @@ const notificationStatuses: readonly NotificationStatus[] = ["delivered", "pendi
 const widgetPositions: readonly WidgetPosition[] = ["bottom-right", "bottom-left"]
 const chatSessionStatuses: readonly ChatSessionStatus[] = ["active", "captured", "abandoned"]
 const conversationTypes = ["visitor", "onboarding", "internal", "test", "support"] as const
-const conversationChannels = ["website_widget", "onboarding_assistant", "dashboard_internal", "sms", "email"] as const
+const conversationChannels = ["website_widget", "onboarding_assistant", "dashboard_internal", "email"] as const
 const conversationEnvironments = ["production", "preview", "test"] as const
 
 type DbRecord = Record<string, unknown>

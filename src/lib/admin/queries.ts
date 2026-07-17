@@ -9,13 +9,11 @@ export type SystemHealth = {
   uptimeSeconds: number
   naraConfigured: boolean
   resendConfigured: boolean
-  twilioConfigured: boolean
   customCalendarConfigured: boolean
   totals: {
     users: number
     leads: number
     chatSessions: number
-    apiKeys: number
     webhooks: number
     subscriptions: number
   }
@@ -63,7 +61,6 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     users: 0,
     leads: 0,
     chatSessions: 0,
-    apiKeys: 0,
     webhooks: 0,
     subscriptions: 0,
   }
@@ -98,15 +95,14 @@ export async function getSystemHealth(): Promise<SystemHealth> {
         return 0
       }
     }
-    const [users, leads, sessions, apiKeys, webhooks, subs] = await Promise.all([
+    const [users, leads, sessions, webhooks, subs] = await Promise.all([
       countAllUsers(),
       safeCount("leads"),
       safeCount("chat_sessions"),
-      safeCount("api_keys"),
       safeCount("webhooks"),
       safeCount("subscriptions"),
     ])
-    totals = { users, leads, chatSessions: sessions, apiKeys, webhooks, subscriptions: subs }
+    totals = { users, leads, chatSessions: sessions, webhooks, subscriptions: subs }
   } catch {
     checks.database = "down"
   }
@@ -212,9 +208,6 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     uptimeSeconds: Math.floor((Date.now() - BOOT_TIME) / 1000),
     naraConfigured: llmConfigured,
     resendConfigured: Boolean(process.env.RESEND_API_KEY?.trim()),
-    twilioConfigured: Boolean(
-      process.env.TWILIO_ACCOUNT_SID?.trim() && process.env.TWILIO_AUTH_TOKEN?.trim() && process.env.TWILIO_FROM_NUMBER?.trim(),
-    ),
     customCalendarConfigured: Boolean(
       process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() &&
         process.env.GOOGLE_OAUTH_CLIENT_SECRET?.trim() &&
@@ -307,7 +300,6 @@ export async function getDatabaseHealth() {
     "widget_installs",
     "spa_settings",
     "subscriptions",
-    "api_keys",
     "webhooks",
     "webhook_deliveries",
     "notification_channels",

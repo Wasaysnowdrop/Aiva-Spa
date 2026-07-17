@@ -32,7 +32,6 @@ export type CalendarBooking = {
   notes: string | null
   status: CalendarBookingStatus
   reminderEmailEnabled: boolean
-  reminderSmsEnabled: boolean
   cancelledAt: string | null
   cancelReason: string | null
   createdAt: string
@@ -64,7 +63,6 @@ export function mapCalendarBooking(row: DbRecord): CalendarBooking {
     notes: stringValue(row.notes) || null,
     status: stringValue(row.status, "confirmed") as CalendarBookingStatus,
     reminderEmailEnabled: Boolean(row.reminder_email_enabled ?? row.reminderEmailEnabled ?? true),
-    reminderSmsEnabled: Boolean(row.reminder_sms_enabled ?? row.reminderSmsEnabled ?? true),
     cancelledAt: stringValue(row.cancelled_at ?? row.cancelledAt) || null,
     cancelReason: stringValue(row.cancel_reason ?? row.cancelReason) || null,
     createdAt: stringValue(row.created_at ?? row.createdAt),

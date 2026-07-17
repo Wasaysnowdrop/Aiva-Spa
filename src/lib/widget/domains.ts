@@ -2,8 +2,7 @@ import "server-only"
 
 import { createAdminClient } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
-import { getCurrentSubscription } from "@/lib/subscription"
-import { PLANS } from "@/lib/subscription/plans"
+import { requireFeatureForUser, assertPlanLimit, EntitlementError } from "@/lib/subscription/entitlements.server"
 
 export type CustomDomainStatus = "pending" | "active" | "disabled"
 
@@ -132,24 +131,24 @@ export async function createCustomDomain(
     return { ok: false, code: "invalid", error: "spaId is required" }
   }
 
-  const sub = await getCurrentSubscription()
-  const plan = PLANS[sub.planId]
-  if (!plan.whiteLabel) {
-    return {
-      ok: false,
-      code: "plan",
-      error: "Custom domains are available on the Pro and Agency plans.",
+  let context
+  try {
+    context = await requireFeatureForUser(userId, "custom_domain")
+  } catch (error) {
+    if (error instanceof EntitlementError) {
+      return { ok: false, code: "plan", error: error.message }
     }
+    throw error
   }
 
   const existing = await listCustomDomains(userId)
-  const max = plan.maxCustomDomains ?? 1
-  if (existing.length >= max) {
-    return {
-      ok: false,
-      code: "limit",
-      error: `Your ${plan.name} plan allows ${max} custom domain${max === 1 ? "" : "s"}.`,
+  try {
+    assertPlanLimit(context, "customDomains", existing.length)
+  } catch (error) {
+    if (error instanceof EntitlementError) {
+      return { ok: false, code: "limit", error: error.message }
     }
+    throw error
   }
 
   const supabase = await createClient()

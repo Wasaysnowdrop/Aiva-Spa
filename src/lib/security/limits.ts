@@ -86,7 +86,6 @@ export const LIMITS = {
   // -------------------------------------------------------------------
   actionLeads: { bucket: "action:leads", options: { maxRequests: 60, windowMs: minutes(1) } } as const,
   actionWebhooks: { bucket: "action:webhooks", options: { maxRequests: 30, windowMs: minutes(1) } } as const,
-  actionApiKeys: { bucket: "action:api-keys", options: { maxRequests: 15, windowMs: minutes(1) } } as const,
   actionWidget: { bucket: "action:widget", options: { maxRequests: 60, windowMs: minutes(1) } } as const,
   actionWidgetInstalls: { bucket: "action:widget-installs", options: { maxRequests: 30, windowMs: minutes(1) } } as const,
   actionKnowledge: { bucket: "action:knowledge", options: { maxRequests: 60, windowMs: minutes(1) } } as const,

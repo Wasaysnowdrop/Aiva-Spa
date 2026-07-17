@@ -82,7 +82,7 @@ const SECTION_TIP: Record<SetupAssistantSection, string> = {
   faqs: "Your top 10 visitor questions and approved answers.",
   disclaimers: "Pricing, medical, and consent text.",
   brand_voice: "Tone, greeting, phrases to avoid.",
-  notifications: "Email and SMS recipients for new leads.",
+  notifications: "Email recipients for new leads.",
   review: "Confirm the final knowledge base and publish.",
 }
 
@@ -116,7 +116,7 @@ const SUGGESTIONS: Record<SetupAssistantSection, string[]> = {
     "Friendly and luxurious. Never use 'cheap' or 'guaranteed'.",
   ],
   notifications: [
-    "Send new leads to frontdesk@yourmedspa.com and SMS to (555) 123-4567.",
+    "Send new leads to frontdesk@yourmedspa.com.",
     "Just email me at owner@yourmedspa.com.",
   ],
   review: ["Looks good, publish it."],
@@ -203,8 +203,7 @@ function brandSummary(kb: KnowledgeBase): string {
 
 function notificationsSummary(kb: KnowledgeBase): string {
   const emails = kb.notifications?.emailRecipients?.length ?? 0
-  const sms = kb.notifications?.smsRecipients?.length ?? 0
-  return `${emails} email \u00b7 ${sms} SMS`
+  return `${emails} email recipient${emails === 1 ? "" : "s"}`
 }
 
 const SECTION_SUMMARY: Record<SetupAssistantSection, (kb: KnowledgeBase) => string> = {

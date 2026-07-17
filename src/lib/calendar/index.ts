@@ -47,7 +47,7 @@ export type CalendarBookingRow = {
 export type CalendarReminderRow = {
   id: string
   bookingId: string
-  channel: "email" | "sms"
+  channel: "email"
   recipient: string
   sendAt: string
   sentAt: string | null
@@ -452,10 +452,12 @@ export async function createBooking(
     .from("calendar_reminders")
     .select("*")
     .eq("booking_id", booking.id)
-  const reminders = ((reminderRows ?? []) as unknown as Record<string, unknown>[]).map((r) => ({
+  const reminders = ((reminderRows ?? []) as unknown as Record<string, unknown>[])
+    .filter((r) => String(r.channel) === "email")
+    .map((r) => ({
     id: String(r.id),
     bookingId: String(r.booking_id),
-    channel: String(r.channel) as "email" | "sms",
+    channel: "email" as const,
     recipient: String(r.recipient),
     sendAt: String(r.send_at),
     sentAt: typeof r.sent_at === "string" ? r.sent_at : null,
@@ -515,7 +517,7 @@ export async function cancelBooking(
 export function planHasCalendar(planId: string | null | undefined): boolean {
   if (!planId) return false
   if (!isKnownPlanId(planId)) return true
-  return planAllowsFeature(planId, "calendar_support")
+  return planAllowsFeature(planId, "calendar_booking_links")
 }
 
 function isKnownPlanId(planId: string): planId is PlanId {

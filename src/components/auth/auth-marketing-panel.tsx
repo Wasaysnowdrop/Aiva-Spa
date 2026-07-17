@@ -7,7 +7,7 @@ import { AnimatedDashboardPreview } from "@/components/landing/animated-dashboar
 
 const notification = {
   icon: Bell,
-  channel: "Email + SMS",
+  channel: "Email alerts",
   recipient: "Owner · Glow Medspa",
   body: "New lead: Sarah K. — Botox consult, Sat 2–4pm",
   time: "just now",

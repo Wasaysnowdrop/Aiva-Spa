@@ -127,12 +127,12 @@ describe("POST /api/leads (public lead capture)", () => {
       ok: boolean
       leadId: string
       merged: boolean
-      notifications: { email: number; sms: number; failed: number }
+      notifications: { email: number; failed: number }
     }
     expect(body.ok).toBe(true)
     expect(body.leadId).toBe("lead_abc")
     expect(body.merged).toBe(false)
-    expect(body.notifications).toEqual({ email: 0, sms: 0, failed: 0 })
+    expect(body.notifications).toEqual({ email: 0, failed: 0 })
 
     // CORS header
     expect(res.headers.get("access-control-allow-origin")).toBe("*")
@@ -425,241 +425,15 @@ describe("GET /api/dashboard/live", () => {
   })
 })
 
-describe("POST /api/v1/leads (API-key authed)", () => {
-  it("GET returns the supported events list", async () => {
-    installSupabaseMocks()
-    const { GET } = await import("@/app/api/v1/leads/route")
-    const res = await GET(new Request("http://localhost:3000/api/v1/leads"))
-    const body = (await res.json()) as {
-      events_supported: string[]
-      info: string
-    }
-    expect(body.events_supported).toContain("lead.created")
-    expect(body.events_supported).toContain("conversation.started")
-  })
-
-  it("OPTIONS responds 204 with CORS headers", async () => {
-    installSupabaseMocks()
-    const { OPTIONS } = await import("@/app/api/v1/leads/route")
-    const res = OPTIONS(new Request("http://localhost:3000/api/v1/leads"))
-    expect(res.status).toBe(204)
-    expect(res.headers.get("access-control-allow-origin")).toBeTruthy()
-  })
-
-  it("rejects requests without an API key", async () => {
-    installSupabaseMocks()
-    const { POST } = await import("@/app/api/v1/leads/route")
-    const req = new Request("http://localhost:3000/api/v1/leads", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({}),
+describe("/api/v1/leads is retired", () => {
+  it.each(["GET", "POST", "OPTIONS"] as const)("%s returns a controlled feature-disabled response", async (method) => {
+    const route = await import("@/app/api/v1/leads/route")
+    const response = await route[method](new Request("http://localhost:3000/api/v1/leads", { method }))
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      errorType: "FEATURE_DISABLED",
+      feature: "external_api",
     })
-    const res = await POST(req as never)
-    expect(res.status).toBe(401)
-    const body = (await res.json()) as { error: string }
-    expect(body.error).toMatch(/API key/i)
-  })
-
-  it("rejects requests where the API key is unknown", async () => {
-    const { server } = installSupabaseMocks()
-    server.setResult("api_keys", "select", { data: null, error: null })
-
-    const { POST } = await import("@/app/api/v1/leads/route")
-    const req = new Request("http://localhost:3000/api/v1/leads", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": "aiva_live_does_not_exist",
-      },
-      body: JSON.stringify({}),
-    })
-    const res = await POST(req as never)
-    expect(res.status).toBe(401)
-  })
-
-  it("rejects a valid key without leads:write scope", async () => {
-    const { server } = installSupabaseMocks()
-    server.setResult("api_keys", "select", {
-      data: [
-        {
-          id: "key_1",
-          user_id: "u_owner",
-          scopes: ["leads:read"],
-          revoked_at: null,
-          expires_at: null,
-        },
-      ],
-      error: null,
-    })
-
-    const { POST } = await import("@/app/api/v1/leads/route")
-    const req = new Request("http://localhost:3000/api/v1/leads", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": "aiva_live_anything" },
-      body: JSON.stringify({
-        name: "x",
-        phone: "4155550100",
-        service: "Botox",
-        preferredTime: "Tue",
-      }),
-    })
-    const res = await POST(req as never)
-    expect(res.status).toBe(403)
-    const body = (await res.json()) as { error: string }
-    expect(body.error).toMatch(/leads:write/)
-  })
-
-  it("validates required fields (name, phone, service, preferredTime)", async () => {
-    const { server } = installSupabaseMocks()
-    server.setResult("api_keys", "select", {
-      data: [
-        {
-          id: "key_1",
-          user_id: "u_owner",
-          scopes: ["leads:write"],
-          revoked_at: null,
-          expires_at: null,
-        },
-      ],
-      error: null,
-    })
-
-    const { POST } = await import("@/app/api/v1/leads/route")
-    const req = new Request("http://localhost:3000/api/v1/leads", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": "aiva_live_anything" },
-      body: JSON.stringify({ name: "only" }),
-    })
-    const res = await POST(req as never)
-    expect(res.status).toBe(400)
-    const body = (await res.json()) as { error: string }
-    expect(body.error).toMatch(/required|invalid|expected/i)
-  })
-
-  it("rejects an invalid email", async () => {
-    const { server } = installSupabaseMocks()
-    server.setResult("api_keys", "select", {
-      data: [
-        {
-          id: "key_1",
-          user_id: "u_owner",
-          scopes: ["leads:write"],
-          revoked_at: null,
-          expires_at: null,
-        },
-      ],
-      error: null,
-    })
-
-    const { POST } = await import("@/app/api/v1/leads/route")
-    const req = new Request("http://localhost:3000/api/v1/leads", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": "aiva_live_anything" },
-      body: JSON.stringify({
-        name: "Jane",
-        phone: "4155550100",
-        service: "Botox",
-        preferredTime: "Tue",
-        email: "not-an-email",
-      }),
-    })
-    const res = await POST(req as never)
-    expect(res.status).toBe(400)
-    const body = (await res.json()) as { error: string }
-    expect(body.error).toMatch(/email/i)
-  })
-
-  it("accepts Bearer auth, creates a lead, returns 201", async () => {
-    const { server, admin } = installSupabaseMocks()
-    server.setResult("api_keys", "select", {
-      data: [
-        {
-          id: "key_1",
-          user_id: "u_owner",
-          scopes: ["leads:write"],
-          revoked_at: null,
-          expires_at: null,
-        },
-      ],
-      error: null,
-    })
-    server.setResult("widget_config", "select", {
-      data: [
-        {
-          id: "w1",
-          brand_name: "Glow Med Spa",
-          welcome_message: "Hi",
-          proactive_message: "x",
-          consent_text: "x",
-          primary_color: "#E2E54B",
-          position: "bottom-right",
-          proactive_enabled: true,
-          proactive_delay_seconds: 8,
-          show_branding: true,
-          collect_email: true,
-          collect_phone: true,
-          logo_initial: "G",
-          working_hours: { enabled: false, tz: "UTC", schedule: [] },
-        },
-      ],
-      error: null,
-    })
-    server.setResult("knowledge_services", "select", { data: [], error: null })
-    server.setResult("knowledge_faqs", "select", { data: [], error: null })
-    server.setResult("knowledge_guardrails", "select", { data: [], error: null })
-    admin.setResult("leads", "select", { data: [], error: null })
-    admin.setResult("leads", "insert", {
-      data: [
-        {
-          id: "lead_v1",
-          name: "Jane",
-          phone: "4155550100",
-          email: "jane@example.com",
-          service: "Botox",
-          preferred_time: "Tue",
-          source: "Direct Link",
-          source_url: "/",
-          after_hours: false,
-          consent_given: true,
-          status: "new",
-          created_at: "2024-01-01T00:00:00Z",
-          last_activity_at: "2024-01-01T00:00:00Z",
-          assigned_to: null,
-          merged_into_id: null,
-          merged_at: null,
-          merged_from: [],
-          notes: null,
-          phone_normalized: "4155550100",
-          email_normalized: "jane@example.com",
-          transcript: [],
-        },
-      ],
-      error: null,
-    })
-    admin.setResult("chat_sessions", "update", { data: null, error: null })
-    admin.setResult("notification_channels", "select", { data: [], error: null })
-
-    const { POST } = await import("@/app/api/v1/leads/route")
-    const req = new Request("http://localhost:3000/api/v1/leads", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: "Bearer aiva_live_anything",
-      },
-      body: JSON.stringify({
-        name: "Jane",
-        phone: "4155550100",
-        email: "jane@example.com",
-        service: "Botox",
-        preferredTime: "Tue",
-        notes: "External system lead — wants a Botox consult next week.",
-      }),
-    })
-    const res = await POST(req as never)
-    expect(res.status).toBe(201)
-    const body = (await res.json()) as { ok: boolean; leadId: string; lead: { id: string } }
-    expect(body.ok).toBe(true)
-    expect(body.leadId).toBe("lead_v1")
-    expect(body.lead.id).toBe("lead_v1")
   })
 })

@@ -18,7 +18,7 @@ export type ServerActionLimitResult =
  *
  * Usage:
  *
- *   const limit = await checkActionLimit(LIMITS.actionApiKeys, { email })
+ *   const limit = await checkActionLimit(LIMITS.actionSettings, { email })
  *   if (!limit.ok) return limit
  */
 export async function checkActionLimit(

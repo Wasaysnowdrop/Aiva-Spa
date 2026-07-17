@@ -5,7 +5,6 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { SettingsView } from "@/components/dashboard/settings-view";
 import { createClient } from "@/lib/supabase/server";
 import { getCardLast4, getCurrentSubscription, backfillConversationsFromSessions } from "@/lib/subscription";
-import { listApiKeys } from "@/app/actions/api-keys";
 import {
   getNotificationChannelsServer,
   getNotificationLogsServer,
@@ -19,7 +18,7 @@ import type {
 
 export const metadata: Metadata = {
   title: "Settings | AivaSpa Dashboard",
-  description: "Manage account, notifications, integrations, privacy, billing, and API.",
+  description: "Manage account, email notifications, privacy, and billing.",
 };
 
 export default async function SettingsPage() {
@@ -47,9 +46,6 @@ export default async function SettingsPage() {
   const periodEnd = refreshedSubscription.row?.periodEnd ?? new Date().toISOString();
   const trialStartedAt = refreshedSubscription.row?.trialStartedAt ?? null;
 
-  // API keys remain available; outgoing webhooks are intentionally not exposed in Settings.
-  const apiKeys = await listApiKeys().catch(() => [])
-
   let initialChannels: NotificationChannelConfig[] = []
   let initialLogs: NotificationLog[] = []
   let initialSpaSettings: SpaSettings | null = null
@@ -73,7 +69,7 @@ export default async function SettingsPage() {
       <div className="mx-auto w-full max-w-7xl px-5 pb-16 pt-8 lg:px-8">
         <PageHeader
           title="Settings"
-          description="Account, notifications, integrations, privacy, billing, and developer settings."
+          description="Account, email notifications, privacy, and billing settings."
         />
         <SettingsView
           accountEmail={accountEmail}
@@ -94,9 +90,8 @@ export default async function SettingsPage() {
             trialDaysRemaining: refreshedSubscription.trialDaysRemaining,
             cardLast4,
             isUnlimited,
-          }}
-          api={{
-            initialKeys: apiKeys,
+            pendingPlan: refreshedSubscription.row?.pendingPlan ?? null,
+            pendingPlanEffectiveAt: refreshedSubscription.row?.pendingPlanEffectiveAt ?? null,
           }}
         />
       </div>

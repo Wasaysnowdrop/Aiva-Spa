@@ -22,12 +22,12 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { cancelSubscription } from "@/app/actions/subscription";
-import { PLANS, type PlanId, getFeaturePermissions } from "@/lib/subscription/plans";
+import { PLANS, type PlanId } from "@/lib/subscription/plans";
 
 export type BillingViewProps = {
   planId: PlanId;
   planName: string;
-  status: "trialing" | "active" | "canceled" | "expired" | "none";
+  status: "trialing" | "active" | "canceled" | "expired" | "paused" | "payment_failed" | "none";
   billingInterval: "monthly" | "yearly";
   monthlyQuota: number;
   used: number;
@@ -38,6 +38,8 @@ export type BillingViewProps = {
   trialDaysRemaining: number;
   cardLast4: string;
   isUnlimited: boolean;
+  pendingPlan: PlanId | null;
+  pendingPlanEffectiveAt: string | null;
 };
 
 const STATUS_META: Record<
@@ -61,6 +63,18 @@ const STATUS_META: Record<
     color: "#EB5757",
     bg: "bg-[#EB5757]/15",
     description: "Your subscription has been canceled. Access ends at the period close.",
+  },
+  paused: {
+    label: "Paused",
+    color: "#EB5757",
+    bg: "bg-[#EB5757]/15",
+    description: "Billing is paused. Restore the subscription to regain access.",
+  },
+  payment_failed: {
+    label: "Payment failed",
+    color: "#EB5757",
+    bg: "bg-[#EB5757]/15",
+    description: "Payment failed. Update billing to restore access.",
   },
   expired: {
     label: "Expired",
@@ -89,6 +103,8 @@ export function BillingView(props: BillingViewProps) {
     trialDaysRemaining,
     cardLast4,
     isUnlimited,
+    pendingPlan,
+    pendingPlanEffectiveAt,
   } = props;
 
   const router = useRouter();
@@ -169,6 +185,11 @@ export function BillingView(props: BillingViewProps) {
               <p className="mt-2 max-w-md text-sm text-[#8A8F98]">
                 {meta.description}
               </p>
+              {pendingPlan && pendingPlanEffectiveAt ? (
+                <p className="mt-2 text-xs font-medium text-[#E2E54B]">
+                  Changes to {PLANS[pendingPlan].name} on {formatDate(pendingPlanEffectiveAt)}.
+                </p>
+              ) : null}
             </div>
             <div className="text-right">
               <p className="text-2xl font-bold tracking-tight text-[#F7F8F8]">
@@ -265,9 +286,7 @@ export function BillingView(props: BillingViewProps) {
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <MiniStat label="Daily limit" value={isUnlimited ? "∞" : `~${Math.round(monthlyQuota / 30)}`} />
             <MiniStat label="Locations" value={plan.maxLocations === Number.MAX_SAFE_INTEGER ? "∞" : String(plan.maxLocations)} />
-            <MiniStat label="Widgets" value={plan.maxWidgets === Number.MAX_SAFE_INTEGER ? "∞" : String(plan.maxWidgets)} />
-            <MiniStat label="SMS alerts" value={planAllowsSms(planId) ? "✓" : "—"} />
-          </div>
+            <MiniStat label="Widgets" value={plan.maxWidgets === Number.MAX_SAFE_INTEGER ? "∞" : String(plan.maxWidgets)} />          </div>
         </section>
 
         {/* Cancel */}
@@ -477,8 +496,4 @@ function formatDate(iso: string) {
 function isUpgrade(current: PlanId, target: PlanId) {
   const order: PlanId[] = ["starter", "growth", "pro"]
   return order.indexOf(target) > order.indexOf(current)
-}
-
-function planAllowsSms(id: PlanId) {
-  return getFeaturePermissions(id).sms_reminders
 }

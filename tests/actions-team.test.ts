@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { installSupabaseMocks } from "./helpers/mock-supabase"
+import { installSupabaseMocks, seedActiveSubscription } from "./helpers/mock-supabase"
 
 beforeEach(() => {
   vi.resetModules()
@@ -10,6 +10,7 @@ describe("inviteTeamMemberAction", () => {
   it("rejects an invalid email", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_1", email: "owner@spa.com" })
+    seedActiveSubscription(server, "u_1")
     const { inviteTeamMemberAction } = await import("@/app/actions/team")
     const result = await inviteTeamMemberAction({
       email: "not-an-email",
@@ -24,6 +25,7 @@ describe("inviteTeamMemberAction", () => {
   it("rejects an Owner role assignment", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_1", email: "owner@spa.com" })
+    seedActiveSubscription(server, "u_1")
     const { inviteTeamMemberAction } = await import("@/app/actions/team")
     const result = await inviteTeamMemberAction({
       email: "alex@spa.com",
@@ -38,6 +40,7 @@ describe("inviteTeamMemberAction", () => {
   it("creates a team_members row and returns an invite URL", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_1", email: "owner@spa.com" })
+    seedActiveSubscription(server, "u_1")
     server.setResult("team_members", "select", { data: null, error: null })
     server.setResult("team_members", "insert", {
       data: [{ id: "tm_1" }],
@@ -76,6 +79,7 @@ describe("inviteTeamMemberAction", () => {
   it("updates the existing row if the email already exists", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_1", email: "owner@spa.com" })
+    seedActiveSubscription(server, "u_1")
     server.setResult("team_members", "select", {
       data: [{ id: "tm_existing", status: "invited" }],
       error: null,
@@ -102,6 +106,7 @@ describe("inviteTeamMemberAction", () => {
   it("blocks the invite if the email is already an active member", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_1", email: "owner@spa.com" })
+    seedActiveSubscription(server, "u_1")
     server.setResult("team_members", "select", {
       data: [{ id: "tm_existing", status: "active" }],
       error: null,
@@ -122,6 +127,7 @@ describe("updateTeamMemberRoleAction", () => {
   it("rejects promoting to Owner", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_1", email: "owner@spa.com" })
+    seedActiveSubscription(server, "u_1")
     const { updateTeamMemberRoleAction } = await import("@/app/actions/team")
     const result = await updateTeamMemberRoleAction("tm_1", "Owner")
     expect(result.ok).toBe(false)
@@ -130,6 +136,7 @@ describe("updateTeamMemberRoleAction", () => {
   it("updates the role and writes an audit log", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_1", email: "owner@spa.com" })
+    seedActiveSubscription(server, "u_1")
     server.setResult("team_members", "update", { data: null, error: null })
     server.setResult("audit_logs", "insert", { data: null, error: null })
 
@@ -147,6 +154,7 @@ describe("removeTeamMemberAction", () => {
   it("deletes the row", async () => {
     const { admin, server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_1", email: "owner@spa.com" })
+    seedActiveSubscription(server, "u_1")
     admin.setResult("team_members", "delete", { data: null, error: null })
     server.setResult("audit_logs", "insert", { data: null, error: null })
 

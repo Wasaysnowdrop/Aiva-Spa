@@ -2,7 +2,6 @@ import { NextResponse } from "next/server"
 
 import { createAdminClient } from "@/lib/supabase/admin"
 import { sendEmail } from "@/lib/notifications/email"
-import { sendSms } from "@/lib/notifications/sms"
 import { buildCorsHeaders } from "@/lib/security/cors"
 import { consume, getRequestIp, tooManyRequests } from "@/lib/security/limiter"
 import { LIMITS } from "@/lib/security/limits"
@@ -22,7 +21,7 @@ function buildReminderContent(opts: {
   service: string
   startAt: string
   durationMinutes: number
-}): { subject: string; text: string; html: string; sms: string } {
+}): { subject: string; text: string; html: string } {
   const startDate = new Date(opts.startAt)
   const human = Number.isNaN(startDate.getTime())
     ? opts.startAt
@@ -58,8 +57,7 @@ function buildReminderContent(opts: {
   </table>
   <p style="margin:18px 0 0 0;font-size:13px;color:#8A8F98;">Need to reschedule? Just reply to this message.</p>
 </div></body></html>`
-  const sms = `Reminder: your ${opts.service} appointment at ${opts.brandName} is ${human}. Reply to reschedule.`
-  return { subject, text, html, sms }
+  return { subject, text, html }
 }
 
 export async function GET(request: Request) {
@@ -79,6 +77,7 @@ export async function GET(request: Request) {
   const { data: due, error } = await admin
     .from("calendar_reminders")
     .select("id, booking_id, channel, recipient, send_at, attempts")
+    .eq("channel", "email")
     .is("sent_at", null)
     .lte("send_at", nowIso)
     .order("send_at", { ascending: true })
@@ -92,7 +91,6 @@ export async function GET(request: Request) {
   for (const row of rows) {
     const id = String(row.id)
     const bookingId = String(row.booking_id)
-    const channel = String(row.channel) as "email" | "sms"
     const recipient = String(row.recipient)
     const attempts = Number(row.attempts ?? 0)
     if (attempts >= MAX_ATTEMPTS) {
@@ -144,22 +142,14 @@ export async function GET(request: Request) {
       startAt: String(b.start_at),
       durationMinutes: Number(b.duration_minutes ?? 30),
     })
-    let ok = false
-    let errorMsg: string | null = null
-    if (channel === "email") {
-      const r = await sendEmail({
-        to: recipient,
-        subject: content.subject,
-        text: content.text,
-        html: content.html,
-      })
-      ok = r.ok
-      errorMsg = r.error ?? null
-    } else {
-      const r = await sendSms({ to: recipient, body: content.sms })
-      ok = r.ok
-      errorMsg = r.error ?? null
-    }
+    const delivery = await sendEmail({
+      to: recipient,
+      subject: content.subject,
+      text: content.text,
+      html: content.html,
+    })
+    const ok = delivery.ok
+    const errorMsg = delivery.error ?? null
     if (ok) {
       await admin
         .from("calendar_reminders")

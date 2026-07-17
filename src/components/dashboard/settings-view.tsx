@@ -6,15 +6,12 @@ import {
   Bell,
   CheckCircle2,
   CreditCard,
-  KeyRound,
   Loader2,
   Mail,
-  Phone,
   Plus,
   Send,
   Shield,
   ShieldCheck,
-  Smartphone,
   Trash2,
   User,
   XCircle,
@@ -23,7 +20,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ApiSection, type ApiSectionProps } from "@/components/dashboard/api-section"
 import { BillingView, type BillingViewProps } from "@/components/dashboard/billing-view"
 import type { NotificationLog, SpaSettings } from "@/lib/supabase/types"
 import { cn } from "@/lib/utils"
@@ -39,18 +35,16 @@ import {
 import { getNotificationChannels } from "@/lib/db/notifications"
 import type { NotificationChannelConfig } from "@/lib/supabase/types"
 
-type Section = "account" | "notifications" | "privacy" | "billing" | "api"
+type Section = "account" | "notifications" | "privacy" | "billing"
 
 export function SettingsView({
   billing,
-  api,
   accountEmail,
   initialSpaSettings,
   initialChannels,
   initialLogs,
 }: {
   billing: BillingViewProps
-  api: ApiSectionProps
   accountEmail?: string | null
   initialSpaSettings?: SpaSettings | null
   initialChannels?: NotificationChannelConfig[]
@@ -64,8 +58,7 @@ export function SettingsView({
       s === "account" ||
       s === "notifications" ||
       s === "privacy" ||
-      s === "billing" ||
-      s === "api"
+      s === "billing"
     ) {
       return s
     }
@@ -81,7 +74,6 @@ export function SettingsView({
             { v: "notifications" as const, label: "Notifications", icon: Bell },
             { v: "privacy" as const, label: "Privacy & data", icon: Shield },
             { v: "billing" as const, label: "Billing", icon: CreditCard },
-            { v: "api" as const, label: "API", icon: KeyRound },
           ]
         ).map((item) => {
           const Icon = item.icon
@@ -122,7 +114,6 @@ export function SettingsView({
         )}
         {section === "privacy" && <PrivacySection />}
         {section === "billing" && <BillingSection billing={billing} />}
-        {section === "api" && <ApiSection {...api} />}
       </section>
     </div>
   )
@@ -260,7 +251,7 @@ function AccountSection({
           <div className="mt-4 space-y-3 rounded-xl border border-[#EB5757]/30 bg-[#EB5757]/5 p-4">
             <p className="text-sm font-semibold text-[#F7F8F8]">Are you absolutely sure?</p>
             <p className="text-xs text-[#8A8F98]">
-              This will wipe all leads, conversations, API keys, and
+              This will wipe all leads, conversations, notification settings, and
               widget installs. Type <code className="rounded bg-[#0B0C0E] px-1 py-0.5 font-mono text-[#F7F8F8]">DELETE</code> to confirm.
             </p>
             <Input
@@ -355,11 +346,6 @@ function NotificationsSection({
   ): string | null => {
     const v = value.trim()
     if (!v) return null
-    if (channel === "sms") {
-      const digits = v.replace(/[^\d]/g, "")
-      if (digits.length < 7) return "Enter a valid phone number"
-      return null
-    }
     const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRe.test(v)) return "Enter a valid email address"
     return null
@@ -370,7 +356,7 @@ function NotificationsSection({
     if (!inputValue) return
     const channel = channels.find((c) => c.id === id)
     if (!channel) return
-    const raw = channel.channel === "sms" ? inputValue : inputValue.toLowerCase()
+    const raw = inputValue.toLowerCase()
 
     const err = validateRecipient(channel.channel, raw)
     if (err) {
@@ -379,9 +365,7 @@ function NotificationsSection({
     }
     setDraftErrors((d) => ({ ...d, [id]: "" }))
 
-    if (channel.recipients.some((recipient) =>
-      channel.channel === "sms" ? recipient === raw : recipient.toLowerCase() === raw
-    )) {
+    if (channel.recipients.some((recipient) => recipient.toLowerCase() === raw)) {
       toast.error("Already in the list")
       return
     }
@@ -444,7 +428,6 @@ function NotificationsSection({
 
   const channelLabel = (channel: string) => {
     if (channel === "email") return "Email"
-    if (channel === "sms") return "SMS"
     if (channel === "daily_summary") return "Daily summary"
     return channel
   }
@@ -452,15 +435,12 @@ function NotificationsSection({
   const channelDescription = (channel: string) => {
     if (channel === "email")
       return "Instant email when a new lead is captured"
-    if (channel === "sms")
-      return "Instant SMS to mobile numbers (Twilio)"
     if (channel === "daily_summary")
       return "Every morning at 8 AM, get a recap of yesterday's leads"
     return ""
   }
 
-  const recipientKind = (channel: string): "email" | "phone" =>
-    channel === "sms" ? "phone" : "email"
+  const recipientKind = (): "email" => "email"
 
   const { data: notifications } = useRealtimeSubscription<NotificationLog>({
     table: "notification_logs",
@@ -523,7 +503,7 @@ function NotificationsSection({
                 onAdd={() => void addRecipient(ch.id)}
                 onAddValue={(v) => void addRecipient(ch.id, v)}
                 onRemove={(r) => void removeRecipient(ch.id, r)}
-                recipientKind={recipientKind(ch.channel)}
+                recipientKind={recipientKind()}
                 accountEmail={accountEmail}
               />
             ))
@@ -565,7 +545,7 @@ function NotificationsSection({
                       : "border-[#E2E54B]/30 bg-[#E2E54B]/10 text-[#E2E54B]",
                   )}
                 >
-                  {n.channel === "Email" ? <Mail className="size-4" /> : <Smartphone className="size-4" />}
+                  <Mail className="size-4" />
                 </span>
                 <div>
                   <p className="font-semibold text-[#F7F8F8]">{n.leadName}</p>
@@ -586,7 +566,7 @@ function NotificationsSection({
                   {n.status === "delivered" ? (
                     <CheckCircle2 className="size-2.5" />
                   ) : n.status === "pending" ? (
-                    <Phone className="size-2.5" />
+                    <Loader2 className="size-2.5" />
                   ) : (
                     <XCircle className="size-2.5" />
                   )}
@@ -635,16 +615,13 @@ function ChannelRowEditor({
   onAdd: () => void
   onAddValue: (v: string) => void
   onRemove: (r: string) => void
-  recipientKind: "email" | "phone"
+  recipientKind: "email"
   accountEmail: string | null
 }) {
   void id
-  const Icon = recipientKind === "phone" ? Smartphone : Mail
-  const draftType = recipientKind === "phone" ? "tel" : "email"
-  const draftPlaceholder =
-    recipientKind === "phone"
-      ? "+1 415 555 0100"
-      : "name@yourmedspa.com"
+  const Icon = Mail
+  const draftType = "email"
+  const draftPlaceholder = "name@yourmedspa.com"
 
   const showAccountShortcut =
     recipientKind === "email" &&
@@ -697,7 +674,7 @@ function ChannelRowEditor({
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Input
               type={draftType}
-              inputMode={recipientKind === "phone" ? "tel" : "email"}
+              inputMode="email"
               value={draft}
               onChange={(e) => onDraftChange(e.target.value)}
               onKeyDown={(e) => {

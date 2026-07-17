@@ -143,7 +143,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
   const [loadingDupes, setLoadingDupes] = React.useState(false)
   const [mergeOpen, setMergeOpen] = React.useState(false)
   const [savingNote, setSavingNote] = React.useState(false)
-  const [messageChannel, setMessageChannel] = React.useState<"email" | "sms">("email")
+  const messageChannel = "email" as const
   const [messageBody, setMessageBody] = React.useState("")
   const [sendingMessage, setSendingMessage] = React.useState(false)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
@@ -529,7 +529,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
             <div className="mt-5 flex items-start gap-2 rounded-xl border border-[#23252A] bg-[#0B0C0E] p-2.5">
               <div className="flex-1 space-y-2">
                 <Textarea
-                  placeholder="Send a message to the lead via SMS or email…"
+                  placeholder="Send an email to the lead..."
                   className="min-h-12 border-0 bg-transparent focus-visible:ring-0"
                   value={messageBody}
                   onChange={(e) => setMessageBody(e.target.value)}
@@ -537,31 +537,14 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
                 <div className="flex items-center gap-2 px-1">
                   <button
                     type="button"
-                    onClick={() => setMessageChannel("email")}
                     className={cn(
                       "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider transition",
-                      messageChannel === "email"
-                        ? "border-[#5E6AD2]/40 bg-[#5E6AD2]/10 text-[#5E6AD2]"
-                        : "border-[#23252A] bg-transparent text-[#62666D] hover:text-[#8A8F98]",
+                      "border-[#5E6AD2]/40 bg-[#5E6AD2]/10 text-[#5E6AD2]",
                     )}
                   >
                     Email
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setMessageChannel("sms")}
-                    className={cn(
-                      "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider transition",
-                      messageChannel === "sms"
-                        ? "border-[#E2E54B]/40 bg-[#E2E54B]/10 text-[#E2E54B]"
-                        : "border-[#23252A] bg-transparent text-[#62666D] hover:text-[#8A8F98]",
-                    )}
-                  >
-                    SMS
-                  </button>
-                  <span className="text-[10px] text-[#62666D]">
-                    {messageChannel === "email" ? (safeLead?.email ?? "no email") : (safeLead?.phone ?? "no phone")}
-                  </span>
+<span className="text-[10px] text-[#62666D]">{safeLead?.email ?? "no email"}</span>
                 </div>
               </div>
               <Button

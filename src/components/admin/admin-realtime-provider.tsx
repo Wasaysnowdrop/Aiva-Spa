@@ -114,16 +114,6 @@ const TABLE_TO_EVENT = {
       occurredAt: String(row.sent_at ?? new Date().toISOString()),
     }),
   },
-  api_keys: {
-    INSERT: (row: Record<string, unknown>): AdminEvent => ({
-      id: `apikey-${row.id}`,
-      source: "api_key.used",
-      severity: "info",
-      title: `API key created · ${String(row.name ?? "—")}`,
-      detail: Array.isArray(row.scopes) ? (row.scopes as unknown[]).map(String).join(", ") : "",
-      occurredAt: String(row.created_at ?? new Date().toISOString()),
-    }),
-  },
 } as const
 
 export function AdminRealtimeProvider({ children }: { children: React.ReactNode }) {
@@ -177,7 +167,6 @@ export function AdminRealtimeProvider({ children }: { children: React.ReactNode 
     bind("chat_sessions", ["INSERT", "UPDATE"])
     bind("webhook_deliveries", ["INSERT"])
     bind("notification_logs", ["INSERT"])
-    bind("api_keys", ["INSERT"])
 
     channel.subscribe()
 

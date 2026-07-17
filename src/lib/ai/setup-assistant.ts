@@ -496,8 +496,7 @@ function applyDeterministicSectionFlow({
 
     case "notifications": {
       const hasRecipient = Boolean(
-        draft.notifications?.emailRecipients?.length ||
-          draft.notifications?.smsRecipients?.length,
+        draft.notifications?.emailRecipients?.length,
       )
       return hasRecipient
         ? advanceSection(raw, section)
@@ -727,16 +726,14 @@ function fallbackMockResponse(input: SetupAssistantTurnInput): SetupAssistantRaw
   }
   if (section === "notifications") {
     const email = input.userMessage.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]
-    const phone = input.userMessage.match(/\+?[0-9][0-9 ()-]{6,19}/)?.[0]?.trim()
     return {
       reply: buildSetupAssistantSectionQuestion("notifications"),
       section,
       action: "ask",
       captured: {
         notifications: {
-          channels: { email: Boolean(email), sms: Boolean(phone) },
+          channels: { email: Boolean(email) },
           emailRecipients: email ? [email.trim().toLowerCase()] : [],
-          smsRecipients: phone ? [phone] : [],
         },
       },
     }

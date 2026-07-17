@@ -63,6 +63,8 @@ export default async function WidgetPage() {
         <WidgetSettings
           initialConfig={widget}
           initialWebsite={spa?.website ?? ""}
+          allowCustomBranding={subscription.hasAccess("custom_widget_colors")}
+          allowWhiteLabel={subscription.hasAccess("white_label")}
         />
       </div>
     </>

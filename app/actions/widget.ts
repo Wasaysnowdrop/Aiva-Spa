@@ -8,10 +8,12 @@ import { invalidateKnowledgeCache } from "@/lib/ai/retrieval";
 import { recordAudit } from "@/lib/audit";
 import { checkActionLimit } from "@/lib/security/check-action-limit";
 import { LIMITS } from "@/lib/security/limits";
+import { assertPlanLimit, EntitlementError, entitlementErrorPayload, getEntitlementContextForUser, requireFeatureForUser } from "@/lib/subscription/entitlements.server";
 
 export type WidgetActionResult<T = void> =
   | { ok: true; data?: T }
-  | { ok: false; error?: string };
+  | { ok: false; error?: string }
+  | ReturnType<typeof entitlementErrorPayload>;
 
 type WorkingHoursInput = {
   enabled?: boolean;
@@ -46,11 +48,23 @@ export async function updateWidgetBranding(input: {
 
   const existing = await supabase
     .from("widget_config")
-    .select("id")
+    .select("id, primary_color, welcome_message, show_branding")
     .limit(1)
     .maybeSingle()
     .then((r) => r.data as { id: string } | null);
   if (!existing) return { ok: false, error: "No widget config found" };
+  try {
+    if ((input.primaryColor !== undefined && input.primaryColor !== (existing as { primary_color?: string }).primary_color) ||
+        (input.welcomeMessage !== undefined && input.welcomeMessage !== (existing as { welcome_message?: string }).welcome_message)) {
+      await requireFeatureForUser(user.id, "custom_widget_colors", supabase)
+    }
+    if (input.showBranding === false) {
+      await requireFeatureForUser(user.id, "white_label", supabase)
+    }
+  } catch (error) {
+    if (error instanceof EntitlementError) return entitlementErrorPayload(error)
+    throw error
+  }
 
   const payload: Record<string, unknown> = {};
   if (input.brandName !== undefined) payload.brand_name = input.brandName;
@@ -86,24 +100,21 @@ export async function updateWidgetBranding(input: {
 }
 
 function normalizeRecipients(
-  channel: "email" | "sms" | "daily_summary",
+  channel: "email" | "daily_summary",
   recipients: string[],
 ): { ok: true; recipients: string[] } | { ok: false; error: string } {
   const normalized = [...new Set(
     recipients
       .map((value) => value.trim())
       .filter(Boolean)
-      .map((value) => channel === "sms" ? value : value.toLowerCase()),
+      .map((value) => value.toLowerCase()),
   )]
   const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  const phoneRe = /^\+?[0-9][0-9 ()-]{6,19}$/
-  const invalid = normalized.find((value) =>
-    channel === "sms" ? !phoneRe.test(value) : !emailRe.test(value),
-  )
+  const invalid = normalized.find((value) => !emailRe.test(value))
   if (invalid) {
     return {
       ok: false,
-      error: channel === "sms" ? "Enter a valid phone number" : "Enter a valid email address",
+      error: "Enter a valid email address",
     }
   }
   return { ok: true, recipients: normalized }
@@ -116,7 +127,7 @@ export type NotificationChannelUpdate = {
 };
 
 export type CreateNotificationChannelInput = {
-  channel: "email" | "sms" | "daily_summary";
+  channel: "email" | "daily_summary";
   label: string;
   description?: string;
   enabled?: boolean;
@@ -135,20 +146,34 @@ export async function updateNotificationChannel(
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Not authenticated" };
 
-  const { data: existing } = await supabase
+    try {
+    await requireFeatureForUser(user.id, "email_notifications", supabase)
+  } catch (error) {
+    if (error instanceof EntitlementError) return entitlementErrorPayload(error)
+    throw error
+  }
+const { data: existing } = await supabase
     .from("notification_channels")
     .select("channel")
     .eq("id", update.id)
     .eq("user_id", user.id)
     .maybeSingle()
   if (!existing) return { ok: false, error: "Notification channel not found" }
-  const channel = (existing as { channel: "email" | "sms" | "daily_summary" }).channel
+  const channel = (existing as { channel: string }).channel
+  if (channel !== "email" && channel !== "daily_summary") return { ok: false, error: "Unsupported notification channel." }
 
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (update.enabled !== undefined) payload.enabled = update.enabled;
   if (update.recipients !== undefined) {
     const normalized = normalizeRecipients(channel, update.recipients)
     if (!normalized.ok) return normalized
+    const context = await getEntitlementContextForUser(user.id, supabase)
+    try {
+      assertPlanLimit(context, "staffEmailRecipients", 0, normalized.recipients.length)
+    } catch (error) {
+      if (error instanceof EntitlementError) return entitlementErrorPayload(error)
+      throw error
+    }
     payload.recipients = normalized.recipients
   }
 
@@ -179,12 +204,26 @@ export async function createNotificationChannelAction(
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Not authenticated" };
 
-  const channel = (input.channel ?? "").trim() as "email" | "sms" | "daily_summary";
+    try {
+    await requireFeatureForUser(user.id, "email_notifications", supabase)
+  } catch (error) {
+    if (error instanceof EntitlementError) return entitlementErrorPayload(error)
+    throw error
+  }
+const channel = (input.channel ?? "").trim() as "email" | "daily_summary";
   const label = (input.label ?? "").trim();
   if (!channel) return { ok: false, error: "Channel type is required" };
+  if (channel !== "email" && channel !== "daily_summary") return { ok: false, error: "Unsupported notification channel." };
   if (!label) return { ok: false, error: "Channel label is required" };
   const normalized = normalizeRecipients(channel, input.recipients ?? [])
   if (!normalized.ok) return normalized
+  const context = await getEntitlementContextForUser(user.id, supabase)
+  try {
+    assertPlanLimit(context, "staffEmailRecipients", 0, normalized.recipients.length)
+  } catch (error) {
+    if (error instanceof EntitlementError) return entitlementErrorPayload(error)
+    throw error
+  }
   input = { ...input, recipients: normalized.recipients }
 
   // Look for an existing row for this channel kind scoped to THIS user.

@@ -16,7 +16,6 @@ import { recordAudit } from "@/lib/audit"
 import { mapLead, type Lead, type MergedLeadEntry } from "@/lib/supabase/types"
 import { fireEventForAll } from "@/lib/webhooks"
 import { sendEmail, buildLeadNotificationEmail } from "@/lib/notifications/email"
-import { sendSms, buildLeadNotificationSms } from "@/lib/notifications/sms"
 import { loadKnowledge } from "@/lib/ai/conversation"
 import { checkActionLimit } from "@/lib/security/check-action-limit"
 import { LIMITS } from "@/lib/security/limits"
@@ -395,13 +394,13 @@ export async function updateLeadNotesAction(
 
 export type SendLeadMessageInput = {
   leadId: string
-  channel: "email" | "sms"
+  channel: "email"
   body: string
 }
 
 export type SendLeadMessageResult = {
   delivered: boolean
-  channel: "email" | "sms"
+  channel: "email"
   recipient: string
 }
 
@@ -446,45 +445,26 @@ export async function sendLeadMessageAction(
       transcript: unknown
     }
 
-    const recipient =
-      input.channel === "email" ? lead.email : lead.phone
-    if (!recipient) {
-      return {
-        ok: false,
-        error: `Lead has no ${input.channel === "email" ? "email" : "phone"} on file`,
-      }
-    }
+    const recipient = lead.email
+    if (!recipient) return { ok: false, error: "Lead has no email on file" }
 
     const kb = await loadKnowledge()
     const brandName = kb.widget.brandName
 
-    let result: { ok: boolean; error?: string } = { ok: false }
-    if (input.channel === "email") {
-      const { subject, text, html } = buildLeadNotificationEmail({
-        brandName,
-        leadName: lead.name,
-        service: lead.service,
-        preferredTime: lead.preferred_time,
-        phone: lead.phone,
-        email: lead.email,
-        sourceUrl: lead.source_url,
-        afterHours: lead.after_hours,
-        transcriptExcerpt: undefined,
-      })
-      const body = `${text}\n\n— ${brandName} team\n\n${input.body.trim()}`
-      const html2 = `${html}<hr/><p style="margin-top:16px;color:#475569">${escapeHtml(input.body.trim())}</p>`
-      const r = await sendEmail({ to: recipient, subject, text: body, html: html2 })
-      result = r
-    } else {
-      const body = `${buildLeadNotificationSms({
-        brandName,
-        leadName: lead.name,
-        service: lead.service,
-        phone: lead.phone,
-      })}\n\n${input.body.trim()}`
-      const r = await sendSms({ to: recipient, body })
-      result = r
-    }
+    const { subject, text, html } = buildLeadNotificationEmail({
+      brandName,
+      leadName: lead.name,
+      service: lead.service,
+      preferredTime: lead.preferred_time,
+      phone: lead.phone,
+      email: lead.email,
+      sourceUrl: lead.source_url,
+      afterHours: lead.after_hours,
+      transcriptExcerpt: undefined,
+    })
+    const body = `${text}\n\n- ${brandName} team\n\n${input.body.trim()}`
+    const html2 = `${html}<hr/><p style="margin-top:16px;color:#475569">${escapeHtml(input.body.trim())}</p>`
+    const result = await sendEmail({ to: recipient, subject, text: body, html: html2 })
 
     if (!result.ok) {
       return { ok: false, error: result.error || `Failed to send ${input.channel}` }

@@ -13,7 +13,7 @@ const notifications = [
   },
   {
     icon: MessageCircle,
-    title: "SMS · Front desk",
+    title: "Email · Front desk",
     body: "After-hours lead from /pricing captured",
     time: "11:42 PM",
     color: "#FF77E9",

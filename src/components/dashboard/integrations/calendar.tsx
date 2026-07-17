@@ -166,7 +166,7 @@ export function CustomCalendarSettings({
               <p className="text-sm font-semibold text-[#F7F8F8]">Custom Calendar</p>
               <p className="text-xs text-[#8A8F98]">
                 Show live availability in the chat. Bookings are stored in AivaSpa
-                and SMS / email reminders go out automatically.
+                and email reminders go out automatically.
               </p>
             </div>
           </div>
@@ -200,7 +200,7 @@ export function CustomCalendarSettings({
                 <p className="font-semibold">Custom Calendar is a Growth feature.</p>
                 <p className="mt-0.5 text-[#8A8F98]">
                   Upgrade to Growth or Pro to enable live booking slots and
-                  automated SMS / email reminders.
+                  automated email reminders.
                 </p>
               </div>
             </div>
@@ -351,7 +351,7 @@ export function CustomCalendarSettings({
         <ul className="mt-3 space-y-2 text-xs text-[#8A8F98]">
           <li>• Visitors see live available slots in the chat lead form.</li>
           <li>• A confirmed booking creates a Custom Calendar event and notifies your team.</li>
-          <li>• Reminders go out by email and SMS to the lead automatically.</li>
+          <li>• Reminders go out by email to the lead automatically.</li>
           <li>• Bookings are visible in <a className="text-[#E2E54B] underline" href="/dashboard/calendar">Calendar</a>.</li>
         </ul>
       </div>

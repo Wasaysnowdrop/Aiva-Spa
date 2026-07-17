@@ -9,11 +9,13 @@ import { recordAudit } from "@/lib/audit";
 import { sendEmail } from "@/lib/notifications/email";
 import { checkActionLimit } from "@/lib/security/check-action-limit";
 import { LIMITS } from "@/lib/security/limits";
+import { assertPlanLimit, EntitlementError, entitlementErrorPayload, requireFeatureForUser } from "@/lib/subscription/entitlements.server";
 import type { TeamRole } from "@/lib/supabase/types";
 
 export type TeamActionResult<T = void> =
   | { ok: true; data: T }
-  | { ok: false; error: string };
+  | { ok: false; error: string }
+  | ReturnType<typeof entitlementErrorPayload>;
 
 async function requireUser() {
   const supabase = await createClient();
@@ -38,6 +40,13 @@ export async function inviteTeamMemberAction(input: {
   if (!limit.ok) return { ok: false, error: limit.error }
 
   const user = await requireUser();
+  let entitlementContext: Awaited<ReturnType<typeof requireFeatureForUser>>
+  try {
+    entitlementContext = await requireFeatureForUser(user.id, "role_based_access")
+  } catch (error) {
+    if (error instanceof EntitlementError) return entitlementErrorPayload(error)
+    throw error
+  }
   const email = input.email.trim().toLowerCase();
   if (!email || !email.includes("@")) {
     return { ok: false, error: "A valid email is required." };
@@ -55,6 +64,7 @@ export async function inviteTeamMemberAction(input: {
       .from("team_members")
       .select("id, status")
       .eq("email", email)
+      .eq("user_id", user.id)
       .maybeSingle();
 
     if (existing && (existing as { status?: string }).status === "active") {
@@ -64,6 +74,19 @@ export async function inviteTeamMemberAction(input: {
       };
     }
 
+    if (!existing) {
+      const { count, error: countError } = await supabase
+        .from("team_members")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id)
+      if (countError) return { ok: false, error: countError.message }
+      try {
+        assertPlanLimit(entitlementContext, "teamMembers", count ?? 0)
+      } catch (error) {
+        if (error instanceof EntitlementError) return entitlementErrorPayload(error)
+        throw error
+      }
+    }
     const inviteToken = buildInviteToken();
     const displayName =
       input.name?.trim() || email.split("@")[0].replace(/[._-]+/g, " ");
@@ -94,6 +117,7 @@ export async function inviteTeamMemberAction(input: {
           role: input.role,
           phone: input.phone?.trim() || null,
           status: "invited",
+          user_id: user.id,
         } as never)
         .select("id")
         .single();
@@ -143,6 +167,12 @@ export async function updateTeamMemberRoleAction(
   role: TeamRole,
 ): Promise<TeamActionResult> {
   const user = await requireUser();
+  try {
+    await requireFeatureForUser(user.id, "role_based_access")
+  } catch (error) {
+    if (error instanceof EntitlementError) return entitlementErrorPayload(error)
+    throw error
+  }
   if (role === "Owner") {
     return { ok: false, error: "Can't promote to Owner." };
   }
@@ -151,7 +181,8 @@ export async function updateTeamMemberRoleAction(
     const { error } = await supabase
       .from("team_members")
       .update({ role, updated_at: new Date().toISOString() } as never)
-      .eq("id", id);
+      .eq("id", id)
+      .eq("user_id", user.id);
     if (error) return { ok: false, error: error.message };
     void recordAudit({
       userName: user.email?.split("@")[0] || user.id,
@@ -169,8 +200,9 @@ export async function removeTeamMemberAction(
 ): Promise<TeamActionResult> {
   const user = await requireUser();
   try {
+    await requireFeatureForUser(user.id, "role_based_access")
     const admin = createAdminClient();
-    const { error } = await admin.from("team_members").delete().eq("id", id);
+    const { error } = await admin.from("team_members").delete().eq("id", id).eq("user_id", user.id);
     if (error) return { ok: false, error: error.message };
     void recordAudit({
       userName: user.email?.split("@")[0] || user.id,

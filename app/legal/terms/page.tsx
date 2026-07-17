@@ -18,7 +18,7 @@ const acceptableUse = [
   "Use the service only for lawful med-spa lead capture and customer communication.",
   "Provide accurate account, billing, and knowledge-base information.",
   "Keep your sign-in credentials secure and limit dashboard access to authorized team members.",
-  "Comply with all applicable laws, including HIPAA, FTC advertising guidelines, TCPA, CAN-SPAM, and CAN-SPAM-equivalent SMS rules, in your jurisdiction.",
+  "Comply with all applicable laws, including HIPAA, FTC advertising guidelines, TCPA, CAN-SPAM, in your jurisdiction.",
   "Make sure any consent text shown to visitors meets the requirements of your jurisdiction.",
   "Do not upload knowledge-base content that contains protected health information (PHI) unless you have a signed Business Associate Agreement with AivaSpa in place.",
   "Do not attempt to reverse-engineer, resell, or white-label the service outside the terms of your plan.",
@@ -131,7 +131,7 @@ export default function TermsOfServicePage() {
         <SectionHeading>7. Third-party services</SectionHeading>
         <p>
           AivaSpa integrates with third-party services such as OpenAI-compatible AI
-          providers, Google Calendar, Resend (email), and Twilio (SMS). Your use of those
+          providers, Google Calendar, Resend (email). Your use of those
           services is subject to their own terms. We are not responsible for outages,
           changes, or behavior of third-party services.
         </p>

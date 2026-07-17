@@ -11,13 +11,11 @@ vi.mock("@/lib/admin/queries", () => ({
     uptimeSeconds: 0,
     openaiConfigured: true,
     resendConfigured: true,
-    twilioConfigured: false,
     customCalendarConfigured: true,
     totals: {
       users: 5,
       leads: 12,
       chatSessions: 9,
-      apiKeys: 2,
       webhooks: 3,
       subscriptions: 4,
     },

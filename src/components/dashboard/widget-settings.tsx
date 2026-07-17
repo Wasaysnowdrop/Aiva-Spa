@@ -116,9 +116,13 @@ const DEFAULT_SCHEDULE: Day[] = DAY_LABELS.map((d) => ({
 export function WidgetSettings({
   initialConfig,
   initialWebsite,
+  allowCustomBranding,
+  allowWhiteLabel,
 }: {
   initialConfig: WidgetConfig | null
   initialWebsite: string
+  allowCustomBranding: boolean
+  allowWhiteLabel: boolean
 }) {
   const [config, setConfig] = React.useState<WidgetConfig | null>(initialConfig)
   const [loading, setLoading] = React.useState(initialConfig === null)
@@ -140,17 +144,21 @@ export function WidgetSettings({
   if (loading) return <div className="text-sm text-[#8A8F98]">Loading widget settings…</div>
   if (!config) return <div className="text-sm text-[#EB5757]">Widget config not found</div>
 
-  return <WidgetSettingsForm key={config.id} initial={config} website={website} setWebsite={setWebsite} />
+  return <WidgetSettingsForm key={config.id} initial={config} website={website} setWebsite={setWebsite} allowCustomBranding={allowCustomBranding} allowWhiteLabel={allowWhiteLabel} />
 }
 
 function WidgetSettingsForm({
   initial,
   website,
   setWebsite,
+  allowCustomBranding,
+  allowWhiteLabel,
 }: {
   initial: WidgetConfig
   website: string
   setWebsite: (v: string) => void
+  allowCustomBranding: boolean
+  allowWhiteLabel: boolean
 }) {
   const [brandName, setBrandName] = React.useState(initial.brandName)
   const [logoInitial, setLogoInitial] = React.useState(initial.logoInitial || initial.brandName?.[0] || "G")
@@ -375,6 +383,10 @@ function WidgetSettingsForm({
   }
 
   const applyTemplate = (t: WidgetTemplate) => {
+    if (!allowCustomBranding) {
+      toast.error("Custom widget styling requires the Growth plan.")
+      return
+    }
     setAccent(t.primaryColor)
     setWelcome(t.welcomeMessage)
     setProactiveMessage(t.proactiveMessage)
@@ -408,6 +420,7 @@ function WidgetSettingsForm({
                 <button
                   key={t.id}
                   type="button"
+                  disabled={!allowCustomBranding}
                   onClick={() => applyTemplate(t)}
                   className={cn(
                     "group flex flex-col items-start gap-2 rounded-xl border p-3 text-left transition",
@@ -550,6 +563,7 @@ function WidgetSettingsForm({
                   <button
                     key={color}
                     type="button"
+                    disabled={!allowCustomBranding}
                     onClick={() => setAccent(color)}
                     aria-label={`Accent ${color}`}
                     className={cn(
@@ -616,6 +630,7 @@ function WidgetSettingsForm({
               <Textarea
                 id="welcome"
                 value={welcome}
+                disabled={!allowCustomBranding}
                 onChange={(e) => setWelcome(e.target.value)}
                 className="min-h-20"
                 maxLength={500}
@@ -677,15 +692,15 @@ function WidgetSettingsForm({
             />
             <ToggleRow
               label="Collect phone"
-              description="Required to send SMS confirmations."
+              description="Required so your team can follow up with the lead."
               on={collectPhone}
               onChange={setCollectPhone}
             />
             <ToggleRow
               label="Show 'Powered by AivaSpa'"
-              description="Free tier includes branding. Remove on the Pro plan."
-              on={showBranding}
-              onChange={setShowBranding}
+              description={allowWhiteLabel ? "Hide AivaSpa branding on your widget." : "Upgrade to Pro to remove AivaSpa branding."}
+              on={allowWhiteLabel ? showBranding : true}
+              onChange={(value) => { if (allowWhiteLabel) setShowBranding(value) }}
             />
             <li className="space-y-1.5 p-5">
               <Label htmlFor="consent">Consent text</Label>
@@ -1043,7 +1058,7 @@ function WidgetPreview({
               <div className="mt-1.5 flex items-center justify-center gap-1.5 text-[8.5px] uppercase tracking-wider text-[#62666D]">
                 {collectEmail ? <span>Email</span> : null}
                 {collectEmail && collectPhone ? <span>·</span> : null}
-                {collectPhone ? <span>SMS</span> : null}
+                {collectPhone ? <span>Phone</span> : null}
                 <span>on capture</span>
               </div>
             ) : null}

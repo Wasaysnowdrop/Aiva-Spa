@@ -8,7 +8,7 @@ export const chatMessageSchema = z.object({
 export const chatRequestSchema = z.object({
   spaId: z.string().min(1).max(200).optional(),
   conversationType: z.enum(["visitor", "onboarding", "internal", "test", "support"]).optional(),
-  channel: z.enum(["website_widget", "onboarding_assistant", "dashboard_internal", "sms", "email"]).optional(),
+  channel: z.enum(["website_widget", "onboarding_assistant", "dashboard_internal", "email"]).optional(),
   environment: z.enum(["production", "preview", "test"]).optional(),
   sessionId: z.string().min(1).max(200),
   message: z.string().min(1).max(2000),

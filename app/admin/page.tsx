@@ -3,7 +3,6 @@ import {
   Bot,
   Database,
   Gauge,
-  KeyRound,
   ListChecks,
   Mail,
   MessageSquare,
@@ -56,7 +55,6 @@ export default async function AdminOverviewPage() {
   const integrations = [
     { key: "nara", label: "Nara AI Router", ok: health.naraConfigured },
     { key: "resend", label: "Resend email", ok: health.resendConfigured },
-    { key: "twilio", label: "Twilio SMS", ok: health.twilioConfigured },
     { key: "calendar", label: "Custom Calendar", ok: health.customCalendarConfigured },
   ]
 
@@ -262,12 +260,6 @@ export default async function AdminOverviewPage() {
             value={health.totals.chatSessions}
             tone="default"
             icon={<MessageSquare className="size-3.5" />}
-          />
-          <KpiCard
-            label="API keys"
-            value={health.totals.apiKeys}
-            tone="default"
-            icon={<KeyRound className="size-3.5" />}
           />
           <KpiCard
             label="Webhooks"
