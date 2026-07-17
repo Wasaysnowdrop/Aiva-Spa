@@ -165,12 +165,13 @@ describe("server and database enforcement contracts", () => {
     expect(read("app/dashboard/conversations/page.tsx")).toContain('hasAccess("conversation_history")')
     expect(read("app/dashboard/calendar/page.tsx")).toContain('hasAccess("calendar_booking_links")')
     expect(read("app/dashboard/analytics/page.tsx")).toContain('hasAccess("conversion_analytics")')
-    expect(read("app/dashboard/team/page.tsx")).toContain('hasAccess("role_based_access")')
+    expect(read("app/dashboard/team/page.tsx")).toContain("getTeamDashboardData")
   })
 
   it("guards mutations and numeric resources centrally", () => {
     expect(read("app/actions/calendar.ts")).toContain('requireFeatureForUser(user.id, "calendar_booking_links"')
-    expect(read("app/actions/team.ts")).toContain('requireFeatureForUser(user.id, "role_based_access"')
+    expect(read("src/lib/team/access.server.ts")).toContain('requireFeatureForUser(user.id, "role_based_access"')
+    expect(read("src/lib/team/server.ts")).toContain('assertPlanLimit(entitlement, "teamMembers"')
     expect(read("src/lib/widget/installs.ts")).toContain('assertPlanLimit(context, "widgets"')
     expect(read("src/lib/widget/domains.ts")).toContain('requireFeatureForUser(userId, "custom_domain"')
     expect(read("app/actions/widget.ts")).toContain('"staffEmailRecipients"')

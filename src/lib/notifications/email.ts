@@ -20,12 +20,27 @@ export function isEmailConfigured(): boolean {
   return Boolean(process.env.RESEND_API_KEY)
 }
 
+export function getResendConfigDiagnostic() {
+  const from = process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM || ""
+  const address = (from.match(/<([^>]+)>/)?.[1] ?? from).trim()
+  const domain = address.includes("@") ? address.split("@").pop() ?? null : null
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || ""
+  return {
+    enabled: process.env.RESEND_CONFIG_CHECK === "true",
+    apiKeyPresent: Boolean(process.env.RESEND_API_KEY),
+    fromEmailPresent: Boolean(from),
+    appUrlPresent: Boolean(appUrl),
+    senderDomain: domain,
+    senderLooksProductionReady: Boolean(domain && domain !== "resend.dev"),
+  }
+}
+
 export async function sendEmail(msg: EmailMessage): Promise<EmailSendResult> {
   if (!isEmailConfigured()) {
     return sendEmailLogOnly(msg)
   }
 
-  const from = msg.from || process.env.EMAIL_FROM || "AivaSpa <alerts@aivaspa.com>"
+  const from = msg.from || process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM || "AivaSpa <alerts@aivaspa.com>"
   const payload = {
     from,
     to: Array.isArray(msg.to) ? msg.to : [msg.to],

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/client"
 import type { TeamMember, TeamRole, TeamMemberStatus } from "@/lib/supabase/types"
 import { mapTeamMember } from "@/lib/supabase/types"
+import { PERMISSION_LABELS, ROLE_PERMISSIONS, TEAM_ROLE_INFO } from "@/lib/team/permissions"
 
 export type TeamMemberInsert = {
   name: string
@@ -94,16 +95,15 @@ export type TeamMemberRoleInfo = {
   description: string
 }
 
-export const teamRoleInfo: TeamMemberRoleInfo[] = [
-  { v: "Owner", label: "Owner", description: "Full access, billing, and team management." },
-  { v: "Manager", label: "Manager", description: "Manage leads, services, and team members." },
-  { v: "Staff", label: "Staff", description: "View and update assigned leads." },
-  { v: "Receptionist", label: "Receptionist", description: "View leads and respond to chats." },
-]
+export const teamRoleInfo: TeamMemberRoleInfo[] = TEAM_ROLE_INFO.map((role) => ({
+  v: role.value,
+  label: role.label,
+  description: role.description,
+}))
 
-export const rolePermissions: Record<TeamRole, string[]> = {
-  Owner: ["Leads", "Conversations", "Knowledge Base", "Widget", "Team", "Billing", "Settings"],
-  Manager: ["Leads", "Conversations", "Knowledge Base", "Widget", "Team", "Settings"],
-  Staff: ["Leads (assigned)", "Conversations (read)", "Settings (profile)"],
-  Receptionist: ["Leads (view)", "Conversations (view)"],
-}
+export const rolePermissions: Record<TeamRole, string[]> = Object.fromEntries(
+  (Object.keys(ROLE_PERMISSIONS) as TeamRole[]).map((role) => [
+    role,
+    ROLE_PERMISSIONS[role].map((permission) => PERMISSION_LABELS[permission]),
+  ]),
+) as Record<TeamRole, string[]>

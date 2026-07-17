@@ -140,6 +140,7 @@ export async function signUpWithPassword(
   password: string,
   fullName: string,
   spaName?: string,
+  redirectTo?: string,
 ): Promise<AuthResult> {
   const headerList = await headers();
   if (isAdminSubdomainRequest(headerList)) {
@@ -180,12 +181,13 @@ export async function signUpWithPassword(
 
   const supabase = await createClient();
   const origin = getOrigin(headerList);
+  const safeRedirect = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/onboarding";
 
   const { data, error } = await supabase.auth.signUp({
     email: normalized,
     password,
     options: {
-      emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent("/onboarding")}`,
+      emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(safeRedirect)}`,
       data: {
         full_name: fullName.trim(),
         spa_name: spaName?.trim() || null,
@@ -235,7 +237,7 @@ export async function signUpWithPassword(
   }
 
   if (data.session) {
-    redirect("/onboarding");
+    redirect(safeRedirect);
   }
 
   redirect(

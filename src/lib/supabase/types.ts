@@ -169,6 +169,8 @@ export interface KnowledgeGuardrail {
 
 export interface TeamMember {
   id: string
+  businessId?: string | null
+  memberUserId?: string | null
   name: string
   email: string
   phone?: string | null
@@ -178,6 +180,22 @@ export interface TeamMember {
   avatarColor: string
 }
 
+export type TeamInvitationStatus = "pending" | "accepted" | "expired" | "revoked"
+export type TeamInvitationDeliveryStatus = "pending" | "sent" | "failed"
+
+export interface TeamInvitation {
+  id: string
+  businessId: string
+  businessName: string
+  email: string
+  name: string | null
+  role: Exclude<TeamRole, "Owner">
+  status: TeamInvitationStatus
+  deliveryStatus: TeamInvitationDeliveryStatus
+  expiresAt: string
+  sentAt: string | null
+  createdAt: string
+}
 export interface NotificationLog {
   id: string
   userId: string | null
@@ -224,6 +242,10 @@ export interface AuditLog {
   userName: string
   action: string
   createdAt: string
+  category?: string | null
+  target?: string | null
+  metadata?: Record<string, unknown> | null
+  status?: string | null
 }
 
 export interface WidgetConfig {
@@ -372,6 +394,8 @@ export function mapLead(row: DbRecord): Lead {
 export function mapTeamMember(row: DbRecord): TeamMember {
   return {
     id: stringValue(row.id),
+    businessId: stringValue(row.business_id ?? row.businessId, undefined as unknown as string) || null,
+    memberUserId: stringValue(row.member_user_id ?? row.memberUserId, undefined as unknown as string) || null,
     name: stringValue(row.name, "Team member"),
     email: stringValue(row.email),
     phone: stringValue(row.phone, undefined as unknown as string) || null,
@@ -479,6 +503,21 @@ export function mapKnowledgeGuardrail(row: DbRecord): KnowledgeGuardrail {
   }
 }
 
+export function mapTeamInvitation(row: DbRecord): TeamInvitation {
+  return {
+    id: stringValue(row.id),
+    businessId: stringValue(row.business_id ?? row.businessId),
+    businessName: stringValue(row.business_name ?? row.businessName, "Your workspace"),
+    email: stringValue(row.email),
+    name: stringValue(row.name, undefined as unknown as string) || null,
+    role: enumValue(row.role, ["Manager", "Staff", "Receptionist"] as const, "Staff"),
+    status: enumValue(row.status, ["pending", "accepted", "expired", "revoked"] as const, "pending"),
+    deliveryStatus: enumValue(row.delivery_status ?? row.deliveryStatus, ["pending", "sent", "failed"] as const, "pending"),
+    expiresAt: stringValue(row.expires_at ?? row.expiresAt),
+    sentAt: stringValue(row.sent_at ?? row.sentAt, undefined as unknown as string) || null,
+    createdAt: stringValue(row.created_at ?? row.createdAt),
+  }
+}
 export function mapNotificationLog(row: DbRecord): NotificationLog {
   return {
     id: stringValue(row.id),
@@ -498,6 +537,10 @@ export function mapAuditLog(row: DbRecord): AuditLog {
     userName: stringValue(row.user_name ?? row.userName),
     action: stringValue(row.action),
     createdAt: stringValue(row.created_at ?? row.createdAt, new Date().toISOString()),
+    category: stringValue(row.category, undefined as unknown as string) || null,
+    target: stringValue(row.target_id ?? row.targetId, undefined as unknown as string) || null,
+    metadata: row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata) ? row.metadata as Record<string, unknown> : null,
+    status: stringValue(row.status, undefined as unknown as string) || null,
   }
 }
 

@@ -44,7 +44,7 @@ function getPasswordScore(password: string): { score: 0 | 1 | 2 | 3 | 4; label: 
   return { score: score as 0 | 1 | 2 | 3 | 4, label: labels[score] };
 }
 
-export function SignupForm() {
+export function SignupForm({ redirectTo, initialEmail = "" }: { redirectTo?: string; initialEmail?: string }) {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -58,7 +58,7 @@ export function SignupForm() {
     resolver: zodResolver(signupSchema),
     defaultValues: {
       name: "",
-      email: "",
+      email: initialEmail,
       spaName: "",
       password: "",
       confirmPassword: "",
@@ -79,6 +79,7 @@ export function SignupForm() {
         values.password,
         values.name,
         values.spaName || undefined,
+        redirectTo,
       );
       if (result && !result.ok) {
         setServerError(result.error ?? "Could not create your account. Please try again.");
@@ -255,12 +256,12 @@ export function SignupForm() {
 
       <Divider />
 
-      <SocialButtons label="Sign up with" redirectTo="/onboarding" />
+      <SocialButtons label="Sign up with" redirectTo={redirectTo || "/onboarding"} />
 
       <p className="text-center text-xs text-[#62666D]">
         Already have an account?{" "}
         <a
-          href="/login"
+          href={redirectTo ? "/login?redirectTo=" + encodeURIComponent(redirectTo) : "/login"}
           className="font-semibold text-[#E2E54B] transition hover:text-[#E2E54B]/80"
         >
           Log in
