@@ -10,6 +10,7 @@ import { safeValidate, chatRequestSchema } from "@/lib/ai/validation"
 import { createPublicLead } from "@/lib/leads/server"
 import {
   markSessionLeadCaptured,
+  meterChatSession,
   upsertChatSessionTurn,
   chatSessionExists,
 } from "@/lib/chat-sessions/server"
@@ -18,7 +19,7 @@ import type { TranscriptMessage } from "@/lib/supabase/types"
 import { dispatchLeadNotifications } from "@/lib/notifications/dispatch"
 import { checkEmbedAccess } from "@/lib/widget/access"
 import { fireEventForAll } from "@/lib/webhooks"
-import { incrementConversations } from "@/lib/subscription"
+import { classificationIsBillable } from "@/lib/conversations/eligibility"
 import { buildCorsHeaders } from "@/lib/security/cors"
 import {
   consumePublicRateLimit,
@@ -112,9 +113,13 @@ export async function POST(request: NextRequest) {
       } else {
         accessUserId = access.userId
       }
-    } else {
+    } else if (
+      body.conversationType !== "test" ||
+      body.channel !== "dashboard_internal" ||
+      body.environment === "production"
+    ) {
       return Response.json(
-        { error: "spaId is required." },
+        { error: "spaId is required for customer conversations." },
         { status: 400, headers: cors(request) },
       )
     }
@@ -221,7 +226,7 @@ async function handleStreamingChat(
           .catch(() => "AivaSpa")
 
         // First-turn detection (cheap, runs in parallel with the LLM stream).
-        const firstTurnP = chatSessionExists(body.sessionId)
+        const firstTurnP = chatSessionExists(body.sessionId, accessUserId)
           .catch(() => false)
           .then((exists) => ({ exists, isFirstTurn: !exists }))
 
@@ -285,13 +290,6 @@ async function handleStreamingChat(
         })
 
         if (isFirstTurn) {
-          // Count a new conversation against the owner's quota so the
-          // billing page reflects real usage, not just lead captures.
-          if (accessUserId) {
-            incrementConversations(accessUserId, 1).catch((e) =>
-              console.error("incrementConversations failed", e),
-            )
-          }
           void fireEventForAll(accessUserId ?? "__anon__", "conversation.started", {
             sessionId: body.sessionId,
             spaId: body.spaId ?? null,
@@ -399,15 +397,8 @@ async function handleBufferedChat(
 
     // First-turn webhook (fire-and-forget).
     try {
-      const exists = await chatSessionExists(body.sessionId)
+      const exists = await chatSessionExists(body.sessionId, accessUserId)
       if (!exists) {
-        // Count a new conversation against the owner's quota so the
-        // billing page reflects real usage, not just lead captures.
-        if (accessUserId) {
-          incrementConversations(accessUserId, 1).catch((e) =>
-            console.error("incrementConversations failed", e),
-          )
-        }
         void fireEventForAll(accessUserId ?? "__anon__", "conversation.started", {
           sessionId: body.sessionId,
           spaId: body.spaId ?? null,
@@ -489,6 +480,13 @@ async function persistTurn(
     leadSaved: boolean
     leadId: string | null
   }> => {
+    const classification = {
+      conversationType: body.conversationType ?? "internal",
+      channel: body.channel ?? "dashboard_internal",
+      environment: body.environment ?? "test",
+    } as const
+    const customerEligible = classificationIsBillable(classification)
+
     const hasAnyLeadField = !!(
       body.lead?.name ||
       body.lead?.email ||
@@ -530,6 +528,7 @@ async function persistTurn(
     const tasks: Array<Promise<unknown>> = [
       upsertChatSessionTurn({
         sessionId: body.sessionId,
+        userId: accessUserId,
         spaId: body.spaId,
         visitorMessage: visitorMsg,
         aiMessage: aiMsg,
@@ -540,12 +539,16 @@ async function persistTurn(
         leadCaptured: false,
         leadId: null,
         status: "active",
+        ...classification,
+      }).then((session) => {
+        if (!session) return null
+        return meterChatSession(session.id)
       }).catch((e) => {
-        console.error("live chat session write failed", e)
+        console.error("live chat session write or meter failed", e)
       }),
     ]
 
-    if (completeEnough && body.lead) {
+    if (completeEnough && body.lead && customerEligible) {
       const lead = body.lead
       const transcript: TranscriptMessage[] = [
         ...(body.history ?? []).map((m, i) => ({
@@ -580,6 +583,7 @@ async function persistTurn(
         consentGiven: Boolean(body.consentGiven),
         afterHours: result.afterHours,
         spaId: body.spaId ?? undefined,
+        userId: accessUserId ?? undefined,
       })
         .then(async (created) => {
           leadId = created.lead.id
@@ -590,6 +594,7 @@ async function persistTurn(
               body.sessionId,
               created.lead.id,
               lead.name ?? null,
+              accessUserId,
             ).catch((e) => console.error("markSessionLeadCaptured failed", e)),
             recordAudit({
               userName: "widget",
@@ -600,11 +605,7 @@ async function persistTurn(
               brandName: brandName ?? "AivaSpa",
               ownerUserId: accessUserId ?? null,
             }).catch((e) => console.error("dispatchLeadNotifications failed", e)),
-            accessUserId
-              ? incrementConversations(accessUserId, 1).catch((e) =>
-                  console.error("incrementConversations failed", e),
-                )
-              : Promise.resolve(),
+
             fireEventForAll(accessUserId ?? "__anon__", "conversation.completed", {
               sessionId: body.sessionId,
               spaId: body.spaId ?? null,

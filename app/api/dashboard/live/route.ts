@@ -44,6 +44,9 @@ export async function GET(request?: Request) {
     supabase
       .from("chat_sessions")
       .select("*", { count: "exact", head: true })
+      .eq("conversation_type", "visitor")
+      .eq("channel", "website_widget")
+      .is("deleted_at", null)
       .eq("status", "active")
       .gte("last_message_at", cutoff),
     getDashboardKpis().catch(() => ({

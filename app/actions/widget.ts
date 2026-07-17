@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { invalidateKnowledgeCache } from "@/lib/ai/retrieval";
 import { recordAudit } from "@/lib/audit";
 import { checkActionLimit } from "@/lib/security/check-action-limit";
@@ -84,6 +85,30 @@ export async function updateWidgetBranding(input: {
   return { ok: true };
 }
 
+function normalizeRecipients(
+  channel: "email" | "sms" | "daily_summary",
+  recipients: string[],
+): { ok: true; recipients: string[] } | { ok: false; error: string } {
+  const normalized = [...new Set(
+    recipients
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .map((value) => channel === "sms" ? value : value.toLowerCase()),
+  )]
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  const phoneRe = /^\+?[0-9][0-9 ()-]{6,19}$/
+  const invalid = normalized.find((value) =>
+    channel === "sms" ? !phoneRe.test(value) : !emailRe.test(value),
+  )
+  if (invalid) {
+    return {
+      ok: false,
+      error: channel === "sms" ? "Enter a valid phone number" : "Enter a valid email address",
+    }
+  }
+  return { ok: true, recipients: normalized }
+}
+
 export type NotificationChannelUpdate = {
   id: string;
   enabled?: boolean;
@@ -110,9 +135,22 @@ export async function updateNotificationChannel(
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Not authenticated" };
 
+  const { data: existing } = await supabase
+    .from("notification_channels")
+    .select("channel")
+    .eq("id", update.id)
+    .eq("user_id", user.id)
+    .maybeSingle()
+  if (!existing) return { ok: false, error: "Notification channel not found" }
+  const channel = (existing as { channel: "email" | "sms" | "daily_summary" }).channel
+
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (update.enabled !== undefined) payload.enabled = update.enabled;
-  if (update.recipients !== undefined) payload.recipients = update.recipients;
+  if (update.recipients !== undefined) {
+    const normalized = normalizeRecipients(channel, update.recipients)
+    if (!normalized.ok) return normalized
+    payload.recipients = normalized.recipients
+  }
 
   // Owner-scope: never let one tenant update another tenant's channel row.
   const { error } = await supabase
@@ -141,10 +179,13 @@ export async function createNotificationChannelAction(
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Not authenticated" };
 
-  const channel = (input.channel ?? "").trim();
+  const channel = (input.channel ?? "").trim() as "email" | "sms" | "daily_summary";
   const label = (input.label ?? "").trim();
   if (!channel) return { ok: false, error: "Channel type is required" };
   if (!label) return { ok: false, error: "Channel label is required" };
+  const normalized = normalizeRecipients(channel, input.recipients ?? [])
+  if (!normalized.ok) return normalized
+  input = { ...input, recipients: normalized.recipients }
 
   // Look for an existing row for this channel kind scoped to THIS user.
   // (After migration 00018 the unique key is (channel, user_id), so the
@@ -245,16 +286,11 @@ export async function createNotificationChannelAction(
   return { ok: true, data: { id: inserted?.id ?? "" } };
 }
 
-export type SendTestNotificationInput = { recipient: string };
+export type SendTestNotificationInput = { recipient?: string };
 
-/**
- * Send a one-off test email so the owner can verify their address is
- * correctly wired (and that RESEND_API_KEY is set on the server). Doesn't
- * touch notification_logs — this is a manual probe, not a real dispatch.
- */
 export async function sendTestNotificationAction(
-  input: SendTestNotificationInput,
-): Promise<WidgetActionResult<{ provider: string; id?: string }>> {
+  input: SendTestNotificationInput = {},
+): Promise<WidgetActionResult<{ provider: string; count: number; id?: string }>> {
   const limit = await checkActionLimit(LIMITS.actionWidget)
   if (!limit.ok) return { ok: false, error: limit.error }
 
@@ -264,38 +300,75 @@ export async function sendTestNotificationAction(
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Not authenticated" };
 
-  const recipient = (input.recipient ?? "").trim();
-  if (!recipient) return { ok: false, error: "Recipient is required" };
-  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRe.test(recipient)) return { ok: false, error: "Recipient must be a valid email" };
+  const { data: channelRow, error: channelError } = await supabase
+    .from("notification_channels")
+    .select("recipients")
+    .eq("user_id", user.id)
+    .eq("channel", "email")
+    .eq("enabled", true)
+    .maybeSingle()
+  if (channelError) return { ok: false, error: "Could not load the Email channel" }
 
+  const recipients = normalizeRecipients(
+    "email",
+    Array.isArray((channelRow as { recipients?: unknown } | null)?.recipients)
+      ? ((channelRow as unknown as { recipients: string[] }).recipients)
+      : [],
+  )
+  if (!recipients.ok) return recipients
+  if (recipients.recipients.length === 0) {
+    return { ok: false, error: "Add at least one recipient to the Email channel first" }
+  }
+
+  const requested = (input.recipient ?? "").trim().toLowerCase()
+  if (requested && !recipients.recipients.includes(requested)) {
+    return { ok: false, error: "Test recipient must be configured on the Email channel" }
+  }
+  const targets = requested ? [requested] : recipients.recipients
   const { sendEmail } = await import("@/lib/notifications/email");
-  const result = await sendEmail({
-    to: recipient,
-    subject: "AivaSpa · test notification",
-    text: `Hi! This is a test message from your AivaSpa dashboard. If you're reading this, the Email channel is wired up correctly. — AivaSpa`,
-    html: `<div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; background:#08090A; color:#F7F8F8; padding:24px;">
-      <div style="max-width:480px; margin:0 auto; background:#121316; border:1px solid #23252A; border-radius:16px; padding:24px;">
-        <h1 style="margin:0 0 8px 0; font-size:20px; color:#E2E54B;">AivaSpa · Test notification</h1>
-        <p style="margin:0 0 12px 0; color:#C9CDD3; font-size:14px; line-height:1.5;">If you're reading this, the Email channel is wired up correctly and you will receive a real lead alert the next time Aiva captures one for your spa.</p>
-        <p style="margin:0; color:#62666D; font-size:12px;">— AivaSpa</p>
-      </div>
-    </div>`,
-  });
+  const admin = createAdminClient()
 
-  if (!result.ok) {
-    if (result.provider === "log") {
-      console.info(
-        `[notifications] test email (log-only) to=${recipient} — set RESEND_API_KEY to actually send`,
-      );
+  let delivered = 0
+  let provider = "log"
+  let lastId: string | undefined
+  let lastError: string | undefined
+  for (const recipient of targets) {
+    const result = await sendEmail({
+      to: recipient,
+      subject: "AivaSpa · test notification",
+      text: "Hi! This is a test message from your AivaSpa dashboard. If you're reading this, the Email channel is wired up correctly.",
+      html: "<div style=\"font-family: sans-serif; background:#08090A; color:#F7F8F8; padding:24px\"><div style=\"max-width:480px;margin:0 auto;background:#121316;border:1px solid #23252A;border-radius:16px;padding:24px\"><h1 style=\"color:#E2E54B\">AivaSpa · Test notification</h1><p>If you're reading this, your Email channel is wired up correctly.</p></div></div>",
+    })
+    provider = result.provider
+    lastId = result.id
+    lastError = result.ok ? undefined : result.error
+    if (result.ok) delivered += 1
+
+    const { error: logError } = await admin.from("notification_logs").insert({
+      user_id: user.id,
+      lead_id: null,
+      lead_name: "Test notification",
+      channel: "Email",
+      recipient,
+      status: result.ok ? "delivered" : "failed",
+      detail: result.ok ? {} : { error: result.error ?? "Provider failure", test: true },
+    } as never)
+    if (logError) {
+      console.error("[notifications] failed to log test delivery", {
+        code: logError.code,
+        message: logError.message,
+      })
     }
-    return { ok: false, error: result.error ?? "Failed to send test" };
   }
 
   await recordAudit({
     userName: user.email?.split("@")[0] || user.id,
-    action: `notifications.test_sent to=${recipient}`,
+    action: "notifications.test_sent count=" + delivered,
   });
+  revalidatePath("/dashboard/settings")
 
-  return { ok: true, data: { provider: result.provider, id: result.id } };
+  if (delivered !== targets.length) {
+    return { ok: false, error: lastError ?? "One or more test notifications failed. Check Recent notifications." }
+  }
+  return { ok: true, data: { provider, count: delivered, id: lastId } };
 }

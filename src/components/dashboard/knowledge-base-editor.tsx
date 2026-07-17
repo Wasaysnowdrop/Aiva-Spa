@@ -1614,6 +1614,9 @@ function SandboxDialog({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          conversationType: "test",
+          channel: "dashboard_internal",
+          environment: "test",
           sessionId: `sandbox_${Date.now()}`,
           message: trimmed,
           history: messages.map((m) => ({

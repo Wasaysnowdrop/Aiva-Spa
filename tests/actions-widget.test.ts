@@ -69,6 +69,10 @@ describe("updateNotificationChannel", () => {
   it("updates the enabled flag and recipients", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_1", email: "owner@spa.com" })
+    server.setResult("notification_channels", "select", {
+      data: [{ channel: "email" }],
+      error: null,
+    })
     server.setResult("notification_channels", "update", { data: null, error: null })
     server.setResult("audit_logs", "insert", { data: null, error: null })
 
@@ -90,6 +94,10 @@ describe("updateNotificationChannel", () => {
   it("filters the update by the signed-in user's id (owner-scoping)", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_owner", email: "owner@spa.com" })
+    server.setResult("notification_channels", "select", {
+      data: [{ channel: "email" }],
+      error: null,
+    })
     server.setResult("notification_channels", "update", { data: null, error: null })
     server.setResult("audit_logs", "insert", { data: null, error: null })
 
@@ -147,10 +155,8 @@ describe("createNotificationChannelAction", () => {
       label: "Email",
       recipients: ["not-an-email"],
     })
-    // Email validation lives in the UI today; the action accepts whatever
-    // recipients it is given and writes them. This test documents that
-    // contract so a future server-side validator doesn't break it silently.
-    expect(result.ok).toBe(true)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(/valid email/i)
   })
 })
 
@@ -167,6 +173,11 @@ describe("sendTestNotificationAction", () => {
   it("returns ok=true when Resend responds 200", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_t", email: "t@spa.com" })
+    server.setResult("notification_channels", "select", {
+      data: [{ recipients: ["alex@spa.com"] }],
+      error: null,
+    })
+    server.setResult("notification_logs", "insert", { data: null, error: null })
     server.setResult("audit_logs", "insert", { data: null, error: null })
 
     process.env.RESEND_API_KEY = "test-key"
@@ -188,6 +199,11 @@ describe("sendTestNotificationAction", () => {
   it("returns ok=false (provider=log) when RESEND_API_KEY is not set", async () => {
     const { server } = installSupabaseMocks()
     server.setAuthUser({ id: "u_t", email: "t@spa.com" })
+    server.setResult("notification_channels", "select", {
+      data: [{ recipients: ["alex@spa.com"] }],
+      error: null,
+    })
+    server.setResult("notification_logs", "insert", { data: null, error: null })
 
     delete process.env.RESEND_API_KEY
     const { sendTestNotificationAction } = await import("@/app/actions/widget")

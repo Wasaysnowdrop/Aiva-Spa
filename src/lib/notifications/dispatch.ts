@@ -29,9 +29,11 @@ async function getEnabledChannels(
 ): Promise<ChannelConfig[]> {
   try {
     const admin = createAdminClient()
-    const { data, error } = await admin
+    let query = admin
       .from("notification_channels")
       .select("id, channel, enabled, recipients, user_id")
+    if (ownerUserId) query = query.eq("user_id", ownerUserId)
+    const { data, error } = await query
     if (error) return []
     return (data ?? []).map((row) => {
       const r = row as Record<string, unknown>
@@ -87,6 +89,7 @@ async function logNotification(
   channel: "Email" | "SMS",
   recipient: string,
   status: "delivered" | "pending" | "failed",
+  ownerUserId?: string | null,
   error?: string,
 ): Promise<NotificationLog | null> {
   try {
@@ -94,6 +97,7 @@ async function logNotification(
     const { data, error: dbErr } = await admin
       .from("notification_logs")
       .insert({
+        user_id: ownerUserId ?? lead.userId ?? null,
         lead_id: lead.id,
         lead_name: lead.name,
         channel,
@@ -150,6 +154,7 @@ export async function dispatchLeadNotifications(
           "Email",
           recipient,
           result.ok ? "delivered" : "failed",
+          ownerUserId,
           result.ok ? undefined : result.error,
         )
         if (result.ok) emailCount++
@@ -171,6 +176,7 @@ export async function dispatchLeadNotifications(
           "SMS",
           recipient,
           result.ok ? "delivered" : "failed",
+          ownerUserId,
           result.ok ? undefined : result.error,
         )
         if (result.ok) smsCount++

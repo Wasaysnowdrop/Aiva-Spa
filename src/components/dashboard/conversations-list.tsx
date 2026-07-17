@@ -20,6 +20,7 @@ import type { ChatSession, Lead } from "@/lib/supabase/types"
 import { cn, formatRelativeTime } from "@/lib/utils"
 import { useRealtimeSubscription } from "@/lib/hooks/use-realtime"
 import { mapChatSession, mapLead } from "@/lib/supabase/types"
+import { isCustomerConversation } from "@/lib/conversations/eligibility"
 
 type OutcomeFilter = "all" | "lead" | "abandoned" | "live"
 type ConversationItem =
@@ -29,9 +30,11 @@ type ConversationItem =
 export function ConversationsList({
   leads: initialLeads,
   liveSessions: initialLiveSessions,
+  initialConversationId,
 }: {
   leads: Lead[]
   liveSessions: ChatSession[]
+  initialConversationId?: string | null
 }) {
   const { data: leads } = useRealtimeSubscription<Lead>({
     table: "leads",
@@ -49,23 +52,25 @@ export function ConversationsList({
 
   // Drop sessions that have already been captured as leads (the lead view
   // already shows the full transcript — no need to duplicate).
-  const visibleSessions = React.useMemo(() => {
-    const capturedSessionIds = new Set<string>()
-    for (const lead of leads) {
-      const match = sessions.find(
-        (s) => s.leadId === lead.id || s.leadCaptured,
-      )
-      if (match) capturedSessionIds.add(match.sessionId)
-    }
-    return sessions.filter((s) => !capturedSessionIds.has(s.sessionId))
-  }, [sessions, leads])
+  const visibleSessions = React.useMemo(
+    () =>
+      sessions.filter(
+        (session) => isCustomerConversation(session) && !session.leadCaptured,
+      ),
+    [sessions],
+  )
 
   const items = React.useMemo<ConversationItem[]>(() => {
-    const leadItems: ConversationItem[] = leads.map((l) => ({
-      kind: "lead",
-      data: l,
-      lastActivity: l.lastActivityAt,
-    }))
+    const reopenedLeadIds = new Set(
+      visibleSessions.map((session) => session.leadId).filter(Boolean),
+    )
+    const leadItems: ConversationItem[] = leads
+      .filter((lead) => !reopenedLeadIds.has(lead.id))
+      .map((l) => ({
+        kind: "lead",
+        data: l,
+        lastActivity: l.lastActivityAt,
+      }))
     const sessionItems: ConversationItem[] = visibleSessions.map((s) => ({
       kind: "session",
       data: s,
@@ -78,7 +83,9 @@ export function ConversationsList({
 
   const [query, setQuery] = React.useState("")
   const [outcome, setOutcome] = React.useState<OutcomeFilter>("all")
-  const [activeId, setActiveId] = React.useState<string | null>(null)
+  const [activeId, setActiveId] = React.useState<string | null>(() =>
+    initialConversationId ? "session:" + initialConversationId : null,
+  )
 
   const filtered = React.useMemo(
     () =>

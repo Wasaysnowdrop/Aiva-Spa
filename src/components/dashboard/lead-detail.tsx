@@ -1,12 +1,14 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 import {
   Bot,
   CalendarDays,
   CheckCircle2,
   Clock,
   Combine,
+  Copy,
   ExternalLink,
   FileText,
   Loader2,
@@ -31,13 +33,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import type { Lead, TeamMember } from "@/lib/supabase/types"
-import { mapLead } from "@/lib/supabase/types"
+import type { Lead, NotificationLog, TeamMember } from "@/lib/supabase/types"
+import { mapLead, mapNotificationLog } from "@/lib/supabase/types"
 import { cn, formatDateTime, formatRelativeTime } from "@/lib/utils"
 import { useRealtimeSubscription } from "@/lib/hooks/use-realtime"
 import { updateLeadStatus } from "@/lib/db/leads"
 import {
+  deleteLeadAction,
   findDuplicateAction,
+  reopenLeadChatAction,
   sendLeadMessageAction,
   updateLeadNotesAction,
 } from "@/app/actions/leads"
@@ -47,6 +51,20 @@ import {
   type Candidate,
 } from "@/components/dashboard/merge-duplicates-dialog"
 import { toast } from "sonner"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 type CalendarEventRow = {
   id: string
@@ -67,6 +85,7 @@ const statusOptions = [
 ]
 
 export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
+  const router = useRouter()
   const safeInitialLead: Lead = initialLead ?? ({} as Lead)
 
   const { data: liveLeads } = useRealtimeSubscription<Lead>({
@@ -88,6 +107,14 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
     getId: (item) => item.id,
   })
 
+  const { data: notificationLogs } = useRealtimeSubscription<NotificationLog>({
+    table: "notification_logs",
+    initialData: [],
+    orderBy: { column: "sent_at", ascending: false },
+    mapRow: (row) => mapNotificationLog(row),
+    getId: (item) => item.id,
+  })
+
   if (typeof window !== "undefined") {
     console.log("[aivaspa] Selected Lead:", safeInitialLead)
   }
@@ -101,6 +128,9 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
   const safeEvents = (Array.isArray(events) ? events : [])
     .filter((e): e is CalendarEventRow => Boolean(e?.id))
     .map((e) => ({ ...e }))
+  const leadNotifications = (Array.isArray(notificationLogs) ? notificationLogs : [])
+    .filter((log): log is NotificationLog => Boolean(log?.id) && log.leadId === safeInitialLead.id)
+    .slice(0, 5)
 
   const calendarEvent = safeInitialLead?.id
     ? safeEvents.find((e) => e.lead_id === safeInitialLead.id)
@@ -120,6 +150,9 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
   const [messageChannel, setMessageChannel] = React.useState<"email" | "sms">("email")
   const [messageBody, setMessageBody] = React.useState("")
   const [sendingMessage, setSendingMessage] = React.useState(false)
+  const [deleteOpen, setDeleteOpen] = React.useState(false)
+  const [deleting, setDeleting] = React.useState(false)
+  const [reopening, setReopening] = React.useState(false)
 
   React.useEffect(() => {
     if (!safeLead?.id) {
@@ -234,6 +267,52 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
     } finally {
       setSendingMessage(false)
     }
+  }
+
+  const handleReopenChat = async () => {
+    if (!safeLead.id || reopening) return
+    setReopening(true)
+    try {
+      const result = await reopenLeadChatAction(safeLead.id)
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      toast.success("Chat reopened")
+      router.push(
+        "/dashboard/conversations?conversation=" +
+          encodeURIComponent(result.data.conversationId),
+      )
+    } finally {
+      setReopening(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!safeLead.id || deleting) return
+    setDeleting(true)
+    try {
+      const result = await deleteLeadAction(safeLead.id)
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      setDeleteOpen(false)
+      toast.success("Lead deleted")
+      router.replace("/dashboard/leads")
+      router.refresh()
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const copyValue = async (label: string, value: string) => {
+    if (!value) {
+      toast.error("No " + label.toLowerCase() + " is available")
+      return
+    }
+    await navigator.clipboard.writeText(value)
+    toast.success(label + " copied")
   }
 
   const assignee = safeLead?.assignedTo
@@ -695,29 +774,45 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
         <div className="rounded-2xl border border-[#23252A] bg-[#121316] p-5">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-[#F7F8F8]">Notifications</h3>
-            <span className="rounded-md border border-[#4CB782]/30 bg-[#4CB782]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#4CB782]">
-              Delivered
-            </span>
+            {leadNotifications.length > 0 ? (
+              <span className="rounded-md border border-[#4CB782]/30 bg-[#4CB782]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#4CB782]">
+                {leadNotifications.filter((log) => log.status === "delivered").length} delivered
+              </span>
+            ) : null}
           </div>
-          <ul className="mt-3 space-y-2">
-            {[
-              { channel: "Email", to: "alex@glowmedspa.com", time: "2m ago" },
-              { channel: "SMS", to: "(415) 555-0100", time: "2m ago" },
-            ].map((n) => (
-              <li
-                key={n.channel}
-                className="flex items-center justify-between rounded-lg border border-[#23252A] bg-[#0B0C0E] px-3 py-2 text-xs"
-              >
-                <div>
-                  <p className="font-semibold text-[#F7F8F8]">{n.channel}</p>
-                  <p className="text-[10px] text-[#62666D]">{n.to}</p>
-                </div>
-                <span className="text-[10px] text-[#8A8F98]">{n.time}</span>
-              </li>
-            ))}
-          </ul>
+          {leadNotifications.length > 0 ? (
+            <ul className="mt-3 space-y-2">
+              {leadNotifications.map((notification) => (
+                <li
+                  key={notification.id}
+                  className="flex items-center justify-between rounded-lg border border-[#23252A] bg-[#0B0C0E] px-3 py-2 text-xs"
+                >
+                  <div>
+                    <p className="font-semibold text-[#F7F8F8]">{notification.channel}</p>
+                    <p className="text-[10px] text-[#62666D]">{notification.recipient}</p>
+                  </div>
+                  <div className="text-right">
+                    <p
+                      className={cn(
+                        "text-[10px] capitalize",
+                        notification.status === "failed" ? "text-[#EB5757]" : "text-[#8A8F98]",
+                      )}
+                    >
+                      {notification.status}
+                    </p>
+                    <span className="text-[10px] text-[#62666D]">
+                      {formatRelativeTime(notification.sentAt)}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 text-[10px] text-[#8A8F98]">
+              No notification deliveries recorded for this lead.
+            </p>
+          )}
         </div>
-
         <div className="rounded-2xl border border-[#23252A] bg-[#121316] p-5">
           <div className="flex items-center gap-2">
             <ShieldCheck className="size-4 text-[#4CB782]" />
@@ -745,21 +840,73 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Button variant="outline" size="sm" className="justify-start">
-            <MessageSquareText className="size-4" /> Reopen chat
+          <Button
+            variant="outline"
+            size="sm"
+            className="justify-start"
+            disabled={reopening}
+            onClick={() => void handleReopenChat()}
+          >
+            {reopening ? <Loader2 className="size-4 animate-spin" /> : <MessageSquareText className="size-4" />}
+            Reopen chat
           </Button>
-          <Button variant="outline" size="sm" className="justify-start">
-            <MoreHorizontal className="size-4" /> More actions
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="w-full justify-start">
+                <MoreHorizontal className="size-4" /> More actions
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuItem onSelect={() => void copyValue("Email", safeLead.email)}>
+                <Copy className="size-4" /> Copy email
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void copyValue("Phone", safeLead.phone)}>
+                <Copy className="size-4" /> Copy phone
+              </DropdownMenuItem>
+              {safeLead.sourceUrl && safeLead.sourceUrl !== "/" ? (
+                <DropdownMenuItem
+                  onSelect={() => window.open(safeLead.sourceUrl, "_blank", "noopener,noreferrer")}
+                >
+                  <ExternalLink className="size-4" /> Open source page
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant="ghost"
             size="sm"
             className="justify-start text-[#EB5757] hover:bg-[#EB5757]/10 hover:text-[#EB5757]"
+            disabled={deleting}
+            onClick={() => setDeleteOpen(true)}
           >
             <Trash2 className="size-4" /> Delete lead
           </Button>
         </div>
       </aside>
+
+      <Dialog open={deleteOpen} onOpenChange={(open) => !deleting && setDeleteOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {leadName}?</DialogTitle>
+            <DialogDescription>
+              This removes the lead and linked conversation from the dashboard. This action cannot be undone from the dashboard.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" disabled={deleting} onClick={() => setDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={deleting}
+              className="bg-[#EB5757] text-white hover:bg-[#EB5757]/90"
+              onClick={() => void handleDelete()}
+            >
+              {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+              Delete lead
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <MergeDuplicatesDialog
         open={mergeOpen}

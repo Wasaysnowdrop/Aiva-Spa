@@ -12,7 +12,12 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-export default async function ConversationsPage() {
+export default async function ConversationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ conversation?: string }>
+}) {
+  const { conversation } = await searchParams
   const [leads, liveSessions] = await Promise.all([
     getLeads(),
     getLiveChatSessions(60).catch(() => []),
@@ -26,7 +31,7 @@ export default async function ConversationsPage() {
           title="Conversations"
           description="Every chat between AivaSpa and your website visitors — live, searchable, and filterable."
         />
-        <ConversationsList leads={leads} liveSessions={liveSessions} />
+        <ConversationsList leads={leads} liveSessions={liveSessions} initialConversationId={conversation} />
       </div>
     </>
   );

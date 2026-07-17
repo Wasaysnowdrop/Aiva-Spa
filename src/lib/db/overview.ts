@@ -122,7 +122,10 @@ export async function getOverviewFunnel(): Promise<OverviewFunnel> {
   const [{ count: sessionCount }, { data: leadRows }] = await Promise.all([
     supabase
       .from("chat_sessions")
-      .select("*", { count: "exact", head: true }),
+      .select("*", { count: "exact", head: true })
+      .eq("conversation_type", "visitor")
+      .eq("channel", "website_widget")
+      .is("deleted_at", null),
     supabase.from("leads").select("status"),
   ])
   const leads = (leadRows ?? []) as { status: string }[]
@@ -159,6 +162,9 @@ export async function getOverviewAiPerformance(): Promise<OverviewAiPerformance>
     .select(
       "status, lead_captured, consent_given, message_count, after_hours, last_message_at",
     )
+    .eq("conversation_type", "visitor")
+    .eq("channel", "website_widget")
+    .is("deleted_at", null)
   if (error) throw new Error(error.message)
   const rows = (data ?? []) as {
     status: string

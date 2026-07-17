@@ -25,6 +25,11 @@ const SCRIPT = `(function () {
     return;
   }
 
+  var widgetEnvironment =
+    d.currentScript && d.currentScript.getAttribute('data-environment') === 'preview'
+      ? 'preview'
+      : 'production';
+
   var origin = (function () {
     try {
       var s2 = d.currentScript;
@@ -124,7 +129,7 @@ const SCRIPT = `(function () {
   }
 
   function buildUrl() {
-    return origin + '/embed/' + encodeURIComponent(spaId) + '?parent=' + encodeURIComponent(window.location.href);
+    return origin + '/embed/' + encodeURIComponent(spaId) + '?parent=' + encodeURIComponent(window.location.href) + '&environment=' + widgetEnvironment;
   }
 
   function ensureIframe() {

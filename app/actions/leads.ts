@@ -50,7 +50,7 @@ export async function findDuplicateAction(input: {
 }): Promise<LeadActionResult<FindDuplicateResult>> {
   const limit = await checkActionLimit(LIMITS.actionLeads)
   if (!limit.ok) return { ok: false, error: limit.error }
-  await requireUser()
+  const user = await requireUser()
   try {
     const phone = input.phone?.trim() ?? ""
     const email = input.email?.trim() ?? ""
@@ -63,6 +63,7 @@ export async function findDuplicateAction(input: {
     const contact = normalizeContact({ phone, email })
     const dup = await findDuplicateLead(contact, {
       excludeLeadId: input.excludeLeadId,
+      userId: user.id,
     })
     let matchType: FindDuplicateResult["matchType"] = "none"
     if (dup) {
@@ -93,9 +94,9 @@ export async function getDuplicateGroupsAction(): Promise<
 > {
   const limit = await checkActionLimit(LIMITS.actionLeads)
   if (!limit.ok) return { ok: false, error: limit.error }
-  await requireUser()
+  const user = await requireUser()
   try {
-    const groups = await getDuplicateGroups(100)
+    const groups = await getDuplicateGroups(100, user.id)
     return {
       ok: true,
       data: groups.map((g) => ({
@@ -127,7 +128,7 @@ export async function mergeLeadsAction(input: {
     return { ok: false, error: "Primary lead cannot also be a duplicate." }
   }
   try {
-    const result = await mergeLeadsServer(input as MergeLeadsOptions)
+    const result = await mergeLeadsServer({ ...input, userId: user.id } as MergeLeadsOptions)
 
     void recordAudit({
       userName: "dashboard",
@@ -167,11 +168,11 @@ export async function mergeLeadsAction(input: {
 }
 
 export async function unmergeLeadAction(secondaryLeadId: string): Promise<LeadActionResult> {
-  await requireUser()
+  const user = await requireUser()
   const limit = await checkActionLimit(LIMITS.actionLeads)
   if (!limit.ok) return { ok: false, error: limit.error }
   try {
-    await unmergeLeadServer(secondaryLeadId)
+    await unmergeLeadServer(secondaryLeadId, user.id)
     void recordAudit({
       userName: "dashboard",
       action: `leads.unmerged ${secondaryLeadId}`,
@@ -188,7 +189,7 @@ export async function updateLeadStatusAction(
   leadId: string,
   next: "new" | "contacted" | "booked" | "lost",
 ): Promise<LeadActionResult<Lead>> {
-  await requireUser()
+  const user = await requireUser()
   const limit = await checkActionLimit(LIMITS.actionLeads)
   if (!limit.ok) return { ok: false, error: limit.error }
   if (!leadId) return { ok: false, error: "Missing lead id" }
@@ -204,6 +205,8 @@ export async function updateLeadStatusAction(
         last_activity_at: new Date().toISOString(),
       } as never)
       .eq("id", leadId)
+      .eq("user_id", user.id)
+      .is("deleted_at", null)
       .select()
       .maybeSingle()
     if (error) return { ok: false, error: error.message }
@@ -212,13 +215,10 @@ export async function updateLeadStatusAction(
       userName: "dashboard",
       action: `leads.status_updated ${leadId} → ${next}`,
     })
-    const { data: { user: owner } } = await supabase.auth.getUser()
-    if (owner) {
-      void fireEventForAll(owner.id, "lead.updated", {
-        id: leadId,
-        status: next,
-      })
-    }
+    void fireEventForAll(user.id, "lead.updated", {
+      id: leadId,
+      status: next,
+    })
     revalidatePath("/dashboard/leads")
     revalidatePath(`/dashboard/leads/${leadId}`)
     return { ok: true, data: mapLead(data as Record<string, unknown>) }
@@ -299,6 +299,7 @@ export async function createLeadAction(
     }
 
     const payload = {
+      user_id: user.id,
       name,
       phone,
       email,
@@ -371,6 +372,8 @@ export async function updateLeadNotesAction(
       .from("leads")
       .update({ notes, last_activity_at: new Date().toISOString() } as never)
       .eq("id", leadId)
+      .eq("user_id", user.id)
+      .is("deleted_at", null)
       .select()
       .maybeSingle()
     if (error) return { ok: false, error: error.message }
@@ -425,6 +428,8 @@ export async function sendLeadMessageAction(
       .from("leads")
       .select("id, name, phone, email, service, preferred_time, source_url, after_hours, transcript")
       .eq("id", input.leadId)
+      .eq("user_id", user.id)
+      .is("deleted_at", null)
       .maybeSingle()
     if (leadErr) return { ok: false, error: leadErr.message }
     if (!leadRow) return { ok: false, error: "Lead not found" }
@@ -504,6 +509,73 @@ export async function sendLeadMessageAction(
       ok: false,
       error: e instanceof Error ? e.message : "Failed to send message",
     }
+  }
+}
+
+export async function deleteLeadAction(
+  leadId: string,
+): Promise<LeadActionResult<{ leadId: string }>> {
+  const user = await requireUser()
+  const limit = await checkActionLimit(LIMITS.actionLeads)
+  if (!limit.ok) return { ok: false, error: limit.error }
+  if (!leadId) return { ok: false, error: "Missing lead id" }
+
+  try {
+    const supabase = await createClient()
+    const { data, error } = await supabase.rpc(
+      "soft_delete_lead" as never,
+      { p_lead_id: leadId } as never,
+    )
+    if (error) {
+      console.error("[leads] soft delete failed", { code: error.code, message: error.message })
+      return { ok: false, error: "We couldn't delete this lead. Please try again." }
+    }
+    if (data !== true) return { ok: false, error: "Lead not found or already deleted." }
+
+    void recordAudit({
+      userName: user.email?.split("@")[0] || user.id,
+      action: "leads.deleted " + leadId,
+    })
+    void fireEventForAll(user.id, "lead.deleted", { id: leadId })
+    revalidatePath("/dashboard/leads")
+    revalidatePath("/dashboard/conversations")
+    return { ok: true, data: { leadId } }
+  } catch (error) {
+    console.error("[leads] deleteLeadAction threw", error)
+    return { ok: false, error: "We couldn't delete this lead. Please try again." }
+  }
+}
+
+export async function reopenLeadChatAction(
+  leadId: string,
+): Promise<LeadActionResult<{ conversationId: string }>> {
+  await requireUser()
+  const limit = await checkActionLimit(LIMITS.actionLeads)
+  if (!limit.ok) return { ok: false, error: limit.error }
+  if (!leadId) return { ok: false, error: "Missing lead id" }
+
+  try {
+    const supabase = await createClient()
+    const { data, error } = await supabase.rpc(
+      "reopen_lead_chat" as never,
+      { p_lead_id: leadId } as never,
+    )
+    if (error) {
+      console.error("[leads] reopen chat failed", { code: error.code, message: error.message })
+      return { ok: false, error: "We couldn't reopen this chat. Please try again." }
+    }
+    const conversationId = typeof data === "string" ? data : null
+    if (!conversationId) {
+      return {
+        ok: false,
+        error: "No linked website conversation was found for this lead.",
+      }
+    }
+    revalidatePath("/dashboard/conversations")
+    return { ok: true, data: { conversationId } }
+  } catch (error) {
+    console.error("[leads] reopenLeadChatAction threw", error)
+    return { ok: false, error: "We couldn't reopen this chat. Please try again." }
   }
 }
 

@@ -224,11 +224,13 @@ export function ChatFrame({
   initialConfig,
   parentUrl,
   initialLanguage,
+  environment = "production",
 }: {
   spaId: string
   initialConfig: Config
   parentUrl?: string
   initialLanguage?: string
+  environment?: "production" | "preview"
 }) {
   const [config, setConfig] = React.useState<Config>(initialConfig)
   const [hydrated, setHydrated] = React.useState(false)
@@ -512,6 +514,9 @@ export function ChatFrame({
         },
         body: JSON.stringify({
           spaId,
+          conversationType: "visitor",
+          channel: "website_widget",
+          environment,
           sessionId,
           message: trimmed,
           history,
@@ -682,6 +687,9 @@ export function ChatFrame({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           spaId,
+          conversationType: "visitor",
+          channel: "website_widget",
+          environment,
           sessionId,
           message: trimmed,
           history,

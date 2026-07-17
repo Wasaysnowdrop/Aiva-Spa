@@ -188,6 +188,11 @@ export async function runDailySummary(
   let chatQuery = admin
     .from("chat_sessions")
     .select("id", { count: "exact", head: true })
+    .eq("conversation_type", "visitor")
+    .eq("channel", "website_widget")
+    .eq("environment", "production")
+    .eq("is_billable", true)
+    .is("deleted_at", null)
     .gte("created_at", startUtc.toISOString())
     .lte("created_at", endUtc.toISOString())
   if (options.userId) {

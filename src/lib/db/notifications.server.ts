@@ -39,9 +39,14 @@ export async function getNotificationLogsServer(): Promise<NotificationLog[]> {
   try {
     const { createClient } = await import("@/lib/supabase/server")
     const supabase = await createClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return []
     const { data, error } = await supabase
       .from("notification_logs")
       .select("*")
+      .eq("user_id", user.id)
       .order("sent_at", { ascending: false })
       .limit(20)
     if (error) {

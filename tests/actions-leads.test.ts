@@ -175,3 +175,49 @@ describe("sendLeadMessageAction", () => {
     }
   })
 })
+
+describe("lead lifecycle actions", () => {
+  it("soft-deletes an owned lead through the atomic RPC", async () => {
+    const { server } = installSupabaseMocks()
+    server.setAuthUser({ id: "owner-1", email: "owner@spa.com" })
+    server.setResult("soft_delete_lead", "rpc", { data: true, error: null })
+    server.setResult("audit_logs", "insert", { data: null, error: null })
+
+    const { deleteLeadAction } = await import("@/app/actions/leads")
+    const result = await deleteLeadAction("lead-1")
+
+    expect(result.ok).toBe(true)
+    const rpc = server.getCalls().find((call) => call.table === "soft_delete_lead")
+    expect(rpc?.op).toBe("rpc")
+  })
+
+  it("returns the existing linked conversation when reopening chat", async () => {
+    const { server } = installSupabaseMocks()
+    server.setAuthUser({ id: "owner-1", email: "owner@spa.com" })
+    server.setResult("reopen_lead_chat", "rpc", {
+      data: "11111111-1111-4111-8111-111111111111",
+      error: null,
+    })
+
+    const { reopenLeadChatAction } = await import("@/app/actions/leads")
+    const result = await reopenLeadChatAction("lead-1")
+
+    expect(result).toEqual({
+      ok: true,
+      data: { conversationId: "11111111-1111-4111-8111-111111111111" },
+    })
+  })
+
+  it("does not create a replacement conversation when no link exists", async () => {
+    const { server } = installSupabaseMocks()
+    server.setAuthUser({ id: "owner-1", email: "owner@spa.com" })
+    server.setResult("reopen_lead_chat", "rpc", { data: null, error: null })
+
+    const { reopenLeadChatAction } = await import("@/app/actions/leads")
+    const result = await reopenLeadChatAction("lead-without-chat")
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(/no linked website conversation/i)
+    expect(server.callsFor("chat_sessions", "insert")).toHaveLength(0)
+  })
+})

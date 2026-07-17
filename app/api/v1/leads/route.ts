@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
   const body = parsed.data
 
   try {
-    const kb = await loadKnowledge()
+    const kb = await loadKnowledge(auth.userId)
     const afterHours = isAfterHours(kb.widget.workingHours)
 
     const created = await createPublicLead({
@@ -105,12 +105,13 @@ export async function POST(request: NextRequest) {
       consentGiven: body.consentGiven ?? true,
       afterHours,
       sessionId: body.sessionId,
+      userId: auth.userId,
     })
     const lead = created.lead
 
     if (body.sessionId) {
       try {
-        await markSessionLeadCaptured(body.sessionId, lead.id, body.name)
+        await markSessionLeadCaptured(body.sessionId, lead.id, body.name, auth.userId)
       } catch {
         // non-fatal
       }

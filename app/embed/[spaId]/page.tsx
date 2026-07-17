@@ -23,6 +23,7 @@ export default async function EmbedPage({
   const sp = await searchParams
   const parentUrl = typeof sp.parent === "string" ? sp.parent : undefined
   const explicitLang = typeof sp.lang === "string" ? sp.lang : undefined
+  const environment = sp.environment === "preview" ? "preview" : "production"
 
   // When the proxy resolves a custom domain, the right spaId is in
   // x-resolved-spa-id. We always honor it, even if the path includes
@@ -93,5 +94,13 @@ export default async function EmbedPage({
     )
   }
 
-  return <ChatFrame spaId={spaId} initialConfig={kb.widget} parentUrl={parentUrl} initialLanguage={explicitLang} />
+  return (
+    <ChatFrame
+      spaId={spaId}
+      initialConfig={kb.widget}
+      parentUrl={parentUrl}
+      initialLanguage={explicitLang}
+      environment={environment}
+    />
+  )
 }

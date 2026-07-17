@@ -366,10 +366,11 @@ function NotificationsSection({
   }
 
   const addRecipient = async (id: string, overrideValue?: string) => {
-    const raw = (overrideValue ?? recipientDrafts[id] ?? "").trim()
-    if (!raw) return
+    const inputValue = (overrideValue ?? recipientDrafts[id] ?? "").trim()
+    if (!inputValue) return
     const channel = channels.find((c) => c.id === id)
     if (!channel) return
+    const raw = channel.channel === "sms" ? inputValue : inputValue.toLowerCase()
 
     const err = validateRecipient(channel.channel, raw)
     if (err) {
@@ -378,7 +379,9 @@ function NotificationsSection({
     }
     setDraftErrors((d) => ({ ...d, [id]: "" }))
 
-    if (channel.recipients.includes(raw)) {
+    if (channel.recipients.some((recipient) =>
+      channel.channel === "sms" ? recipient === raw : recipient.toLowerCase() === raw
+    )) {
       toast.error("Already in the list")
       return
     }
@@ -422,9 +425,7 @@ function NotificationsSection({
     }
     setTesting(true)
     try {
-      const result = await sendTestNotificationAction({
-        recipient: email.recipients[0],
-      })
+      const result = await sendTestNotificationAction()
       if (result.ok) {
         toast.success(
           result.data?.provider === "resend"
@@ -803,19 +804,7 @@ function FirstEmailChannelGate({
       }
       // …and the daily-summary channel on the same address so the owner
       // gets a 24-hour recap without a second click. Failures here are
-      // non-fatal — the lead alert is the must-have.
-      try {
-        await createNotificationChannelAction({
-          channel: "daily_summary",
-          label: "Daily summary",
-          description: "Every morning at 8 AM, get a recap of yesterday's leads",
-          enabled: true,
-          recipients: [target],
-        })
-      } catch (e) {
-        console.error("[notifications] daily_summary seed failed", e)
-      }
-      toast.success("Email + daily summary added — you'll get notified on new leads")
+      toast.success("Email alerts enabled for new leads")
       setEmail("")
       await onCreated()
     } catch (e) {

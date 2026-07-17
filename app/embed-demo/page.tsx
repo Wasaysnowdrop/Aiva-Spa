@@ -67,7 +67,7 @@ export default async function DemoSitePage({
 
   return (
     <main className="min-h-screen bg-[#08090A] text-[#F7F8F8]">
-      <Script src={loaderSrc} data-spa-id={spaId} strategy="afterInteractive" />
+      <Script src={loaderSrc} data-spa-id={spaId} data-environment="preview" strategy="afterInteractive" />
       <header className="border-b border-[#23252A]">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5 lg:px-8">
           <div className="flex items-center gap-2.5">

@@ -22,6 +22,7 @@ function buildMatchFilters(contact: NormalizedContact): string[] {
 export type FindDuplicateOptions = {
   excludeLeadId?: string
   limit?: number
+  userId?: string
 }
 
 export async function findDuplicateLead(
@@ -53,6 +54,10 @@ export async function findDuplicateLead(
   if (options.excludeLeadId) {
     query = query.neq("id", options.excludeLeadId)
   }
+  if (options.userId) {
+    query = query.eq("user_id", options.userId)
+  }
+  query = query.is("deleted_at", null)
 
   const { data, error } = await query
   if (error || !data || data.length === 0) return null
@@ -67,18 +72,21 @@ export type DuplicateGroup = {
   leads: Lead[]
 }
 
-export async function getDuplicateGroups(limit = 200): Promise<DuplicateGroup[]> {
+export async function getDuplicateGroups(limit = 200, userId?: string): Promise<DuplicateGroup[]> {
   const admin = createAdminClient()
 
   // PostgREST `.or()` with bare `column.neq.` filters on NOT NULL columns
   // collapses to "not equal empty string", which is almost every row.
   // Instead, select candidates with a real filter and bucket them in JS.
-  const { data, error } = await admin
+  let query = admin
     .from("leads")
     .select("id, phone_normalized, email_normalized, name, created_at")
     .is("merged_into_id", null)
+    .is("deleted_at", null)
     .order("created_at", { ascending: false })
     .limit(limit * 4)
+  if (userId) query = query.eq("user_id", userId)
+  const { data, error } = await query
 
   if (error || !data) return []
 
@@ -160,6 +168,7 @@ export type MergeFieldChoice = {
 }
 
 export type MergeLeadsOptions = {
+  userId?: string
   primaryLeadId: string
   secondaryLeadIds: string[]
   fieldChoices?: MergeFieldChoice[]
@@ -196,7 +205,7 @@ function pickFieldValue<T extends string>(
 
 export async function mergeLeads(options: MergeLeadsOptions): Promise<MergeResult> {
   const admin = createAdminClient()
-  const { primaryLeadId, secondaryLeadIds, fieldChoices, notesAppend, transcriptMerge } =
+  const { userId, primaryLeadId, secondaryLeadIds, fieldChoices, notesAppend, transcriptMerge } =
     options
 
   if (secondaryLeadIds.length === 0) {
@@ -207,10 +216,13 @@ export async function mergeLeads(options: MergeLeadsOptions): Promise<MergeResul
   }
 
   const ids = [primaryLeadId, ...secondaryLeadIds]
-  const { data: rows, error: fetchErr } = await admin
+  let fetchQuery = admin
     .from("leads")
     .select("*")
     .in("id", ids)
+    .is("deleted_at", null)
+  if (userId) fetchQuery = fetchQuery.eq("user_id", userId)
+  const { data: rows, error: fetchErr } = await fetchQuery
 
   if (fetchErr) throw new Error(fetchErr.message)
   if (!rows || rows.length !== ids.length) {
@@ -288,16 +300,17 @@ export async function mergeLeads(options: MergeLeadsOptions): Promise<MergeResul
     last_activity_at: mergedAt,
   }
 
-  const { data: updated, error: updateErr } = await admin
+  let primaryUpdate = admin
     .from("leads")
     .update(updatePayload as never)
     .eq("id", primaryLeadId)
-    .select()
-    .single()
+  const ownerId = userId ?? primary.userId
+  if (ownerId) primaryUpdate = primaryUpdate.eq("user_id", ownerId)
+  const { data: updated, error: updateErr } = await primaryUpdate.select().single()
 
   if (updateErr) throw new Error(updateErr.message)
 
-  const { error: secondaryErr } = await admin
+  let secondaryUpdate = admin
     .from("leads")
     .update({
       merged_into_id: primaryLeadId,
@@ -305,6 +318,8 @@ export async function mergeLeads(options: MergeLeadsOptions): Promise<MergeResul
       last_activity_at: mergedAt,
     } as never)
     .in("id", secondaryLeadIds)
+  if (ownerId) secondaryUpdate = secondaryUpdate.eq("user_id", ownerId)
+  const { error: secondaryErr } = await secondaryUpdate
 
   if (secondaryErr) throw new Error(secondaryErr.message)
 
@@ -320,14 +335,15 @@ export async function mergeLeads(options: MergeLeadsOptions): Promise<MergeResul
   }
 }
 
-export async function unmergeLead(secondaryLeadId: string): Promise<void> {
+export async function unmergeLead(secondaryLeadId: string, userId?: string): Promise<void> {
   const admin = createAdminClient()
 
-  const { data: secondary, error: fetchErr } = await admin
+  let secondaryQuery = admin
     .from("leads")
     .select("id, merged_into_id, merged_at")
     .eq("id", secondaryLeadId)
-    .maybeSingle()
+  if (userId) secondaryQuery = secondaryQuery.eq("user_id", userId)
+  const { data: secondary, error: fetchErr } = await secondaryQuery.maybeSingle()
 
   if (fetchErr) throw new Error(fetchErr.message)
   if (!secondary) throw new Error("Lead not found")
@@ -472,12 +488,12 @@ export async function mergeIncomingIntoLead(
     last_activity_at: mergedAt,
   }
 
-  const { data, error: updateErr } = await admin
+  let updateQuery = admin
     .from("leads")
     .update(updatePayload as never)
     .eq("id", primaryLeadId)
-    .select()
-    .single()
+  if (primary.userId) updateQuery = updateQuery.eq("user_id", primary.userId)
+  const { data, error: updateErr } = await updateQuery.select().single()
 
   if (updateErr) throw new Error(updateErr.message)
   return { lead: mapLead(data as Record<string, unknown>), merged: true }

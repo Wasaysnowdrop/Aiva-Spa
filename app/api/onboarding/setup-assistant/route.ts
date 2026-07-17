@@ -53,6 +53,22 @@ const requestSchema = z.object({
   messageId: z.string().min(3).max(160).optional(),
 })
 
+async function persistNotificationEmail(userId: string, email: string): Promise<void> {
+  const admin = createAdminClient()
+  const { error } = await admin.rpc(
+    "upsert_notification_email" as never,
+    { p_user_id: userId, p_email: email.trim().toLowerCase() } as never,
+  )
+  if (error) {
+    console.error("setup-assistant: notification email save failed", {
+      userId,
+      code: error.code,
+      message: error.message,
+    })
+    throw new Error("Notification email could not be saved")
+  }
+}
+
 function cors(request: Request) {
   return buildCorsHeaders(request)
 }
@@ -247,6 +263,8 @@ export async function POST(request: NextRequest) {
         : "progress_persisted_without_asking_question"
 
     try {
+      const notificationEmail = draft.notifications?.emailRecipients?.[0]
+      if (notificationEmail) await persistNotificationEmail(user.id, notificationEmail)
       const savedAt = await persistOnboardingDraft(user.id, meta, draft, selectedSection, body.submissionId)
       console.info("setup-assistant: question-selection", {
         currentOnboardingStep: section,
@@ -322,6 +340,11 @@ export async function POST(request: NextRequest) {
         currentOnboardingStep: section,
         inputHash,
       })
+    }
+
+    const notificationEmail = result.draft.notifications?.emailRecipients?.[0]
+    if (section === "notifications" && notificationEmail) {
+      await persistNotificationEmail(user.id, notificationEmail)
     }
 
     const savedAt = await persistOnboardingDraft(

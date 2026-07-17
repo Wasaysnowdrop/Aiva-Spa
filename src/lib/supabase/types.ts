@@ -1,4 +1,9 @@
 import { normalizeServiceCategory, type ServiceCategory } from "@/lib/kb/service-categories"
+import type {
+  ConversationChannel,
+  ConversationEnvironment,
+  ConversationType,
+} from "@/lib/conversations/eligibility"
 
 export type Json =
   | string
@@ -38,6 +43,7 @@ export interface WorkingHours {
 
 export interface Lead {
   id: string
+  userId: string | null
   name: string
   phone: string
   email: string
@@ -58,6 +64,7 @@ export interface Lead {
   mergedIntoId?: string | null
   mergedAt?: string | null
   mergedFrom?: MergedLeadEntry[]
+  deletedAt?: string | null
 }
 
 export type MergedLeadEntry = {
@@ -75,6 +82,7 @@ export type ChatSessionStatus = "active" | "captured" | "abandoned"
 
 export interface ChatSession {
   id: string
+  userId: string | null
   sessionId: string
   spaId: string
   transcript: TranscriptMessage[]
@@ -90,6 +98,11 @@ export interface ChatSession {
   consentGiven: boolean
   status: ChatSessionStatus
   metadata: Record<string, unknown>
+  conversationType: ConversationType
+  channel: ConversationChannel
+  environment: ConversationEnvironment
+  isBillable: boolean
+  deletedAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -167,6 +180,7 @@ export interface TeamMember {
 
 export interface NotificationLog {
   id: string
+  userId: string | null
   leadId: string
   leadName: string
   channel: NotificationChannel
@@ -258,6 +272,9 @@ const notificationChannels: readonly NotificationChannel[] = ["Email", "SMS"]
 const notificationStatuses: readonly NotificationStatus[] = ["delivered", "pending", "failed"]
 const widgetPositions: readonly WidgetPosition[] = ["bottom-right", "bottom-left"]
 const chatSessionStatuses: readonly ChatSessionStatus[] = ["active", "captured", "abandoned"]
+const conversationTypes = ["visitor", "onboarding", "internal", "test", "support"] as const
+const conversationChannels = ["website_widget", "onboarding_assistant", "dashboard_internal", "sms", "email"] as const
+const conversationEnvironments = ["production", "preview", "test"] as const
 
 type DbRecord = Record<string, unknown>
 
@@ -326,6 +343,7 @@ export function mapLead(row: DbRecord): Lead {
   const lastActivityAt = stringValue(row.last_activity_at ?? row.lastActivityAt, createdAt)
   return {
     id: stringValue(row.id),
+    userId: optionalUuidValue(row.user_id ?? row.userId),
     name: stringValue(row.name, "Unknown lead"),
     phone: stringValue(row.phone),
     email: stringValue(row.email),
@@ -347,6 +365,7 @@ export function mapLead(row: DbRecord): Lead {
       stringValue(row.merged_into_id ?? row.mergedIntoId, undefined as unknown as string) || null,
     mergedAt: stringValue(row.merged_at ?? row.mergedAt, undefined as unknown as string) || null,
     mergedFrom: mergedFromValue(row.merged_from ?? row.mergedFrom),
+    deletedAt: optionalUuidValue(row.deleted_at ?? row.deletedAt),
   }
 }
 
@@ -374,6 +393,7 @@ export function mapChatSession(row: DbRecord): ChatSession {
       : {}
   return {
     id: stringValue(row.id),
+    userId: optionalUuidValue(row.user_id ?? row.userId),
     sessionId: stringValue(row.session_id ?? row.sessionId, ""),
     spaId: stringValue(row.spa_id ?? row.spaId, "default"),
     transcript: transcriptValue(row.transcript),
@@ -389,6 +409,11 @@ export function mapChatSession(row: DbRecord): ChatSession {
     consentGiven: booleanValue(row.consent_given ?? row.consentGiven, false),
     status: enumValue(row.status, chatSessionStatuses, "active"),
     metadata,
+    conversationType: enumValue(row.conversation_type ?? row.conversationType, conversationTypes, "internal"),
+    channel: enumValue(row.channel, conversationChannels, "dashboard_internal"),
+    environment: enumValue(row.environment, conversationEnvironments, "production"),
+    isBillable: booleanValue(row.is_billable ?? row.isBillable, false),
+    deletedAt: optionalUuidValue(row.deleted_at ?? row.deletedAt),
     createdAt,
     updatedAt,
   }
@@ -457,6 +482,7 @@ export function mapKnowledgeGuardrail(row: DbRecord): KnowledgeGuardrail {
 export function mapNotificationLog(row: DbRecord): NotificationLog {
   return {
     id: stringValue(row.id),
+    userId: optionalUuidValue(row.user_id ?? row.userId),
     leadId: stringValue(row.lead_id ?? row.leadId),
     leadName: stringValue(row.lead_name ?? row.leadName),
     channel: enumValue(row.channel, notificationChannels, "Email"),

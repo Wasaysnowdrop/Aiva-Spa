@@ -27,6 +27,7 @@ export type CreatePublicLeadInput = {
   sessionId?: string
   source?: "Website Chat" | "Mobile" | "Direct Link"
   spaId?: string
+  userId?: string
 }
 
 export type CreatePublicLeadResult = {
@@ -41,7 +42,7 @@ export async function createPublicLead(
   const admin = createAdminClient()
 
   const contact = normalizeContact({ phone: input.phone, email: input.email })
-  const existing = await findDuplicateLead(contact)
+  const existing = await findDuplicateLead(contact, { userId: input.userId })
 
   if (existing) {
     const result = await mergeIncomingIntoLead(existing.id, {
@@ -78,6 +79,7 @@ export async function createPublicLead(
   }
 
   const payload = {
+    user_id: input.userId ?? null,
     name: input.name.trim() || "Visitor",
     phone: input.phone.trim(),
     email: input.email.trim(),

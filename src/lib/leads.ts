@@ -11,7 +11,11 @@ export async function getLeads(options: GetLeadsOptions = {}): Promise<Lead[]> {
   noStore()
   try {
     const supabase = await createClient()
-    let query = supabase.from("leads").select("*").order("created_at", { ascending: false })
+    let query = supabase
+      .from("leads")
+      .select("*")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
 
     if (!options.includeMerged) {
       query = query.is("merged_into_id", null)
@@ -61,6 +65,7 @@ export async function getLead(id: string): Promise<Lead | null> {
     .from("leads")
     .select("*")
     .eq("id", id)
+    .is("deleted_at", null)
     .maybeSingle()
 
   if (error) {
@@ -94,6 +99,9 @@ export async function getLiveChatSessions(limit = 50): Promise<ChatSession[]> {
   const { data, error } = await supabase
     .from("chat_sessions")
     .select("*")
+    .eq("conversation_type", "visitor")
+    .eq("channel", "website_widget")
+    .is("deleted_at", null)
     .order("last_message_at", { ascending: false })
     .limit(limit)
 

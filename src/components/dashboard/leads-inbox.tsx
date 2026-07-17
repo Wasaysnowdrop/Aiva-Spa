@@ -34,6 +34,11 @@ import { mapLead } from "@/lib/supabase/types"
 import { getDuplicateGroupsAction } from "@/app/actions/leads"
 import { MergeDuplicatesDialog, type Candidate } from "@/components/dashboard/merge-duplicates-dialog"
 import { toast } from "sonner"
+import {
+  clearLeadSelection,
+  pruneLeadSelection,
+  toggleAllLeadSelection,
+} from "@/lib/leads/selection"
 
 const statuses: { value: string; label: string }[] = [
   { value: "all", label: "All leads" },
@@ -91,6 +96,11 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
   const [mergeCandidates, setMergeCandidates] = React.useState<Candidate[]>([])
   const [mergeOpen, setMergeOpen] = React.useState(false)
   const [addOpen, setAddOpen] = React.useState(false)
+  const availableLeadIds = React.useMemo(() => safeLeads.map((lead) => lead.id), [safeLeads])
+  const activeSelected = React.useMemo(
+    () => pruneLeadSelection(selected, availableLeadIds),
+    [selected, availableLeadIds],
+  )
 
   const services = React.useMemo(
     () => Array.from(new Set(safeLeads.map((l) => l?.service).filter(Boolean) as string[])).sort(),
@@ -144,15 +154,18 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
     }
   }, [safeLeads, rangeCutoff])
 
+
   const toggleAll = () => {
-    if (selected.length === filtered.length) setSelected([])
-    else setSelected(filtered.map((l) => l?.id).filter((id): id is string => Boolean(id)))
+    setSelected(
+      toggleAllLeadSelection(activeSelected, filtered.map((lead) => lead.id)),
+    )
   }
   const toggle = (id: string) => {
     if (!id) return
-    setSelected((prev) =>
-      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
-    )
+    setSelected((prev) => {
+      const current = pruneLeadSelection(prev, availableLeadIds)
+      return current.includes(id) ? current.filter((selectedId) => selectedId !== id) : [...current, id]
+    })
   }
 
   const exportCsv = React.useCallback(() => {
@@ -203,12 +216,12 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
 
   const bulkUpdateStatus = React.useCallback(
     async (next: "contacted" | "booked") => {
-      if (selected.length === 0) return
+      if (activeSelected.length === 0) return
       setBulkPending(true)
       try {
         const { updateLeadStatusAction } = await import("@/app/actions/leads")
         const results = await Promise.allSettled(
-          selected.map((id) => updateLeadStatusAction(id, next)),
+          activeSelected.map((id) => updateLeadStatusAction(id, next)),
         )
         const ok = results.filter((r) => r.status === "fulfilled" && r.value?.ok).length
         const failed = results.length - ok
@@ -219,7 +232,7 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
         setBulkPending(false)
       }
     },
-    [selected],
+    [activeSelected],
   )
 
   const scanDuplicates = React.useCallback(async () => {
@@ -264,7 +277,7 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
             <button
               key={s.value}
               type="button"
-              onClick={() => setStatus(s.value)}
+              onClick={() => { setStatus(s.value); setSelected(clearLeadSelection()) }}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition",
                 status === s.value
@@ -381,14 +394,14 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#62666D]" />
           <Input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => { setQuery(e.target.value); setSelected(clearLeadSelection()) }}
             placeholder="Search by name, email, or phone…"
             className="h-9 w-full pl-9"
           />
           {query ? (
             <button
               type="button"
-              onClick={() => setQuery("")}
+              onClick={() => { setQuery(""); setSelected(clearLeadSelection()) }}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#62666D] hover:text-[#F7F8F8]"
               aria-label="Clear"
             >
@@ -398,7 +411,7 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
         </div>
         <div className="flex items-center gap-2">
           <Filter className="size-4 text-[#62666D]" />
-          <Select value={service} onValueChange={setService}>
+          <Select value={service} onValueChange={(value) => { setService(value); setSelected(clearLeadSelection()) }}>
             <SelectTrigger className="h-9 w-40">
               <SelectValue placeholder="Service" />
             </SelectTrigger>
@@ -411,7 +424,7 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
               ))}
             </SelectContent>
           </Select>
-          <Select value={range} onValueChange={setRange}>
+          <Select value={range} onValueChange={(value) => { setRange(value); setSelected(clearLeadSelection()) }}>
             <SelectTrigger className="h-9 w-36">
               <SelectValue placeholder="Date" />
             </SelectTrigger>
@@ -426,10 +439,10 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
         </div>
       </div>
 
-      {selected.length > 0 ? (
+      {activeSelected.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#E2E54B]/30 bg-[#E2E54B]/5 px-3 py-2 text-xs">
           <CheckCircle2 className="size-3.5 text-[#E2E54B]" />
-          <span className="text-[#F7F8F8]">{selected.length} selected</span>
+          <span className="text-[#F7F8F8]">{activeSelected.length} selected</span>
           <div className="ml-auto flex items-center gap-2">
             <Button
               size="xs"
@@ -448,7 +461,13 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
             >
               Mark booked
             </Button>
-            <Button size="xs" variant="ghost" onClick={() => setSelected([])}>
+            <Button
+              type="button"
+              size="xs"
+              variant="ghost"
+              disabled={bulkPending}
+              onClick={() => setSelected(clearLeadSelection())}
+            >
               Clear
             </Button>
           </div>
@@ -461,7 +480,7 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
             <input
               type="checkbox"
               aria-label="Select all"
-              checked={selected.length === filtered.length && filtered.length > 0}
+              checked={filtered.length > 0 && filtered.every((lead) => activeSelected.includes(lead.id))}
               onChange={toggleAll}
               className="size-3.5 rounded border-[#23252A] bg-[#121316] accent-[#E2E54B]"
             />
@@ -484,7 +503,7 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
           safeLeads.length === 0 ? (
             <DatabaseEmptyState />
           ) : (
-            <EmptyState onClear={() => { setQuery(""); setStatus("all"); setService("all") }} />
+            <EmptyState onClear={() => { setQuery(""); setStatus("all"); setService("all"); setSelected(clearLeadSelection()) }} />
           )
         ) : (
           <ul className="divide-y divide-[#23252A]">
@@ -493,7 +512,7 @@ export function LeadsInbox({ leads: initialLeads }: { leads: Lead[] }) {
                 <LeadRow
                   key={lead.id}
                   lead={lead}
-                  checked={selected.includes(lead.id)}
+                  checked={activeSelected.includes(lead.id)}
                   onToggle={() => toggle(lead.id)}
                 />
               ) : null,

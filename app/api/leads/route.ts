@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const kb = await loadKnowledge()
+    const kb = await loadKnowledge(spaOwnerId ?? undefined)
     const afterHours =
       body.afterHours !== undefined
         ? body.afterHours
@@ -96,6 +96,7 @@ export async function POST(request: NextRequest) {
       afterHours,
       sessionId: body.sessionId,
       spaId: body.spaId ?? undefined,
+      userId: spaOwnerId ?? undefined,
     })
     const lead = result.lead
 
@@ -103,7 +104,7 @@ export async function POST(request: NextRequest) {
     // shows the lead + transcript together in real time.
     if (body.sessionId) {
       try {
-        await markSessionLeadCaptured(body.sessionId, lead.id, body.name)
+        await markSessionLeadCaptured(body.sessionId, lead.id, body.name, spaOwnerId)
       } catch (e) {
         console.error("markSessionLeadCaptured failed", e)
       }

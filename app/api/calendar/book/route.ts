@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const kb = await loadKnowledge()
+    const kb = await loadKnowledge(access.userId)
     const afterHours =
       body.afterHours !== undefined ? body.afterHours : isAfterHours(kb.widget.workingHours)
     const transcript: TranscriptMessage[] = (body.transcript ?? []).map(
@@ -104,6 +104,8 @@ export async function POST(request: NextRequest) {
       consentGiven: body.consentGiven ?? true,
       afterHours,
       sessionId: body.sessionId,
+      spaId: body.spaId,
+      userId: access.userId,
     })
     const lead = created.lead
 

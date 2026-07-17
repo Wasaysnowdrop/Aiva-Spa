@@ -735,7 +735,7 @@ function fallbackMockResponse(input: SetupAssistantTurnInput): SetupAssistantRaw
       captured: {
         notifications: {
           channels: { email: Boolean(email), sms: Boolean(phone) },
-          emailRecipients: email ? [email] : [],
+          emailRecipients: email ? [email.trim().toLowerCase()] : [],
           smsRecipients: phone ? [phone] : [],
         },
       },
