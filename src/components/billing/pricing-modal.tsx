@@ -7,10 +7,10 @@ import { Check, Sparkles, Star, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { PLANS, type PlanId } from "@/lib/subscription/plans";
-import type { SubscriptionSnapshot } from "@/lib/subscription";
+import type { PricingSubscriptionSummary } from "@/lib/subscription/pricing-summary";
 
 type PricingModalProps = {
-  subscription: SubscriptionSnapshot;
+  subscription: PricingSubscriptionSummary;
 };
 
 export function PricingModal({ subscription }: PricingModalProps) {

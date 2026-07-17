@@ -192,7 +192,14 @@ export function KnowledgeBaseEditor() {
       setServices((prev) => mergeById(snap.services, prev))
       setFaqs((prev) => mergeById(snap.faqs, prev))
       setGuardrails((prev) => mergeById(snap.guardrails, prev))
-      setLastServerFetchAt(new Date().toISOString())
+      setLastServerFetchAt(snap.fetchedAt)
+      if (snap.status === "partial") {
+        toast.error("Some knowledge-base data could not be refreshed. Your existing items are still shown.")
+      } else if (snap.status === "rate_limited") {
+        toast.error("Knowledge-base refresh is temporarily busy. Please try again shortly.")
+      } else if (snap.status === "unauthenticated") {
+        toast.error("Your session expired. Sign in again to refresh the knowledge base.")
+      }
     } catch (e) {
       console.error("[kb] loadFromServer failed", e)
       toast.error(e instanceof Error ? e.message : "Failed to load knowledge base")
@@ -211,9 +218,7 @@ export function KnowledgeBaseEditor() {
 
 
   const [activeFaqId, setActiveFaqId] = React.useState<string>(() => "")
-  if (!activeFaqId && faqs[0]) {
-    setActiveFaqId(faqs[0].id)
-  }
+  const resolvedActiveFaqId = activeFaqId || faqs[0]?.id || ""
 
   const [serviceDialog, setServiceDialog] = React.useState<{
     mode: "new" | "edit"
@@ -597,7 +602,7 @@ export function KnowledgeBaseEditor() {
             totalCount={faqs.length}
             query={query}
             setQuery={setQuery}
-            activeId={activeFaqId}
+            activeId={resolvedActiveFaqId}
             setActiveId={setActiveFaqId}
             categoryFilter={faqCategoryFilter}
             setCategoryFilter={setFaqCategoryFilter}

@@ -17,6 +17,7 @@ import {
   deriveSnapshot,
 } from "@/lib/subscription";
 import type { SubscriptionSnapshot } from "@/lib/subscription";
+import { toPricingSubscriptionSummary } from "@/lib/subscription/pricing-summary";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -73,6 +74,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const showPaywall = subscription.isLocked;
   const showQuotaBanner = subscription.isActive && subscription.isQuotaExhausted;
   const showTrialPopup = shouldShowTrialPopup(subscription);
+  const pricingSubscription = toPricingSubscriptionSummary(subscription);
 
   return (
     <DashboardDrawerProvider>
@@ -98,7 +100,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           ) : null}
           {showPaywall ? <Paywall spaName={sidebarUser.spaName ?? ""} trialUsed={subscription.row?.trialUsed ?? true} /> : null}
           <Suspense fallback={null}>
-            <PricingModal subscription={subscription} />
+            <PricingModal subscription={pricingSubscription} />
           </Suspense>
         </div>
       </div>

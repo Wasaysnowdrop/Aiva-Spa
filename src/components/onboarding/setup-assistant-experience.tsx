@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 import { Logo } from "@/components/logo"
 import { toast } from "sonner"
+import { isSuccessfulPublishResult } from "@/lib/ai/publish-result"
 import { AnimatePresence, motion } from "framer-motion"
 
 import { Button } from "@/components/ui/button"
@@ -219,6 +220,7 @@ const SECTION_SUMMARY: Record<SetupAssistantSection, (kb: KnowledgeBase) => stri
 }
 
 type SavingState = "idle" | "saving" | "saved"
+type PublishStatus = "idle" | "publishing" | "published" | "failed"
 type ScopedConcerns = {
   section: SetupAssistantSection
   sourceSection: SetupAssistantSection
@@ -270,7 +272,8 @@ export function SetupAssistantExperience({
   const [savingState, setSavingState] = React.useState<SavingState>("idle")
   const [error, setError] = React.useState<string | null>(null)
   const [concerns, setConcerns] = React.useState<ScopedConcerns | null>(null)
-  const [finalizing, setFinalizing] = React.useState(false)
+  const [publishStatus, setPublishStatus] = React.useState<PublishStatus>("idle")
+  const finalizing = publishStatus === "publishing"
   const [finalizeError, setFinalizeError] = React.useState<string | null>(null)
   const [finalizeDebug, setFinalizeDebug] = React.useState<FinalizeSetupResult | null>(null)
   const [showResetConfirm, setShowResetConfirm] = React.useState(false)
@@ -280,6 +283,7 @@ export function SetupAssistantExperience({
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const inputRef = React.useRef<HTMLTextAreaElement | null>(null)
   const finishingLaterRef = React.useRef(false)
+  const publishingRef = React.useRef(false)
   const pendingSubmissionRef = React.useRef<string | null>(null)
   const pendingRequestControllerRef = React.useRef<AbortController | null>(null)
   const activeSectionRef = React.useRef<SetupAssistantSection>(initialSection)
@@ -581,22 +585,31 @@ export function SetupAssistantExperience({
   }
 
   async function publish(finalDraft: KnowledgeBase = draft) {
-    setFinalizing(true)
+    if (publishingRef.current) return
+
+    publishingRef.current = true
+    setPublishStatus("publishing")
     setFinalizeError(null)
     setFinalizeDebug(null)
     try {
       const result = await finalizeSetupAssistant(finalDraft)
-      if (!result.ok) {
+      if (!isSuccessfulPublishResult(result)) {
+        publishingRef.current = false
+        setPublishStatus("failed")
         setFinalizeError(result.error ?? "Failed to publish")
         setFinalizeDebug(result)
         return
       }
+
+      setPublishStatus("published")
       window.localStorage.removeItem(cacheKey)
-      router.replace("/dashboard/knowledge-base")
+      toast.success("Knowledge base published successfully.")
+      router.replace(result.redirectTo ?? "/dashboard")
+      router.refresh()
     } catch (e) {
+      publishingRef.current = false
+      setPublishStatus("failed")
       setFinalizeError(e instanceof Error ? e.message : "Failed to publish")
-    } finally {
-      setFinalizing(false)
     }
   }
 

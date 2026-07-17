@@ -51,6 +51,10 @@ describe("onboarding knowledge-base persistence", () => {
 
     expect(result).toEqual({
       ok: true,
+      success: true,
+      published: true,
+      knowledgeBaseId: user.id,
+      redirectTo: "/dashboard",
       inserted: { services: 1, faqs: 1, guardrails: 3, widgetUpdated: true, settingsUpdated: true },
     })
     const call = admin.callsFor(RPC, "rpc")[0]

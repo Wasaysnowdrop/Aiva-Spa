@@ -1,8 +1,10 @@
 "use server"
+import { randomUUID } from "node:crypto"
 import { redirect } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { isSuccessfulPublishResult } from "@/lib/ai/publish-result"
 import {
   knowledgeBaseSchema,
   type KnowledgeBase,
@@ -23,6 +25,10 @@ import {
 
 export type FinalizeSetupResult = {
   ok: boolean
+  success?: boolean
+  published?: boolean
+  knowledgeBaseId?: string
+  redirectTo?: "/dashboard"
   error?: string
   errorType?:
     | "AUTH_ERROR"
@@ -49,6 +55,7 @@ export type FinalizeSetupResult = {
 }
 
 type PublishContext = {
+  requestId: string
   userId: string | null
   businessId: string | null
   onboardingSessionId: string | null
@@ -184,11 +191,12 @@ export async function finalizeSetupAssistant(
   draftInput: unknown,
 ): Promise<FinalizeSetupResult> {
   let context: PublishContext = {
+    requestId: randomUUID(),
     userId: null,
     businessId: null,
     onboardingSessionId: null,
   }
-  publishInfo("PUBLISH_STARTED", context, { operation: "finalize_setup_assistant" })
+  publishInfo("PUBLISH_REQUEST_STARTED", context, { operation: "finalize_setup_assistant" })
 
   const limit = await checkActionLimit(LIMITS.actionSetupAssistant)
   if (!limit.ok) {
@@ -216,6 +224,7 @@ export async function finalizeSetupAssistant(
   }
 
   context = {
+    ...context,
     userId: user.id,
     // Knowledge-base ownership is user-scoped in this schema, so the owner ID
     // is the authoritative business/workspace scope used by the publish RPC.
@@ -413,6 +422,11 @@ export async function finalizeSetupAssistant(
     guardrailRowFieldNames: guardrailRows[0] ? Object.keys(guardrailRows[0]) : [],
   })
 
+  publishInfo("PUBLISH_TRANSACTION_STARTED", context, {
+    operation: PUBLISH_RPC,
+    table: PUBLISH_RPC,
+  })
+
   const { data: publishData, error: publishError } = await admin.rpc(
     PUBLISH_RPC as never,
     rpcPayload as never,
@@ -539,8 +553,17 @@ export async function finalizeSetupAssistant(
     // Non-fatal
   }
 
+  publishInfo("PUBLISH_REDIRECT_READY", context, {
+    operation: "publish_response",
+    redirectTo: "/dashboard",
+  })
+
   return {
     ok: true,
+    success: true,
+    published: true,
+    knowledgeBaseId: user.id,
+    redirectTo: "/dashboard",
     inserted: {
       services: servicesInserted,
       faqs: faqsInserted,
@@ -553,8 +576,8 @@ export async function finalizeSetupAssistant(
 
 export async function completeSetupAssistantAndRedirect(draftInput: unknown): Promise<void> {
   const result = await finalizeSetupAssistant(draftInput)
-  if (!result.ok) {
+  if (!isSuccessfulPublishResult(result)) {
     throw new Error(result.error ?? "Failed to finalize setup")
   }
-  redirect("/dashboard")
+  redirect(result.redirectTo ?? "/dashboard")
 }

@@ -12,6 +12,10 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default function KnowledgeBasePage() {
+  console.info("KNOWLEDGE_BASE_PAGE_RENDER_STARTED", {
+    route: "/dashboard/knowledge-base",
+  });
+
   return (
     <>
       <DashboardHeader />
