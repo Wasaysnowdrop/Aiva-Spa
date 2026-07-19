@@ -12,6 +12,7 @@ import {
 
 const analyticsSource = readFileSync(join(process.cwd(), "src/lib/analytics/server.ts"), "utf8")
 const dashboardSource = readFileSync(join(process.cwd(), "src/components/dashboard/analytics-dashboard.tsx"), "utf8")
+const routeErrorSource = readFileSync(join(process.cwd(), "app/dashboard/analytics/error.tsx"), "utf8")
 
 function session(overrides: Record<string, unknown> = {}) {
   return {
@@ -60,7 +61,7 @@ describe("analytics calculations", () => {
     expect(analyticsSource).toContain('.eq("environment", "production")')
     expect(analyticsSource).toContain('.eq("is_billable", true)')
     expect(analyticsSource).toContain('.is("deleted_at", null)')
-    expect(analyticsSource).toContain('.eq("channel", "email")')
+    expect(analyticsSource).toContain('.eq("channel", "Email")')
   })
 
   it("does not invent a trend when the previous period is zero", () => {
@@ -73,5 +74,14 @@ describe("analytics calculations", () => {
     expect(dashboardSource).toContain("overflow-x-auto")
     expect(dashboardSource).not.toMatch(/gradient/i)
     expect(dashboardSource).toContain("Open Install Guide")
+    expect(dashboardSource).toContain('"use client"')
+    expect(dashboardSource).toContain("h-56")
+  })
+
+  it("keeps route and data retries wired to real recovery actions", () => {
+    expect(dashboardSource).toContain("router.refresh()")
+    expect(dashboardSource).toContain("onClick={retry}")
+    expect(routeErrorSource).toContain("onClick={() => reset()}")
+    expect(routeErrorSource).toContain("ANALYTICS_ROUTE_ERROR")
   })
 })

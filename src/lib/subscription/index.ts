@@ -9,7 +9,7 @@ import {
   type PlanId,
   type FeatureKey,
   getPlanEntitlements,
-  isPlanId,
+  normalizePlanId,
   planAllowsFeature,
   planRank,
 } from "./plans"
@@ -85,7 +85,7 @@ function mapRow(row: RawSubscription): SubscriptionRow {
   return {
     id: row.id,
     userId: row.user_id,
-    plan: isPlanId(row.plan) ? row.plan : "starter",
+    plan: normalizePlanId(row.plan) ?? "starter",
     status: (row.status as SubscriptionStatus) ?? "trialing",
     billingInterval: (row.billing_interval as "monthly" | "yearly") ?? "monthly",
     monthlyQuota: row.monthly_quota,
@@ -97,7 +97,7 @@ function mapRow(row: RawSubscription): SubscriptionRow {
     trialPopupDismissedAt: row.trial_popup_dismissed_at,
     trialUsed: row.trial_used ?? false,
     canceledAt: row.canceled_at,
-    pendingPlan: row.pending_plan && row.pending_plan in PLANS ? row.pending_plan as PlanId : null,
+    pendingPlan: normalizePlanId(row.pending_plan),
     pendingPlanEffectiveAt: row.pending_plan_effective_at ?? null,
     billingVariantId: row.billing_variant_id ?? null,
   }

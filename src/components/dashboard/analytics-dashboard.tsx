@@ -3,11 +3,12 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowDownRight, ArrowUpRight, CalendarRange, Download, Info } from "lucide-react"
+import { AlertTriangle, ArrowDownRight, ArrowUpRight, CalendarRange, Download, Info, RotateCw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { AnalyticsPayload, AnalyticsRangeKey, AnalyticsSummary, AnalyticsTrend } from "@/lib/analytics/types"
+import { normalizeAnalyticsResponse } from "@/lib/analytics/normalize"
+import type { AnalyticsLoadError, AnalyticsPayload, AnalyticsRangeKey, AnalyticsSummary, AnalyticsTrend } from "@/lib/analytics/types"
 import { cn } from "@/lib/utils"
 
 const RANGE_OPTIONS: { value: AnalyticsRangeKey; label: string }[] = [
@@ -101,11 +102,33 @@ function TimelineChart({ data }: { data: AnalyticsPayload["timeline"] }) {
   )
 }
 
-export function AnalyticsDashboard({ payload }: { payload: AnalyticsPayload }) {
+export function AnalyticsDashboard({
+  payload: rawPayload,
+  loadError = null,
+}: {
+  payload: unknown
+  loadError?: AnalyticsLoadError | null
+}) {
   const router = useRouter()
   const [compare, setCompare] = React.useState(true)
   const [pending, startTransition] = React.useTransition()
-  const changeRange = (value: string) => startTransition(() => router.replace(`/dashboard/analytics?range=${value}`))
+  const normalization = React.useMemo(() => normalizeAnalyticsResponse(rawPayload), [rawPayload])
+  const payload = normalization.data
+  const displayError = loadError ?? (normalization.success ? null : { stage: "render" as const })
+
+  React.useEffect(() => {
+    if (!normalization.success) {
+      console.error("ANALYTICS_COMPONENT_RENDER_FAILED", {
+        component: "AnalyticsDashboard",
+        stage: "payload_normalization",
+        issueCount: normalization.issues.length,
+        issues: process.env.NODE_ENV === "production" ? undefined : normalization.issues,
+      })
+    }
+  }, [normalization])
+
+  const changeRange = (value: string) => startTransition(() => router.replace("/dashboard/analytics?range=" + value))
+  const retry = () => startTransition(() => router.refresh())
 
   return (
     <div className={cn("space-y-5", pending && "opacity-70")} aria-busy={pending}>
@@ -122,6 +145,37 @@ export function AnalyticsDashboard({ payload }: { payload: AnalyticsPayload }) {
           <Button variant="outline" size="sm" onClick={() => downloadAnalytics(payload)}><Download className="size-4" />Export CSV</Button>
         </div>
       </div>
+
+      {displayError ? (
+        <div role="alert" className="flex flex-col gap-4 rounded-2xl border border-[#EB5757]/30 bg-[#EB5757]/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-[#EB5757]/30 bg-[#EB5757]/10 text-[#EB5757]">
+              <AlertTriangle className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-[#F7F8F8]">We couldn’t load analytics right now.</p>
+              <p className="mt-1 text-xs leading-5 text-[#8A8F98]">The Analytics layout is still available. Try the query again in a moment.</p>
+              {process.env.NODE_ENV !== "production" ? (
+                <p className="mt-2 break-words font-mono text-[10px] text-[#EB8A8A]">
+                  Stage: {displayError.stage}
+                  {displayError.queryName ? <> · Query: {displayError.queryName}</> : null}
+                  {displayError.code ? <> · Code: {displayError.code}</> : null}
+                  {displayError.message ? <> · {displayError.message}</> : null}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button type="button" size="sm" onClick={retry} disabled={pending}>
+              <RotateCw className="size-4" />
+              Try again
+            </Button>
+            <Button asChild type="button" size="sm" variant="outline">
+              <Link href="/dashboard">Return to dashboard</Link>
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {payload.summary.visitorConversations === 0 ? (
         <div className="flex flex-col gap-3 rounded-2xl border border-[#E2E54B]/30 bg-[#E2E54B]/5 p-4 sm:flex-row sm:items-center sm:justify-between">

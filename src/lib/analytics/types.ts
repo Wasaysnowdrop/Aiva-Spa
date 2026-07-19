@@ -24,3 +24,17 @@ export type AnalyticsPayload = {
   statuses: { status: "new" | "contacted" | "booked" | "lost"; count: number; percentage: number }[]
 }
 
+export type AnalyticsLoadError = {
+  stage: "query" | "normalization" | "render"
+  queryName?: "chat_sessions" | "leads" | "notification_logs" | "analytics_payload"
+  code?: string
+  message?: string
+  details?: string
+  hint?: string
+}
+
+export type AnalyticsLoadResult = {
+  payload: AnalyticsPayload
+  error: AnalyticsLoadError | null
+}
+

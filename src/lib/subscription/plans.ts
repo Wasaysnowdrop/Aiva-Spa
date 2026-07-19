@@ -173,9 +173,13 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
 export const PLAN_ORDER: PlanId[] = ["starter", "growth", "pro"]
 export const TRIAL_QUOTA = PLAN_ENTITLEMENTS[TRIAL_PLAN_ID].monthlyConversations
 
+export function normalizePlanId(value: unknown): PlanId | null {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : ""
+  return normalized in PLANS ? normalized as PlanId : null
+}
+
 export function getPlan(id: string | null | undefined): PlanDefinition {
-  if (id && id in PLANS) return PLANS[id as PlanId]
-  return PLANS.starter
+  return PLANS[normalizePlanId(id) ?? "starter"]
 }
 
 export function formatPrice(plan: PlanDefinition) {

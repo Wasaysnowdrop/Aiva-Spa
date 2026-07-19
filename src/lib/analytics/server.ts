@@ -1,7 +1,8 @@
 import "server-only"
 
+import { createEmptyAnalyticsPayload, normalizeAnalyticsResponse } from "@/lib/analytics/normalize"
 import { createClient } from "@/lib/supabase/server"
-import type { AnalyticsPayload, AnalyticsRangeKey, AnalyticsSummary, AnalyticsTrend } from "@/lib/analytics/types"
+import type { AnalyticsLoadResult, AnalyticsPayload, AnalyticsRangeKey, AnalyticsSummary, AnalyticsTrend } from "@/lib/analytics/types"
 
 type SessionRow = {
   id: string
@@ -97,7 +98,7 @@ function bucketStart(date: Date, grouping: "daily" | "weekly" | "monthly"): stri
   return next.toISOString().slice(0, 10)
 }
 
-export async function getAnalyticsPayload(rangeInput: string | null | undefined, timezoneInput: string): Promise<AnalyticsPayload> {
+export async function getAnalyticsResult(rangeInput: string | null | undefined, timezoneInput: string): Promise<AnalyticsLoadResult> {
   const started = Date.now()
   const rangeKey = normalizeAnalyticsRange(rangeInput)
   const timezone = validTimezone(timezoneInput)
@@ -106,7 +107,8 @@ export async function getAnalyticsPayload(rangeInput: string | null | undefined,
   const start = new Date(end.getTime() - days * 86_400_000)
   const previousStart = new Date(start.getTime() - days * 86_400_000)
   const grouping = days <= 30 ? "daily" : days <= 90 ? "weekly" : "monthly"
-  if (process.env.NODE_ENV !== "production") console.info("ANALYTICS_QUERY_STARTED", { range: rangeKey, timezone })
+  const fallback = createEmptyAnalyticsPayload(rangeKey, timezone, end)
+  console.info("ANALYTICS_QUERY_STARTED", { range: rangeKey, timezone })
 
   try {
     const supabase = await createClient()
@@ -116,10 +118,26 @@ export async function getAnalyticsPayload(rangeInput: string | null | undefined,
         .is("deleted_at", null).gte("created_at", previousStart.toISOString()).lt("created_at", end.toISOString()),
       supabase.from("leads").select("id, status, service, source_url, created_at").is("deleted_at", null)
         .gte("created_at", previousStart.toISOString()).lt("created_at", end.toISOString()),
-      supabase.from("notification_logs").select("status, sent_at").eq("channel", "email")
+      supabase.from("notification_logs").select("status, sent_at").eq("channel", "Email")
         .gte("sent_at", previousStart.toISOString()).lt("sent_at", end.toISOString()),
     ])
-    if (sessionsResult.error || leadsResult.error || notificationsResult.error) throw new Error(sessionsResult.error?.message ?? leadsResult.error?.message ?? notificationsResult.error?.message)
+    const failedQuery = [
+      { queryName: "chat_sessions" as const, error: sessionsResult.error },
+      { queryName: "leads" as const, error: leadsResult.error },
+      { queryName: "notification_logs" as const, error: notificationsResult.error },
+    ].find((query) => query.error)
+    if (failedQuery?.error) {
+      const failure = {
+        stage: "query" as const,
+        queryName: failedQuery.queryName,
+        code: failedQuery.error.code,
+        message: failedQuery.error.message,
+        details: failedQuery.error.details,
+        hint: failedQuery.error.hint,
+      }
+      console.error("ANALYTICS_QUERY_FAILED", failure)
+      return { payload: fallback, error: failure }
+    }
     const allSessions = ((sessionsResult.data ?? []) as SessionRow[]).filter(isEligibleAnalyticsSession)
     const allLeads = (leadsResult.data ?? []) as LeadRow[]
     const allNotifications = (notificationsResult.data ?? []) as NotificationRow[]
@@ -175,11 +193,32 @@ export async function getAnalyticsPayload(rangeInput: string | null | undefined,
       leadToBookingRate: calculateAnalyticsTrend(summary.leadToBookingRate, previous.leadToBookingRate),
       averageResponseSeconds: calculateAnalyticsTrend(summary.averageResponseSeconds, previous.averageResponseSeconds),
     }
-    if (process.env.NODE_ENV !== "production") console.info("ANALYTICS_QUERY_SUCCESS", { range: rangeKey, durationMs: Date.now() - started, conversations: summary.visitorConversations })
-    return { range: { key: rangeKey, start: start.toISOString(), end: end.toISOString(), timezone, grouping }, summary, previous, trends, timeline, funnel, services, hours, referrers, statuses }
+    const normalized = normalizeAnalyticsResponse(
+      { range: { key: rangeKey, start: start.toISOString(), end: end.toISOString(), timezone, grouping }, summary, previous, trends, timeline, funnel, services, hours, referrers, statuses },
+      fallback,
+    )
+    console.info("ANALYTICS_DATA_NORMALIZED", { range: rangeKey, success: normalized.success, issueCount: normalized.issues.length })
+    console.info("ANALYTICS_QUERY_SUCCESS", { range: rangeKey, durationMs: Date.now() - started, conversations: normalized.data.summary.visitorConversations })
+    return {
+      payload: normalized.data,
+      error: normalized.success ? null : {
+        stage: "normalization",
+        queryName: "analytics_payload",
+        message: "Analytics response did not match the expected schema.",
+      },
+    }
   } catch (error) {
-    console.error("ANALYTICS_QUERY_FAILED", { range: rangeKey, error: error instanceof Error ? error.message : String(error) })
-    throw error
+    const failure = {
+      stage: "query" as const,
+      queryName: "analytics_payload" as const,
+      message: error instanceof Error ? error.message : String(error),
+    }
+    console.error("ANALYTICS_QUERY_FAILED", { range: rangeKey, ...failure })
+    return { payload: fallback, error: failure }
   }
+}
+
+export async function getAnalyticsPayload(rangeInput: string | null | undefined, timezoneInput: string): Promise<AnalyticsPayload> {
+  return (await getAnalyticsResult(rangeInput, timezoneInput)).payload
 }
 

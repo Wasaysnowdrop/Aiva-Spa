@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { deriveSnapshot, type SubscriptionRow } from "@/lib/subscription"
 import {
   PLAN_ENTITLEMENTS,
+  normalizePlanId,
   planAllowsFeature,
   planFromVariantId,
 } from "@/lib/subscription/plans"
@@ -145,6 +146,13 @@ describe("billing variant mapping", () => {
     delete process.env.LEMON_SQUEEZY_STARTER_VARIANT_ID
     delete process.env.LEMON_SQUEEZY_GROWTH_VARIANT_ID
     delete process.env.LEMON_SQUEEZY_PRO_VARIANT_ID
+  })
+
+  it("normalizes display-cased plan values before entitlement lookup", () => {
+    expect(normalizePlanId("Pro")).toBe("pro")
+    expect(normalizePlanId(" GROWTH ")).toBe("growth")
+    expect(normalizePlanId("unknown")).toBeNull()
+    expect(planAllowsFeature(normalizePlanId("Pro") ?? "starter", "conversion_analytics")).toBe(true)
   })
 
   it("maps configured Lemon Squeezy variants to canonical plans", () => {
