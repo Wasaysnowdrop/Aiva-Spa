@@ -4,10 +4,12 @@ import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { WidgetSettings } from "@/components/dashboard/widget-settings";
 import { WidgetInstallsPanel } from "@/components/dashboard/widget-installs-panel";
+import { WidgetVerificationStatus } from "@/components/dashboard/widget-verification-status";
 import { getWidgetConfig } from "@/lib/db/widget.server";
 import { getSpaSettings } from "@/lib/db/settings.server";
 import { getCurrentSubscription } from "@/lib/subscription";
 import { listWidgetInstalls } from "@/lib/widget/installs";
+import { getLatestWidgetVerification } from "@/lib/widget/installation-checks.server";
 import { createClient } from "@/lib/supabase/server";
 import { headers } from "next/headers";
 
@@ -29,6 +31,10 @@ export default async function WidgetPage() {
   } = await supabase.auth.getUser();
 
   const installs = user ? await listWidgetInstalls(user.id) : [];
+  const primaryInstall = installs.find((install) => install.active) ?? installs[0];
+  const latestVerification = user && primaryInstall
+    ? await getLatestWidgetVerification(user.id, primaryInstall.widgetKey)
+    : null;
 
   // Compute site URL for the install snippet
   const h = await headers();
@@ -48,6 +54,8 @@ export default async function WidgetPage() {
           title="Widget"
           description="Customize how AivaSpa looks and behaves on your website."
         />
+
+        <WidgetVerificationStatus check={latestVerification} />
 
         <div className="mb-6">
           <WidgetInstallsPanel

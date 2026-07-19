@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/server"
+import { createAdminClient } from "@/lib/supabase/admin"
 import {
   findDuplicateLead,
   getDuplicateGroups,
@@ -13,7 +14,8 @@ import {
   type MergeLeadsOptions,
 } from "@/lib/leads/dedup"
 import { recordAudit } from "@/lib/audit"
-import { mapLead, type Lead, type MergedLeadEntry } from "@/lib/supabase/types"
+import { mapLead, type Lead, type MergedLeadEntry, type TeamRole } from "@/lib/supabase/types"
+import { roleCan } from "@/lib/team/permissions"
 import { fireEventForAll } from "@/lib/webhooks"
 import { sendEmail, buildLeadNotificationEmail } from "@/lib/notifications/email"
 import { loadKnowledge } from "@/lib/ai/conversation"
@@ -227,6 +229,173 @@ export async function updateLeadStatusAction(
       error: e instanceof Error ? e.message : "Failed to update status",
     }
   }
+}
+
+export type AssignableMember = {
+  teamMemberId: string
+  userId: string
+  name: string
+  email: string
+  role: string
+}
+
+export type AssignLeadResult = {
+  leadId: string
+  assignedTo: AssignableMember | null
+}
+
+function actorDisplayName(user: { email?: string | null; user_metadata?: Record<string, unknown> | null }): string {
+  const metadata = user.user_metadata as Record<string, unknown> | null
+  const fullName = typeof metadata?.full_name === "string" ? metadata.full_name.trim() : ""
+  if (fullName) return fullName
+  return user.email?.split("@")[0] || "Team member"
+}
+
+type ResolvedRole = { role: TeamRole | null; businessId: string }
+
+async function resolveRoleForBusiness(userId: string, businessId: string): Promise<ResolvedRole> {
+  if (userId === businessId) return { role: "Owner", businessId }
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from("team_members")
+    .select("role, status, business_id")
+    .eq("member_user_id", userId)
+    .eq("business_id", businessId)
+    .eq("status", "active")
+    .maybeSingle()
+  if (error || !data) return { role: null, businessId }
+  const row = data as { role: TeamRole; status: string }
+  return { role: row.role, businessId }
+}
+
+export async function assignLeadAction(
+  leadId: string,
+  teamMemberId: string | null,
+): Promise<LeadActionResult<AssignLeadResult>> {
+  if (process.env.NODE_ENV !== "production") console.info("LEAD_ASSIGNMENT_STARTED", { leadId, teamMemberId })
+  const sessionClient = await createClient()
+  const {
+    data: { user },
+  } = await sessionClient.auth.getUser()
+  if (!user) return { ok: false, error: "Please sign in to continue." }
+  const limit = await checkActionLimit(LIMITS.actionLeads)
+  if (!limit.ok) return { ok: false, error: limit.error }
+  if (!leadId) return { ok: false, error: "Missing lead id" }
+
+  const admin = createAdminClient()
+  const { data: leadRow, error: leadErr } = await admin
+    .from("leads")
+    .select("id, user_id, name, service, assigned_to")
+    .eq("id", leadId)
+    .is("deleted_at", null)
+    .maybeSingle()
+  if (leadErr) {
+    if (process.env.NODE_ENV !== "production") console.info("LEAD_ASSIGNMENT_FAILED", { reason: "db_error" })
+    return { ok: false, error: "We couldn't verify this lead. Please try again." }
+  }
+  if (!leadRow) {
+    if (process.env.NODE_ENV !== "production") console.info("LEAD_ASSIGNMENT_FAILED", { reason: "not_found" })
+    return { ok: false, error: "Lead not found." }
+  }
+  const lead = leadRow as { id: string; user_id: string; name: string; service: string; assigned_to: string | null }
+  const businessId = lead.user_id
+
+  const resolved = await resolveRoleForBusiness(user.id, businessId)
+  if (!resolved.role) {
+    if (process.env.NODE_ENV !== "production") console.info("LEAD_ASSIGNMENT_FAILED", { reason: "forbidden" })
+    return { ok: false, error: "You don't have permission to assign this lead." }
+  }
+  if (!roleCan(resolved.role, "leads:write")) {
+    if (process.env.NODE_ENV !== "production") console.info("LEAD_ASSIGNMENT_FAILED", { reason: "role_not_allowed" })
+    return { ok: false, error: "Your role doesn't allow assigning leads." }
+  }
+
+  let target: AssignableMember | null = null
+  if (teamMemberId) {
+    const { data: memberRow, error: memberErr } = await admin
+      .from("team_members")
+      .select("id, member_user_id, name, email, role, status, business_id")
+      .eq("id", teamMemberId)
+      .maybeSingle()
+    if (memberErr || !memberRow) {
+      if (process.env.NODE_ENV !== "production") console.info("LEAD_ASSIGNMENT_FAILED", { reason: "member_not_found" })
+      return { ok: false, error: "That team member could not be found." }
+    }
+    const member = memberRow as { id: string; member_user_id: string | null; name: string; email: string; role: string; status: string; business_id: string }
+    if (member.business_id !== businessId || member.status !== "active" || !member.member_user_id) {
+      if (process.env.NODE_ENV !== "production") console.info("LEAD_ASSIGNMENT_FAILED", { reason: "cross_business" })
+      return { ok: false, error: "That team member is not part of your business." }
+    }
+    target = { teamMemberId: member.id, userId: member.member_user_id, name: member.name, email: member.email, role: member.role }
+  }
+
+  const priorAssignedTo = lead.assigned_to ?? null
+  let priorAssigneeName: string | null = null
+  if (priorAssignedTo) {
+    const { data: priorRow } = await admin
+      .from("team_members")
+      .select("name")
+      .eq("id", priorAssignedTo)
+      .maybeSingle()
+    priorAssigneeName = (priorRow as { name: string } | null)?.name ?? null
+  }
+
+  const now = new Date().toISOString()
+  const { error: updateErr } = await admin
+    .from("leads")
+    .update({ assigned_to: teamMemberId, last_activity_at: now } as never)
+    .eq("id", leadId)
+    .eq("user_id", businessId)
+    .is("deleted_at", null)
+  if (updateErr) {
+    if (process.env.NODE_ENV !== "production") console.info("LEAD_ASSIGNMENT_FAILED", { reason: "update_failed" })
+    return { ok: false, error: "We couldn't update the assignment. Please try again." }
+  }
+
+  const actorName = actorDisplayName(user)
+  let actionKey = "LEAD_ASSIGNED"
+  let actionStr = `LEAD_ASSIGNED leadId=${leadId} to=${target?.name ?? ""}`
+  if (!teamMemberId) {
+    actionKey = "LEAD_UNASSIGNED"
+    actionStr = `LEAD_UNASSIGNED leadId=${leadId} was=${priorAssigneeName ?? ""}`
+  } else if (priorAssignedTo && priorAssignedTo !== teamMemberId) {
+    actionKey = "LEAD_REASSIGNED"
+    actionStr = `LEAD_REASSIGNED leadId=${leadId} from=${priorAssigneeName ?? ""} to=${target?.name ?? ""}`
+  }
+
+  await recordAudit({
+    userName: actorName,
+    userId: user.id,
+    actorUserId: user.id,
+    businessId,
+    action: actionStr.slice(0, 1000),
+    category: "team",
+    targetType: "lead",
+    targetId: leadId,
+    metadata: {
+      key: actionKey,
+      leadId,
+      leadName: lead.name,
+      service: lead.service,
+      from: priorAssigneeName,
+      fromId: priorAssignedTo,
+      to: target?.name ?? null,
+      toId: teamMemberId,
+    },
+    status: "success",
+  })
+
+  if (process.env.NODE_ENV !== "production") console.info("LEAD_ASSIGNMENT_SUCCESS", { leadId, actionKey })
+
+  void fireEventForAll(businessId, "lead.updated", {
+    id: leadId,
+    assignedTo: teamMemberId,
+    assignedToName: target?.name ?? null,
+  }).catch(() => {})
+
+  revalidatePath("/dashboard/leads")
+  revalidatePath(`/dashboard/leads/${leadId}`)
+  return { ok: true, data: { leadId, assignedTo: target } }
 }
 
 export type MergeHistoryEntry = MergedLeadEntry

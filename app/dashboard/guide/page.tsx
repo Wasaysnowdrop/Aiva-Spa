@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { getWidgetConfig } from "@/lib/db/widget.server";
 import { getSpaSettings } from "@/lib/db/settings.server";
 import { listWidgetInstalls } from "@/lib/widget/installs";
+import { getLatestWidgetVerification } from "@/lib/widget/installation-checks.server";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
@@ -27,6 +28,11 @@ export default async function GuidePage() {
     user ? listWidgetInstalls(user.id) : Promise.resolve([]),
   ]);
 
+  const primaryInstall = installs.find((install) => install.active) ?? installs[0];
+  const latestVerification = user && primaryInstall
+    ? await getLatestWidgetVerification(user.id, primaryInstall.widgetKey)
+    : null;
+
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
@@ -46,6 +52,7 @@ export default async function GuidePage() {
           website={spa?.website ?? ""}
           brandName={widget?.brandName ?? "your spa"}
           spaTimezone={widget?.workingHours?.tz ?? "America/Los_Angeles"}
+          latestVerification={latestVerification}
         />
       </div>
     </>

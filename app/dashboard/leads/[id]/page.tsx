@@ -6,6 +6,7 @@ import { ChevronLeft } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard/dashboard-header"
 import { LeadDetail } from "@/components/dashboard/lead-detail"
 import { getLead } from "@/lib/leads"
+import { getLeadAssignmentOptions } from "@/lib/leads/assignment.server"
 
 export const dynamic = "force-dynamic"
 
@@ -28,7 +29,10 @@ export async function generateMetadata({ params }: LeadDetailPageProps): Promise
 
 export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
   const { id } = await params
-  const lead = await getLead(id)
+  const [lead, assignmentOptions] = await Promise.all([
+    getLead(id),
+    getLeadAssignmentOptions(id),
+  ])
 
   if (!lead) {
     notFound()
@@ -44,7 +48,7 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
         >
           <ChevronLeft className="size-3.5" /> Back to leads
         </Link>
-        <LeadDetail lead={lead} />
+        <LeadDetail lead={lead} initialTeamMembers={assignmentOptions.members} canAssign={assignmentOptions.canAssign} />
       </div>
     </>
   )

@@ -41,6 +41,7 @@ import { useRealtimeSubscription } from "@/lib/hooks/use-realtime"
 import { isActiveBooking, mapCalendarBooking, type CalendarBooking } from "@/lib/calendar/shared"
 import { updateBookingStatusAction } from "@/app/actions/calendar"
 import {
+  assignLeadAction,
   deleteLeadAction,
   findDuplicateAction,
   reopenLeadChatAction,
@@ -77,11 +78,19 @@ const statusOptions = [
   { value: "lost" as const, label: "Lost" },
 ]
 
-export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
+export function LeadDetail({
+  lead: initialLead,
+  initialTeamMembers,
+  canAssign,
+}: {
+  lead: Lead
+  initialTeamMembers: TeamMember[]
+  canAssign: boolean
+}) {
   const router = useRouter()
   const safeInitialLead: Lead = initialLead ?? ({} as Lead)
 
-  const { data: liveLeads } = useRealtimeSubscription<Lead>({
+  const { data: liveLeads, setData: setLiveLeads } = useRealtimeSubscription<Lead>({
     table: "leads",
     initialData: [safeInitialLead],
     mapRow: (row) => mapLead(row),
@@ -90,7 +99,7 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
 
   const { data: teamMembers } = useRealtimeSubscription<TeamMember>({
     table: "team_members",
-    initialData: [],
+    initialData: initialTeamMembers,
     getId: (item) => item.id,
   })
 
@@ -109,9 +118,6 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
     getId: (item) => item.id,
   })
 
-  if (typeof window !== "undefined") {
-    console.log("[aivaspa] Selected Lead:", safeInitialLead)
-  }
 
   const safeLiveLeads = (Array.isArray(liveLeads) ? liveLeads : [])
     .filter((l): l is Lead => Boolean(l?.id))
@@ -150,6 +156,10 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
   const [deleting, setDeleting] = React.useState(false)
   const [reopening, setReopening] = React.useState(false)
   const [cancellingBooking, setCancellingBooking] = React.useState(false)
+  const [assigning, setAssigning] = React.useState(false)
+  const [assignmentOverride, setAssignmentOverride] = React.useState<string | null>(null)
+  const persistedAssignment = safeLead?.assignedTo ? `member:${safeLead.assignedTo}` : "unassigned"
+  const assignedValue = assignmentOverride ?? persistedAssignment
 
   React.useEffect(() => {
     if (!safeLead?.id) {
@@ -217,6 +227,30 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
       toast.error("Failed to update status")
     } finally {
       setUpdating(false)
+    }
+  }
+
+  const handleAssign = async (next: string) => {
+    if (!safeLead?.id || assigning || !canAssign) return
+    const teamMemberId = next === "unassigned" ? null : next.replace(/^member:/, "")
+    setAssignmentOverride(next)
+    setAssigning(true)
+    try {
+      const result = await assignLeadAction(safeLead.id, teamMemberId)
+      if (!result.ok) throw new Error(result.error)
+      const assigned = result.data.assignedTo
+      setLiveLeads((current) => current.map((item) => item.id === safeLead.id ? { ...item, assignedTo: assigned?.teamMemberId ?? null, lastActivityAt: new Date().toISOString() } : item))
+      setAssignmentOverride(null)
+      if (assigned) {
+        toast.success(`Lead assigned to ${assigned.name}.`)
+      } else {
+        toast.success("Lead assignment removed.")
+      }
+    } catch (err) {
+      setAssignmentOverride(null)
+      toast.error(err instanceof Error ? err.message : "We couldn't update the assignment. Please try again.")
+    } finally {
+      setAssigning(false)
     }
   }
 
@@ -328,10 +362,15 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
     toast.success(label + " copied")
   }
 
-  const assignee = safeLead?.assignedTo
-    ? safeTeamMembers.find((m) => m?.id === safeLead.assignedTo)
+  const activeMemberId =
+    assignedValue === "unassigned" ? null : assignedValue.replace(/^member:/, "")
+  const assignee = activeMemberId
+    ? safeTeamMembers.find((m) => m?.id === activeMemberId)
     : undefined
   const safeAssignee: TeamMember | null = assignee?.id ? assignee : null
+  const eligibleMembers = safeTeamMembers
+    .filter((m) => m.status === "active" && Boolean(m.memberUserId))
+    .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""))
 
   const leadName = safeLead?.name ?? "Unknown lead"
   const leadInitials =
@@ -746,19 +785,39 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
         </div>
 
         <div className="rounded-2xl border border-[#23252A] bg-[#121316] p-5">
-          <h3 className="text-sm font-semibold text-[#F7F8F8]">Assignment</h3>
-          <Select defaultValue={safeLead?.assignedTo ?? undefined}>
-            <SelectTrigger className="mt-3 w-full">
-              <SelectValue placeholder="Unassigned" />
-            </SelectTrigger>
-            <SelectContent>
-              {safeTeamMembers.map((m, i) => (
-                <SelectItem key={m?.id ?? `member-${i}`} value={m?.id ?? ""}>
-                  {m?.name ?? "Unknown"} — {m?.role ?? "Staff"}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-[#F7F8F8]">Assignment</h3>
+            {assigning ? (
+              <span className="inline-flex items-center gap-1.5 text-[10px] text-[#8A8F98]">
+                <Loader2 className="size-3 animate-spin" /> Assigning…
+              </span>
+            ) : null}
+          </div>
+          {canAssign ? (
+            <>
+              <Select value={assignedValue} onValueChange={handleAssign} disabled={assigning}>
+                <SelectTrigger className="mt-3 w-full">
+                  <SelectValue placeholder="Unassigned" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unassigned">Unassigned</SelectItem>
+                  {eligibleMembers.map((member) => (
+                    <SelectItem key={member.id} value={`member:${member.id}`}>
+                      {member.name} — {member.email} · {member.role}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {eligibleMembers.length === 0 && !assigning ? (
+                <p className="mt-3 text-[10px] text-[#8A8F98]">No active team members available.</p>
+              ) : null}
+            </>
+          ) : (
+            <div className="mt-3 rounded-xl border border-[#23252A] bg-[#0B0C0E] px-3 py-2.5 text-xs text-[#8A8F98]">
+              {safeAssignee ? `${safeAssignee.name} · ${safeAssignee.role}` : "Unassigned"}
+              <span className="mt-1 block text-[10px] text-[#62666D]">Only workspace owners and managers can change assignments.</span>
+            </div>
+          )}
           {safeAssignee ? (
             <div className="mt-3 flex items-center gap-3 rounded-lg border border-[#23252A] bg-[#0B0C0E] p-2.5">
               <span
@@ -774,8 +833,8 @@ export function LeadDetail({ lead: initialLead }: { lead: Lead }) {
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-semibold text-[#F7F8F8]">{safeAssignee.name ?? "Unknown"}</p>
-                <p className="text-[10px] text-[#62666D]">
-                  {safeAssignee.role ?? "Staff"} · {safeAssignee.lastActiveAt ?? "—"}
+                <p className="truncate text-[10px] text-[#62666D]">
+                  {safeAssignee.role ?? "Staff"}{safeAssignee.email ? ` · ${safeAssignee.email}` : ""}
                 </p>
               </div>
             </div>

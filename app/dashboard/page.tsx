@@ -4,7 +4,6 @@ import type { Metadata } from "next"
 import {
   Activity,
   ArrowRight,
-  ArrowUpRight,
   Bot,
   CalendarCheck2,
   Clock,
@@ -19,6 +18,7 @@ import { DashboardHeader } from "@/components/dashboard/dashboard-header"
 import { LeadStatusBadge } from "@/components/dashboard/lead-status-badge"
 import { LiveVisitorCounter } from "@/components/dashboard/live-visitor-counter"
 import { PageHeader } from "@/components/dashboard/page-header"
+import { RecentActivityFeed } from "@/components/dashboard/recent-activity-feed"
 import { StatCard } from "@/components/dashboard/stat-card"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/server"
@@ -98,7 +98,11 @@ export default async function DashboardOverviewPage() {
     consentRate: 0,
     avgMessagesPerSession: 0,
   }))
-  const recentActivity = await getOverviewRecentActivity(6).catch(() => [])
+  const activityResult = await getOverviewRecentActivity(6)
+    .then((entries) => ({ entries, error: false }))
+    .catch(() => ({ entries: [], error: true }))
+  const recentActivity = activityResult.entries
+  const recentActivityError = activityResult.error
 
   const sparkSeries = dailyCounts.map((d) => d.value)
   const totalInRange = sparkSeries.reduce((s, v) => s + v, 0)
@@ -476,57 +480,7 @@ export default async function DashboardOverviewPage() {
             )}
           </div>
 
-          <div className="rounded-2xl border border-[#23252A] bg-[#121316] p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-[#F7F8F8]">Recent activity</h2>
-              <Activity className="size-4 text-[#22D3EE]" />
-            </div>
-            {recentActivity.length > 0 ? (
-              <ul className="mt-4 space-y-2.5">
-                {recentActivity.map((entry) => (
-                  <li
-                    key={entry.id}
-                    className="flex items-start gap-2.5 rounded-lg border border-[#23252A] bg-[#0B0C0E] p-2.5"
-                  >
-                    <span
-                      className={cn(
-                        "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold",
-                        entry.kind === "lead"
-                          ? "bg-[#E2E54B]/15 text-[#E2E54B]"
-                          : "bg-[#5E6AD2]/15 text-[#8B95E0]",
-                      )}
-                    >
-                      {entry.kind === "lead" ? "L" : "A"}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="break-words text-xs text-[#F7F8F8]">
-                        <span className="font-semibold">{entry.userName}</span>{" "}
-                        <span className="text-[#8A8F98]">{entry.action}</span>
-                      </p>
-                      <p className="mt-0.5 text-[10px] text-[#62666D]">
-                        {formatRelativeTime(entry.createdAt)}
-                      </p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="mt-4 flex min-h-[156px] items-center justify-center rounded-xl border border-dashed border-[#23252A] bg-[#1A1B1E]/40 text-center">
-                <div>
-                  <p className="text-sm font-semibold text-[#F7F8F8]">No recent activity</p>
-                  <p className="mt-1 text-xs text-[#8A8F98]">
-                    Activity will appear here as your team and visitors use the system.
-                  </p>
-                </div>
-              </div>
-            )}
-            <Link
-              href="/dashboard/analytics"
-              className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-[#E2E54B] hover:underline"
-            >
-              Full activity <ArrowUpRight className="size-3" />
-            </Link>
-          </div>
+          <RecentActivityFeed entries={recentActivity} error={recentActivityError} />
         </section>
       </div>
     </>

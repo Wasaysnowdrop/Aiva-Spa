@@ -7,32 +7,27 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
-  Clipboard,
   Code2,
   Copy,
   Globe,
+  ExternalLink,
   HelpCircle,
   Lightbulb,
-  Link2,
-  Mail,
+  Loader2,
   MessageCircle,
   MessageSquare,
   MousePointerClick,
-  Plug,
   Radio,
   Search,
-  Send,
   ShieldCheck,
   Smartphone,
   Sparkles,
-  Webhook,
-  Wrench,
-  Wrench as WrenchIcon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { WidgetInstall } from "@/lib/widget/installs"
+import type { StoredWidgetInstallCheck } from "@/lib/widget/installation-checks.server"
 
 type PlatformId =
   | "wordpress"
@@ -49,7 +44,6 @@ type PlatformGuide = {
   hint: string
   steps: { title: string; body: string }[]
   tips: string[]
-  devHandoff?: boolean
 }
 
 const PLATFORMS: PlatformGuide[] = [
@@ -206,9 +200,7 @@ const PLATFORMS: PlatformGuide[] = [
       },
     ],
     tips: [
-      "Still stuck? Use the “Email my developer” button below — we'll send them the exact code and instructions.",
     ],
-    devHandoff: true,
   },
 ]
 
@@ -217,47 +209,20 @@ export function GuideView({
   siteUrl,
   website,
   brandName,
-  spaTimezone,
+  latestVerification,
 }: {
   installs: WidgetInstall[]
   siteUrl: string
   website: string
   brandName: string
   spaTimezone: string
+  latestVerification: StoredWidgetInstallCheck | null
 }) {
   const activeInstalls = installs.filter((i) => i.active)
-  const isLocalSnippet = /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(siteUrl)
   const firstInstall = activeInstalls[0]
-  const [showAdvanced, setShowAdvanced] = React.useState(false)
 
   return (
     <div className="flex flex-col gap-8">
-      {isLocalSnippet ? (
-        <div className="flex items-start gap-3 rounded-2xl border border-[#EB5757]/40 bg-[#EB5757]/10 p-4">
-          <AlertTriangle className="mt-0.5 size-5 shrink-0 text-[#EB5757]" />
-          <div>
-            <p className="text-sm font-semibold text-[#F7F8F8]">
-              Your snippet points to localhost — it will not work on a live site.
-            </p>
-            <p className="mt-1 text-xs text-[#C9CCD2]">
-              Set{" "}
-              <code className="rounded bg-[#1A1B1E] px-1 py-0.5 font-mono text-[11px] text-[#F7F8F8]">
-                NEXT_PUBLIC_SITE_URL
-              </code>{" "}
-              to your deployed AivaSpa domain (e.g.{" "}
-              <code className="rounded bg-[#1A1B1E] px-1 py-0.5 font-mono text-[11px] text-[#F7F8F8]">
-                https://app.yourdomain.com
-              </code>
-              ) in{" "}
-              <code className="rounded bg-[#1A1B1E] px-1 py-0.5 font-mono text-[11px] text-[#F7F8F8]">
-                .env.local
-              </code>
-              , restart the server, and reload this page. The snippet below will
-              then point at the real host.
-            </p>
-          </div>
-        </div>
-      ) : null}
 
       <HeroSection />
 
@@ -265,8 +230,6 @@ export function GuideView({
         <SnippetCard
           install={firstInstall}
           siteUrl={siteUrl}
-          website={website}
-          brandName={brandName}
         />
       ) : (
         <NoInstallEmptyState brandName={brandName} />
@@ -277,7 +240,6 @@ export function GuideView({
           install={firstInstall}
           siteUrl={siteUrl}
           website={website}
-          brandName={brandName}
         />
       ) : null}
 
@@ -285,61 +247,22 @@ export function GuideView({
         <SiteChecker
           install={firstInstall}
           defaultUrl={website}
+          siteUrl={siteUrl}
+          latestVerification={latestVerification}
         />
       ) : null}
 
       <QuickVerify />
 
       <FriendlyTroubleshoot website={website} />
-
-      <div className="rounded-2xl border border-[#23252A] bg-[#121316] p-1">
-        <button
-          type="button"
-          onClick={() => setShowAdvanced((v) => !v)}
-          className="flex w-full items-center justify-between gap-3 rounded-xl p-4 text-left"
-          aria-expanded={showAdvanced}
-        >
-          <div className="flex items-center gap-3">
-            <span className="flex size-9 items-center justify-center rounded-lg border border-[#23252A] bg-[#0B0C0E] text-[#8A8F98]">
-              <WrenchIcon className="size-4" />
-            </span>
-            <div>
-              <p className="text-sm font-semibold text-[#F7F8F8]">
-                For developers & power users
-              </p>
-              <p className="text-xs text-[#8A8F98]">
-                Architecture overview, widget controls, and webhooks.
-              </p>
-            </div>
-          </div>
-          <ChevronDown
-            className={cn(
-              "size-4 shrink-0 text-[#8A8F98] transition-transform",
-              showAdvanced && "rotate-180 text-[#E2E54B]",
-            )}
-          />
-        </button>
-        {showAdvanced ? (
-          <div className="space-y-6 p-4 pt-2">
-            <ArchitectureSection spaTimezone={spaTimezone} />
-            <WidgetControlsSection />
-            <WebhooksSection />
-            <DeepTroubleshoot website={website} />
-          </div>
-        ) : null}
-      </div>
     </div>
   )
 }
 
 function HeroSection() {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-[#23252A] bg-gradient-to-br from-[#1A1B1E] via-[#121316] to-[#0B0C0E] p-6 sm:p-8">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -right-20 -top-20 size-72 rounded-full bg-[#E2E54B]/10 blur-3xl"
-      />
-      <div className="relative">
+    <div className="rounded-2xl border border-[#23252A] bg-[#121316] p-6 sm:p-8">
+      <div>
         <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-[#E2E54B]">
           <Sparkles className="size-3.5" />
           Get live in about 5 minutes
@@ -349,7 +272,7 @@ function HeroSection() {
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-[#8A8F98]">
           You only need to copy one small piece of code and paste it into your
-          site. No developer required for most platforms. Follow the three steps
+          site. Most platforms need only the three steps
           below and your chat will be live before your coffee gets cold.
         </p>
         <ol className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -435,13 +358,9 @@ function buildSnippet(siteUrl: string, widgetKey: string) {
 function SnippetCard({
   install,
   siteUrl,
-  website,
-  brandName,
 }: {
   install: WidgetInstall
   siteUrl: string
-  website: string
-  brandName: string
 }) {
   const snippet = buildSnippet(siteUrl, install.widgetKey)
   const [copied, setCopied] = React.useState(false)
@@ -454,29 +373,7 @@ function SnippetCard({
       // ignore
     }
   }
-
-  const subject = encodeURIComponent(
-    `Help me add the AivaSpa chat widget to ${install.domain}`,
-  )
-  const body = encodeURIComponent(
-    `Hi,
-
-I'd like to add the AivaSpa chat widget to our website (${website || install.domain}). The AivaSpa team gave us the snippet below — could you paste it just before the closing </body> tag on every page of the site?
-
-— Install for: ${install.label || install.domain}
-— Workspace: ${brandName}
-
-The code to paste:
-
-${snippet}
-
-That single snippet is everything we need. Once it's in, a chat bubble will appear in the bottom corner of the site. No other setup is required.
-
-Thanks!`,
-  )
-  const mailto = `mailto:?subject=${subject}&body=${body}`
-
-  return (
+return (
     <section className="rounded-2xl border border-[#23252A] bg-[#121316] p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -506,13 +403,6 @@ Thanks!`,
             AivaSpa snippet
           </span>
           <div className="flex items-center gap-2">
-            <a
-              href={mailto}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[#23252A] bg-[#0B0C0E] px-2.5 py-1.5 text-[11px] font-semibold text-[#C9CCD2] hover:text-[#F7F8F8]"
-            >
-              <Send className="size-3" />
-              Email this to my developer
-            </a>
             <button
               type="button"
               onClick={copy}
@@ -559,12 +449,10 @@ function PlatformPicker({
   install,
   siteUrl,
   website,
-  brandName,
 }: {
   install: WidgetInstall
   siteUrl: string
   website: string
-  brandName: string
 }) {
   const [selected, setSelected] = React.useState<PlatformId>(() =>
     guessPlatform(website),
@@ -616,10 +504,7 @@ function PlatformPicker({
 
       <PlatformSteps
         platform={platform}
-        install={install}
         snippet={snippet}
-        website={website}
-        brandName={brandName}
       />
     </section>
   )
@@ -692,16 +577,10 @@ function PlatformIcon({ id, active }: { id: PlatformId; active: boolean }) {
 
 function PlatformSteps({
   platform,
-  install,
   snippet,
-  website,
-  brandName,
 }: {
   platform: PlatformGuide
-  install: WidgetInstall
   snippet: string
-  website: string
-  brandName: string
 }) {
   const [copied, setCopied] = React.useState(false)
   const copy = async () => {
@@ -713,26 +592,7 @@ function PlatformSteps({
       // ignore
     }
   }
-  const subject = encodeURIComponent(
-    `Help me add the AivaSpa chat widget to ${install.domain}`,
-  )
-  const body = encodeURIComponent(
-    `Hi,
-
-I'd like to add the AivaSpa chat widget to our website (${website || install.domain}). I think we're on ${platform.label}. The AivaSpa team gave us this snippet — could you paste it just before the closing </body> tag on every page?
-
-The code to paste:
-
-${snippet}
-
-A friendlier version of the steps they sent me is:
-${platform.steps.map((s, i) => `${i + 1}. ${s.title} — ${s.body}`).join("\n")}
-
-Thanks!`,
-  )
-  const mailto = `mailto:?subject=${subject}&body=${body}`
-
-  return (
+return (
     <div className="mt-5 rounded-2xl border border-[#23252A] bg-[#0B0C0E] p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
@@ -745,13 +605,6 @@ Thanks!`,
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <a
-            href={mailto}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[#23252A] bg-[#121316] px-2.5 py-1.5 text-[11px] font-semibold text-[#C9CCD2] hover:text-[#F7F8F8]"
-          >
-            <Send className="size-3" />
-            Email to my developer
-          </a>
           <button
             type="button"
             onClick={copy}
@@ -815,12 +668,6 @@ Thanks!`,
           <code>{snippet}</code>
         </pre>
       </div>
-
-      <p className="mt-3 text-[11px] text-[#62666D]">
-        Don&apos;t want to do this yourself? Use the{" "}
-        <span className="text-[#F7F8F8]">Email to my developer</span> button
-        above — it sends the exact code and steps. Brand context: {brandName}.
-      </p>
     </div>
   )
 }
@@ -828,134 +675,104 @@ Thanks!`,
 function SiteChecker({
   install,
   defaultUrl,
+  siteUrl,
+  latestVerification,
 }: {
   install: WidgetInstall
   defaultUrl: string
+  siteUrl: string
+  latestVerification: StoredWidgetInstallCheck | null
 }) {
+  type CheckResult = {
+    success: boolean
+    status: StoredWidgetInstallCheck["status"]
+    scriptFound: boolean
+    widgetIdMatched: boolean
+    checkedUrl: string
+    checkedAt: string
+    message: string
+  }
+  const initialResult: CheckResult | null = latestVerification ? {
+    success: latestVerification.status === "installed" || latestVerification.status === "not_found",
+    status: latestVerification.status,
+    scriptFound: latestVerification.scriptFound,
+    widgetIdMatched: latestVerification.widgetIdMatched,
+    checkedUrl: latestVerification.checkedUrl,
+    checkedAt: latestVerification.checkedAt,
+    message: latestVerification.status === "installed"
+      ? "AivaSpa is installed and the widget ID matches this business."
+      : latestVerification.status === "not_found"
+        ? "We couldn't find the AivaSpa widget code on this page."
+        : "This is the latest saved verification result.",
+  } : null
   const [url, setUrl] = React.useState(defaultUrl)
-  const [state, setState] = React.useState<
-    | { status: "idle" }
-    | { status: "loading" }
-    | { status: "ok"; installed: boolean; message: string; raw?: unknown }
-    | { status: "error"; message: string }
-  >({ status: "idle" })
+  const [checking, setChecking] = React.useState(false)
+  const [result, setResult] = React.useState<CheckResult | null>(initialResult)
+  const [error, setError] = React.useState<string | null>(null)
+  const snippet = `<script src="${siteUrl.replace(/\/$/, "")}/embed/${install.widgetKey}/loader" data-spa-id="${install.widgetKey}" defer></script>`
 
   const check = async () => {
     const cleaned = url.trim()
-    if (!cleaned) {
-      setState({ status: "error", message: "Please enter your website address first." })
+    if (!cleaned || checking) {
+      if (!cleaned) setError("Please enter your website address first.")
       return
     }
-    setState({ status: "loading" })
+    setChecking(true)
+    setError(null)
     try {
-      const res = await fetch(
-        `/api/widget/verify?spaId=${encodeURIComponent(install.widgetKey)}&url=${encodeURIComponent(cleaned)}`,
-      )
-      const data = await res.json()
-      if (!data.ok) {
-        setState({
-          status: "error",
-          message: data.message ?? "We couldn't check your site.",
-        })
-        return
-      }
-      setState({
-        status: "ok",
-        installed: Boolean(data.installed),
-        message: data.message ?? "",
-        raw: data,
+      const response = await fetch("/api/widget/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ spaId: install.widgetKey, url: cleaned }),
       })
-    } catch (err) {
-      setState({
-        status: "error",
-        message:
-          err instanceof Error
-            ? err.message
-            : "Something went wrong while checking your site.",
-      })
+      const data = await response.json() as CheckResult & { message?: string }
+      if (!response.ok && !data.status) throw new Error(data.message || "We couldn't check your site.")
+      setResult({ ...data, message: data.message || "The installation check finished." })
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "We couldn't check your site. Please try again.")
+    } finally {
+      setChecking(false)
     }
   }
 
+  const copySnippet = async () => {
+    try { await navigator.clipboard.writeText(snippet) } catch { setError("Copy failed. Select the installation code above and copy it manually.") }
+  }
+  const installed = result?.status === "installed"
+  const warning = result?.status === "not_found" || result?.status === "mismatch"
+  const incomplete = result?.status === "incomplete"
+  const title = installed ? "AivaSpa is installed" : result?.status === "not_found" ? "Widget code not found" : result?.status === "mismatch" ? "Widget ID does not match" : incomplete ? "Automatic check incomplete" : "We couldn't access your website"
+
   return (
     <section className="rounded-2xl border border-[#23252A] bg-[#121316] p-5 sm:p-6">
-      <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-[#62666D]">
-        <Search className="size-3.5" />
-        Step 3 · Check your site
-      </div>
-      <h2 className="mt-1 text-lg font-semibold text-[#F7F8F8]">
-        Did it work? We&apos;ll check for you.
-      </h2>
-      <p className="mt-1 text-sm text-[#8A8F98]">
-        Type in your website address and click <span className="text-[#F7F8F8]">Check now</span>.
-        We&apos;ll fetch the page and look for the widget code. This usually
-        takes a few seconds.
-      </p>
-
+      <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-[#62666D]"><Search className="size-3.5" />Step 3 · Check your site</div>
+      <h2 className="mt-1 text-lg font-semibold text-[#F7F8F8]">Confirm the widget is live</h2>
+      <p className="mt-1 text-sm leading-6 text-[#8A8F98]">We securely fetch the public page, follow up to three safe redirects, and look for this workspace&apos;s exact loader script and widget ID.</p>
       <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-        <div className="flex flex-1 items-center gap-2 rounded-xl border border-[#23252A] bg-[#0B0C0E] px-3 py-2.5">
+        <label className="flex flex-1 items-center gap-2 rounded-xl border border-[#23252A] bg-[#0B0C0E] px-3 py-2.5">
           <Globe className="size-4 shrink-0 text-[#62666D]" />
-          <input
-            type="text"
-            inputMode="url"
-            autoComplete="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://yourmedspa.com"
-            className="min-w-0 flex-1 bg-transparent text-sm text-[#F7F8F8] placeholder:text-[#62666D] focus:outline-none"
-          />
-        </div>
-        <Button
-          onClick={check}
-          disabled={state.status === "loading"}
-          className="h-auto rounded-xl px-4 py-2.5"
-        >
-          {state.status === "loading" ? (
-            "Checking…"
-          ) : (
-            <>
-              Check now
-              <ArrowRight className="size-4" />
-            </>
-          )}
+          <span className="sr-only">Website URL</span>
+          <input type="url" inputMode="url" autoComplete="url" value={url} onChange={(event) => setUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void check() } }} placeholder="https://yourmedspa.com" className="min-w-0 flex-1 bg-transparent text-sm text-[#F7F8F8] placeholder:text-[#62666D] focus:outline-none" />
+        </label>
+        <Button type="button" onClick={() => void check()} disabled={checking} className="h-auto rounded-xl px-4 py-2.5">
+          {checking ? <><Loader2 className="size-4 animate-spin" />Checking your site…</> : <>Check now<ArrowRight className="size-4" /></>}
         </Button>
       </div>
-
-      {state.status === "error" ? (
-        <div className="mt-3 flex items-start gap-2 rounded-xl border border-[#EB5757]/30 bg-[#EB5757]/5 p-3 text-xs text-[#F7F8F8]">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-[#EB5757]" />
-          <span>{state.message}</span>
-        </div>
-      ) : null}
-
-      {state.status === "ok" && state.installed ? (
-        <div className="mt-3 flex items-start gap-2 rounded-xl border border-[#4CB782]/40 bg-[#4CB782]/10 p-3">
-          <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-[#4CB782]" />
-          <div>
-            <p className="text-sm font-semibold text-[#F7F8F8]">
-              We found the widget on your site.
-            </p>
-            <p className="mt-0.5 text-xs text-[#C9CCD2]">{state.message}</p>
-            <p className="mt-1 text-[11px] text-[#8A8F98]">
-              Open your site in a private/incognito window to see the chat
-              bubble in the corner.
-            </p>
-          </div>
-        </div>
-      ) : null}
-
-      {state.status === "ok" && !state.installed ? (
-        <div className="mt-3 flex items-start gap-2 rounded-xl border border-[#E2E54B]/30 bg-[#E2E54B]/5 p-3">
-          <HelpCircle className="mt-0.5 size-5 shrink-0 text-[#E2E54B]" />
-          <div>
-            <p className="text-sm font-semibold text-[#F7F8F8]">
-              We didn&apos;t find the widget yet.
-            </p>
-            <p className="mt-0.5 text-xs text-[#C9CCD2]">{state.message}</p>
-            <p className="mt-1 text-[11px] text-[#8A8F98]">
-              A few common causes: the site is still using a cached version, or
-              the code was pasted in the wrong place. Try the steps above again
-              and re-check.
-            </p>
+      {error ? <div role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-[#EB5757]/30 bg-[#EB5757]/5 p-3 text-xs text-[#F7F8F8]"><AlertTriangle className="mt-0.5 size-4 shrink-0 text-[#EB5757]" /><span>{error}</span></div> : null}
+      {result ? (
+        <div className={cn("mt-4 rounded-xl border p-4", installed ? "border-[#4CB782]/40 bg-[#4CB782]/10" : warning ? "border-[#E2E54B]/35 bg-[#E2E54B]/5" : incomplete ? "border-[#5E6AD2]/35 bg-[#5E6AD2]/5" : "border-[#EB5757]/30 bg-[#EB5757]/5")}>
+          <div className="flex min-w-0 items-start gap-3">
+            {installed ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-[#4CB782]" /> : warning || incomplete ? <HelpCircle className="mt-0.5 size-5 shrink-0 text-[#E2E54B]" /> : <AlertTriangle className="mt-0.5 size-5 shrink-0 text-[#EB5757]" />}
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-[#F7F8F8]">{title}</p><span className="text-[10px] uppercase tracking-wider text-[#62666D]">Latest saved check</span></div>
+              <p className="mt-1 text-xs leading-5 text-[#C9CCD2]">{result.message}</p>
+              <p className="mt-2 break-all text-[10px] text-[#8A8F98]">{result.checkedUrl || url} · {result.checkedAt ? new Date(result.checkedAt).toLocaleString() : "just now"}</p>
+              {result.status === "not_found" ? <ul className="mt-3 grid gap-1 text-[11px] text-[#8A8F98] sm:grid-cols-2"><li>• Confirm the site changes were published</li><li>• Add the code to the site-wide template</li><li>• Clear the CMS or CDN cache</li><li>• Publish your tag-manager container</li></ul> : null}
+              <div className="mt-3 flex flex-wrap gap-2">
+                {result.checkedUrl?.startsWith("http") ? <Button asChild size="sm" variant="outline"><a href={result.checkedUrl} target="_blank" rel="noreferrer">Open website<ExternalLink className="size-3.5" /></a></Button> : null}
+                {!installed ? <Button type="button" size="sm" variant="outline" onClick={() => void copySnippet()}><Copy className="size-3.5" />Copy installation code</Button> : null}
+              </div>
+            </div>
           </div>
         </div>
       ) : null}
@@ -1081,489 +898,5 @@ function FriendlyTroubleshoot({ website }: { website: string }) {
         </div>
       </div>
     </section>
-  )
-}
-
-function SectionHeader({
-  id,
-  icon: Icon,
-  title,
-  description,
-}: {
-  id: string
-  icon: React.ComponentType<{ className?: string }>
-  title: string
-  description?: string
-}) {
-  return (
-    <header id={id} className="scroll-mt-24">
-      <div className="flex items-center gap-2">
-        <span className="flex size-7 items-center justify-center rounded-lg border border-[#23252A] bg-[#0B0C0E] text-[#E2E54B]">
-          <Icon className="size-4" />
-        </span>
-        <h2 className="text-lg font-semibold text-[#F7F8F8]">{title}</h2>
-      </div>
-      {description ? (
-        <p className="mt-1 text-sm text-[#8A8F98]">{description}</p>
-      ) : null}
-    </header>
-  )
-}
-
-function ArchitectureSection({ spaTimezone }: { spaTimezone: string }) {
-  return (
-    <section className="flex flex-col gap-4">
-      <SectionHeader
-        id="architecture"
-        icon={Radio}
-        title="How AivaSpa fits together"
-        description="A short tour of the moving parts so the rest of this section makes sense."
-      />
-      <div className="rounded-2xl border border-[#23252A] bg-[#0B0C0E] p-5">
-        <p className="text-sm text-[#8A8F98]">
-          Every visitor chat is a tiny conversation between three runtimes: the
-          browser on the visitor&apos;s site, your dashboard, and the AivaSpa
-          backend. Nothing is sent to a third party.
-        </p>
-        <ol className="mt-4 space-y-3 text-sm text-[#F7F8F8]">
-          <FlowStep
-            n={1}
-            icon={Globe}
-            title="Visitor&apos;s browser"
-            body="Your site loads the loader script, which appends a host <div> and a sandboxed <iframe> pointing to /embed/{`<spaId>`}?parent=…"
-          />
-          <FlowStep
-            n={2}
-            icon={Link2}
-            title="GET /api/widget/config?spaId=…"
-            body="The loader fetches public widget config (brand, color, position, working hours). This call does not leak leads, transcripts, or PII."
-          />
-          <FlowStep
-            n={3}
-            icon={MessageSquare}
-            title="POST /api/chat"
-            body="Each turn the AI takes hits this route. The route re-checks access via widget_installs and runs runConversationTurn() — knowledge retrieval → system prompt → LLM. Every turn is also upserted to chat_sessions so the dashboard sees the transcript live."
-          />
-          <FlowStep
-            n={4}
-            icon={Mail}
-            title="Lead capture (when consent is given)"
-            body="createPublicLead() dedups by phone/email, inserts/merges into leads, dispatches email notifications through Resend, fires conversation.completed webhooks, and increments monthly usage."
-          />
-          <FlowStep
-            n={5}
-            icon={Webhook}
-            title="Your tools (optional)"
-            body="AivaSpa HMAC-signs outbound webhook payloads so your CRM, Zapier, or in-house service can verify the sender."
-          />
-        </ol>
-        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <EndpointRow
-            method="GET"
-            path="/api/widget/config"
-            auth="public"
-            note="Brand, color, position, working hours, faq/service counts."
-          />
-          <EndpointRow
-            method="POST"
-            path="/api/chat"
-            auth="public"
-            note="AI turn. Optionally saves a lead. Returns reply + leadSaved flag."
-          />
-          <EndpointRow
-            method="POST"
-            path="/api/leads"
-            auth="public"
-            note="Direct lead save from any source. Deduped by phone/email."
-          /><EndpointRow
-            method="POST"
-            path="/embed/{`<spaId>`}/loader"
-            auth="public"
-            note="Returns the small JS loader. CORS *, cache 5 min."
-          />
-          <EndpointRow
-            method="GET"
-            path="/embed/{`<spaId>`}?parent=…"
-            auth="install key"
-            note="The chat UI itself, rendered as the iframe target."
-          />
-        </div>
-        <p className="mt-5 text-xs text-[#62666D]">
-          The widget&apos;s working-hours timezone is{" "}
-          <code className="rounded bg-[#1A1B1E] px-1 py-0.5 font-mono text-[10px] text-[#F7F8F8]">
-            {spaTimezone}
-          </code>
-          . Change it under{" "}
-          <a
-            href="/dashboard/widget"
-            className="text-[#E2E54B] underline-offset-4 hover:underline"
-          >
-            Widget → Working hours
-          </a>
-          . The &quot;by hour of day&quot; chart in Analytics buckets in this
-          timezone, not your browser&apos;s.
-        </p>
-      </div>
-    </section>
-  )
-}
-
-function FlowStep({
-  n,
-  icon: Icon,
-  title,
-  body,
-}: {
-  n: number
-  icon: React.ComponentType<{ className?: string }>
-  title: string
-  body: string
-}) {
-  return (
-    <li className="flex items-start gap-3 rounded-xl border border-[#23252A] bg-[#0B0C0E] p-3">
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-[#E2E54B]/30 bg-[#E2E54B]/10 text-[11px] font-bold text-[#E2E54B]">
-        {n}
-      </span>
-      <div className="min-w-0">
-        <p className="flex items-center gap-1.5 text-sm font-semibold text-[#F7F8F8]">
-          <Icon className="size-3.5 text-[#E2E54B]" />
-          {title}
-        </p>
-        <p className="mt-1 text-xs leading-relaxed text-[#8A8F98]">{body}</p>
-      </div>
-    </li>
-  )
-}
-
-function EndpointRow({
-  method,
-  path,
-  auth,
-  note,
-}: {
-  method: "GET" | "POST"
-  path: string
-  auth: string
-  note: string
-}) {
-  const methodColor =
-    method === "GET"
-      ? "border-[#22D3EE]/30 bg-[#22D3EE]/10 text-[#22D3EE]"
-      : "border-[#E2E54B]/30 bg-[#E2E54B]/10 text-[#E2E54B]"
-  return (
-    <div className="rounded-xl border border-[#23252A] bg-[#0B0C0E] p-3">
-      <div className="flex items-center gap-2">
-        <span
-          className={cn(
-            "rounded-md border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider",
-            methodColor,
-          )}
-        >
-          {method}
-        </span>
-        <code className="truncate font-mono text-[12px] text-[#F7F8F8]">
-          {path}
-        </code>
-      </div>
-      <p className="mt-1.5 text-[10px] uppercase tracking-wider text-[#62666D]">
-        {auth}
-      </p>
-      <p className="mt-1 text-xs text-[#8A8F98]">{note}</p>
-    </div>
-  )
-}
-
-function WidgetControlsSection() {
-  return (
-    <section className="flex flex-col gap-4">
-      <SectionHeader
-        id="widget-controls"
-        icon={Wrench}
-        title="Widget controls"
-        description="Open, close, refresh, or destroy the widget from your own code. Mounted on the page as window.AivaSpa."
-      />
-      <div className="rounded-2xl border border-[#23252A] bg-[#0B0C0E] p-5">
-        <p className="text-sm text-[#8A8F98]">
-          Once the loader script is on the page, a global{" "}
-          <code className="rounded bg-[#1A1B1E] px-1 py-0.5 font-mono text-[11px] text-[#F7F8F8]">
-            window.AivaSpa
-          </code>{" "}
-          object is available. Use it to wire the widget to your own buttons
-          and product flows.
-        </p>
-        <div className="mt-4 space-y-3">
-          <CodeBlock
-            label="Open the chat from a custom button"
-            code={`document.querySelector('#book-now').addEventListener('click', () => {
-  window.AivaSpa.open();
-});`}
-          />
-          <CodeBlock
-            label="Close it programmatically"
-            code={`window.AivaSpa.close();`}
-          />
-          <CodeBlock
-            label="Refresh after the user updates preferences"
-            code={`window.AivaSpa.refresh();`}
-          />
-          <CodeBlock
-            label="Remove the widget from the page entirely"
-            code={`window.AivaSpa.destroy();`}
-          />
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function WebhooksSection() {
-  return (
-    <section className="flex flex-col gap-4">
-      <SectionHeader
-        id="webhooks"
-        icon={Webhook}
-        title="Outbound webhooks"
-        description="Send signed lead events to your CRM, Zapier, or your own backend."
-      />
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2"><div className="rounded-2xl border border-[#23252A] bg-[#0B0C0E] p-5">
-          <div className="flex items-center gap-2">
-            <Plug className="size-4 text-[#E2E54B]" />
-            <h3 className="text-sm font-semibold text-[#F7F8F8]">Outbound webhooks</h3>
-          </div>
-          <p className="mt-2 text-xs text-[#8A8F98]">
-            Register a URL and pick the events you want. AivaSpa HMAC-signs
-            every payload so your endpoint can verify the sender.
-          </p>
-          <div className="mt-3 space-y-1.5 text-xs">
-            {[
-              "lead.created",
-              "lead.updated",
-              "lead.deleted",
-              "conversation.started",
-              "conversation.completed",
-            ].map((evt) => (
-              <div
-                key={evt}
-                className="flex items-center gap-2 rounded-md border border-[#23252A] bg-[#0B0C0E] px-2 py-1"
-              >
-                <code className="font-mono text-[11px] text-[#F7F8F8]">
-                  {evt}
-                </code>
-              </div>
-            ))}
-          </div>
-          <CodeBlock
-            label="Request headers"
-            code={`X-AivaSpa-Event: lead.created
-X-AivaSpa-Signature: t=1718461200,v1=4f3a…
-X-AivaSpa-Webhook-Id: wh_abc123
-X-AivaSpa-Delivery: d_xyz789`}
-          />
-          <p className="mt-2 text-[10px] text-[#62666D]">
-            Signature = HMAC_SHA256(secret, &quot;{`<timestamp>`}.{`<rawBody>`}&quot;). Use
-            crypto.timingSafeEqual to compare. Every attempt (success or fail)
-            is logged to webhook_deliveries.
-          </p>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function DeepTroubleshoot({ website }: { website: string }) {
-  const items: { q: string; a: React.ReactNode }[] = [
-    {
-      q: "I pasted the snippet, but the bubble does not appear.",
-      a: (
-        <ul className="list-disc space-y-1 pl-5">
-          <li>Hard refresh the page (Ctrl+Shift+R or Cmd+Shift+R).</li>
-          <li>Clear any caching plugin and CDN cache.</li>
-          <li>
-            Open DevTools → Network tab and look for a request to{" "}
-            <code className="rounded bg-[#1A1B1E] px-1 font-mono text-[11px]">
-              /embed/&lt;spaId&gt;/loader
-            </code>
-            . If it is blocked, your Content Security Policy is the cause.
-          </li>
-          <li>
-            Confirm the install is active under{" "}
-            <a
-              href="/dashboard/widget"
-              className="text-[#E2E54B] underline-offset-4 hover:underline"
-            >
-              Widget → Your widget installs
-            </a>
-            . Deactivated installs return{" "}
-            <code className="rounded bg-[#1A1B1E] px-1 font-mono text-[11px]">
-              locked: true
-            </code>{" "}
-            from /api/widget/config and the bubble never opens.
-          </li>
-        </ul>
-      ),
-    },
-    {
-      q: "The widget appears on staging but not on production.",
-      a: (
-        <p>
-          The install is keyed to the{" "}
-          <code className="rounded bg-[#1A1B1E] px-1 font-mono text-[11px]">
-            data-spa-id
-          </code>{" "}
-          attribute, not to a domain. The issue is almost always a CDN or
-          origin cache. Purge the cache for the affected pages and try again.
-        </p>
-      ),
-    },
-    {
-      q: "My Content Security Policy is blocking the script.",
-      a: (
-        <p>
-          Add{" "}
-          <code className="rounded bg-[#1A1B1E] px-1 font-mono text-[11px]">
-            script-src
-          </code>{" "}
-          and{" "}
-          <code className="rounded bg-[#1A1B1E] px-1 font-mono text-[11px]">
-            frame-src
-          </code>{" "}
-          entries for your AivaSpa domain, and allow{" "}
-          <code className="rounded bg-[#1A1B1E] px-1 font-mono text-[11px]">
-            https:
-          </code>{" "}
-          in{" "}
-          <code className="rounded bg-[#1A1B1E] px-1 font-mono text-[11px]">
-            style-src
-          </code>{" "}
-          for the inline styles injected by the loader.
-        </p>
-      ),
-    },
-    {
-      q: "Can I run the widget on a password-protected staging site?",
-      a: (
-        <p>
-          Yes. The widget loads client-side and is unaffected by HTTP basic
-          auth. Just make sure your staging URL is reachable from your browser
-          before testing.
-        </p>
-      ),
-    },
-    {
-      q: "Will the widget slow down my page?",
-      a: (
-        <p>
-          No. The loader is under 50 KB gzipped, loads with the{" "}
-          <code className="rounded bg-[#1A1B1E] px-1 font-mono text-[11px]">
-            defer
-          </code>{" "}
-          attribute, and renders the chat bubble only when the user interacts
-          with the page. It is engineered to add less than 100 ms to your
-          Largest Contentful Paint on a typical 4G connection.
-        </p>
-      ),
-    },
-    {
-      q: "How do I uninstall it?",
-      a: (
-        <p>
-          Remove the script tag from your site — that is the entire uninstall.
-          If you want to clear any leads collected up to that point, head to{" "}
-          <span className="text-[#F7F8F8]">Settings → Privacy</span> and use
-          the data deletion tool. Deactivating an install from the dashboard
-          also stops the loader from opening the chat.
-        </p>
-      ),
-    },
-  ]
-
-  return (
-    <section className="flex flex-col gap-4">
-      <SectionHeader
-        id="troubleshoot"
-        icon={AlertTriangle}
-        title="Troubleshooting"
-        description="The most common questions we get from teams installing the widget for the first time."
-      />
-      <div className="flex flex-col gap-2">
-        {items.map((it) => (
-          <details
-            key={it.q}
-            className="group rounded-2xl border border-[#23252A] bg-[#0B0C0E] open:bg-[#0B0C0E]"
-          >
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5">
-              <span className="text-sm font-semibold text-[#F7F8F8]">{it.q}</span>
-              <ChevronDown className="size-4 shrink-0 text-[#8A8F98] transition-transform group-open:rotate-180 group-open:text-[#E2E54B]" />
-            </summary>
-            <div className="space-y-2 border-t border-[#23252A] p-5 text-sm text-[#8A8F98]">
-              {it.a}
-            </div>
-          </details>
-        ))}
-      </div>
-      <div className="flex items-start gap-3 rounded-2xl border border-[#4CB782]/30 bg-[#4CB782]/5 p-4">
-        <ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#4CB782]" />
-        <div>
-          <p className="text-sm font-semibold text-[#F7F8F8]">
-            Still stuck? We are here to help.
-          </p>
-          <p className="mt-1 text-xs text-[#8A8F98]">
-            Email{" "}
-            <a
-              className="text-[#E2E54B] hover:underline"
-              href="mailto:support@aivaspa.com"
-            >
-              support@aivaspa.com
-            </a>{" "}
-            with a link to the page where the widget is misbehaving. We
-            typically reply within one business hour.
-            {website ? (
-              <>
-                {" "}
-                Your current website is{" "}
-                <span className="font-mono text-[#F7F8F8]">{website}</span>.
-              </>
-            ) : null}
-          </p>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function CodeBlock({ label, code }: { label: string; code: string }) {
-  const [copied, setCopied] = React.useState(false)
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(code)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // ignore
-    }
-  }
-  return (
-    <div className="overflow-hidden rounded-xl border border-[#23252A] bg-[#0B0C0E]">
-      <div className="flex items-center justify-between border-b border-[#23252A] bg-[#121316] px-3 py-1.5">
-        <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#62666D]">
-          <Clipboard className="size-3" /> {label}
-        </span>
-        <button
-          type="button"
-          onClick={copy}
-          className="inline-flex items-center gap-1 rounded-md border border-[#23252A] bg-[#0B0C0E] px-2 py-1 text-[10px] font-semibold text-[#8A8F98] hover:text-[#F7F8F8]"
-        >
-          {copied ? (
-            <Check className="size-3 text-[#4CB782]" />
-          ) : (
-            <Copy className="size-3" />
-          )}
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
-      <pre className="overflow-x-auto p-3 text-[12px] leading-6 text-[#F7F8F8]">
-        <code>{code}</code>
-      </pre>
-    </div>
   )
 }

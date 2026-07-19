@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
+import { activityEventKey, formatActivityEvent, isCustomerFacingActivity, type FormattedActivity } from "@/lib/activity/formatter"
 import { mapAuditLog, mapLead } from "@/lib/supabase/types"
 import type {
-  AuditLog,
   Lead,
   ServiceEngagement,
 } from "@/lib/supabase/types"
@@ -24,7 +24,7 @@ export type OverviewAiPerformance = {
   avgMessagesPerSession: number
   consentRate: number
 }
-export type OverviewRecentActivity = AuditLog & { kind: "audit" | "lead" }
+export type OverviewRecentActivity = FormattedActivity & { id: string }
 
 function startOfDay(date: Date) {
   const next = new Date(date)
@@ -205,34 +205,41 @@ export async function getOverviewRecentActivity(limit = 6): Promise<OverviewRece
       .from("audit_logs")
       .select("*")
       .order("created_at", { ascending: false })
-      .limit(limit),
+      .limit(Math.max(limit * 5, 30)),
     supabase
       .from("leads")
-      .select("id, name, status, created_at")
+      .select("id, name, service, created_at")
+      .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(limit),
   ])
 
-  const audits: OverviewRecentActivity[] = ((auditRes.data ?? []) as Record<string, unknown>[]).map(
-    (row) => ({ ...mapAuditLog(row), kind: "audit" as const }),
-  )
+  if (auditRes.error) throw new Error(auditRes.error.message)
+  if (leadsRes.error) throw new Error(leadsRes.error.message)
+
+  const audits: OverviewRecentActivity[] = ((auditRes.data ?? []) as Record<string, unknown>[])
+    .map((row) => mapAuditLog(row))
+    .filter((event) => isCustomerFacingActivity(event))
+    .filter((event) => !["LEAD_CAPTURED", "LEAD_CREATED"].includes(activityEventKey(event)))
+    .map((event) => ({ id: event.id, ...formatActivityEvent(event) }))
+
   const leadEvents: OverviewRecentActivity[] = ((leadsRes.data ?? []) as {
     id: string
     name: string
-    status: string
+    service: string
     created_at: string
-  }[]).map((l) => ({
-    id: `lead-${l.id}`,
-    userName: l.name,
-    action:
-      l.status === "new"
-        ? "submitted their details through the chat widget"
-        : `status set to ${l.status}`,
-    createdAt: l.created_at,
-    kind: "lead" as const,
+  }[]).map((lead) => ({
+    id: `lead-${lead.id}`,
+    ...formatActivityEvent({
+      userName: "AivaSpa",
+      action: "LEAD_CAPTURED",
+      createdAt: lead.created_at,
+      status: "success",
+      metadata: { key: "LEAD_CAPTURED", leadName: lead.name, service: lead.service },
+    }),
   }))
 
   return [...audits, ...leadEvents]
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, limit)
 }

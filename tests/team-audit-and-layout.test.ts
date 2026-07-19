@@ -33,8 +33,8 @@ describe("audit formatting", () => {
       action: "SUBSCRIPTION_PLAN_CHANGED from=growth to=pro effective_at=immediate",
       createdAt: "2026-07-17T12:00:00Z",
     })
-    expect(formatted.title).toBe("Subscription plan changed")
-    expect(formatted.description).toBe("Growth → Pro")
+    expect(formatted.title).toBe("Plan upgraded to Pro")
+    expect(formatted.description).toBe("The subscription changed from Growth to Pro.")
     expect(formatted.category).toBe("billing")
   })
 
