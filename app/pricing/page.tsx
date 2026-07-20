@@ -24,6 +24,7 @@ export const metadata: Metadata = {
 const navLinks = [
   { label: "Product", href: "/#product" },
   { label: "Features", href: "/#features" },
+  { label: "Live demo", href: "/demo" },
   { label: "Pricing", href: "/pricing" },
   { label: "FAQ", href: "/#faq" },
 ] as const;
@@ -295,6 +296,7 @@ export default async function PricingPage() {
             ))}
           </nav>
           <div className="hidden items-center gap-2.5 md:flex">
+            <Link href="/demo" className="rounded-lg border border-[#3A3D2A] px-3 py-2 text-sm font-semibold text-[#E2E54B] hover:bg-[#1A1B1E]">Try live demo</Link>
             {user ? (
               <Link
                 href="/dashboard"
@@ -441,9 +443,16 @@ export default async function PricingPage() {
             </div>
           </Reveal>
 
+          <Reveal>
+            <div className="mx-auto mt-10 flex max-w-3xl flex-col items-center justify-between gap-4 rounded-2xl border border-[#3B3E24] bg-[#17190F] p-5 text-center sm:flex-row sm:text-left">
+              <div><p className="text-sm font-semibold text-[#F7F8F8]">Not ready to choose a plan? Experience AivaSpa first.</p><p className="mt-1 text-xs text-[#8A8F98]">Try the full visitor-to-dashboard journey without signing up.</p></div>
+              <Link href="/demo" className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-[#E2E54B] px-5 py-3 text-sm font-semibold text-[#08090A]">Try the interactive demo <ArrowRight className="size-4" /></Link>
+            </div>
+          </Reveal>
+
           <RevealStagger
             amount={0.1}
-            className="mt-16 grid gap-5 sm:grid-cols-2 lg:grid-cols-3"
+            className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3"
           >
             {plans.map((plan) => (
               <PlanCard key={plan.name} plan={plan} />

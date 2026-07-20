@@ -13,6 +13,7 @@ export function Logo({ className = "size-8", showText = true }: LogoProps) {
           src="/logo.png" 
           alt="AivaSpa Logo" 
           fill
+          sizes="40px"
           className="object-contain"
           priority
         />

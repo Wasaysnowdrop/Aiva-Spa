@@ -33,6 +33,7 @@ export const ADMIN_NAV: AdminNavItem[] = [
   { href: "/admin", label: "Overview", icon: <Gauge className="size-4" />, group: "Live" },
   { href: "/admin/live", label: "Live feed", icon: <Activity className="size-4" />, group: "Live" },
   { href: "/admin/llm", label: "LLM stats", icon: <Bot className="size-4" />, group: "Live" },
+  { href: "/admin/demo-analytics", label: "Demo analytics", icon: <Bot className="size-4" />, group: "Live" },
   { href: "/admin/leads", label: "Leads", icon: <ListChecks className="size-4" />, group: "Data" },
   { href: "/admin/conversations", label: "Conversations", icon: <MessageSquare className="size-4" />, group: "Data" },
   { href: "/admin/users", label: "Users", icon: <Users className="size-4" />, group: "Account" },

@@ -86,21 +86,21 @@ export function AnimatedClosingCta() {
             transition={{ delay: 0.45, duration: 0.5 }}
           >
             <motion.a
-              href="/signup"
+              href="/demo"
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#E2E54B] px-6 py-3.5 text-sm font-semibold text-[#08090A] sm:w-auto"
               whileHover={reduce ? undefined : { y: -3, boxShadow: "0 14px 30px -10px rgba(226,229,75,0.55)" }}
               whileTap={reduce ? undefined : { scale: 0.97 }}
             >
-              Get started
+              Try live demo
               <ArrowRight className="size-4" />
             </motion.a>
             <motion.a
-              href="mailto:sales@aivaspa.com"
+              href="mailto:sales@aivaspa.com?subject=AivaSpa%20walkthrough"
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#23252A] bg-[#1A1B1E] px-6 py-3.5 text-sm font-semibold text-[#F7F8F8] sm:w-auto"
               whileHover={reduce ? undefined : { y: -3, borderColor: "#E2E54B" }}
               whileTap={reduce ? undefined : { scale: 0.97 }}
             >
-              Contact sales
+              Book a walkthrough
             </motion.a>
           </motion.div>
         </div>

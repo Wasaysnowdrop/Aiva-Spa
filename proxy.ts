@@ -21,6 +21,7 @@ function skipGlobalRateLimit(pathname: string): boolean {
   if (pathname.startsWith("/_next/")) return true
   if (pathname === "/favicon.ico") return true
   if (pathname.startsWith("/embed/")) return true // script + iframe
+  if (pathname.startsWith("/api/demo/")) return true // demo APIs own stricter per-route limits
   if (pathname === "/api/health") return true // uptime monitors
   if (pathname === "/api/cron/daily-summary") return true // cron secret-gated
   return false

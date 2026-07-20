@@ -39,6 +39,7 @@ export const metadata: Metadata = {
 const navLinks = [
   { label: "Product", href: "#product" },
   { label: "Features", href: "#features" },
+  { label: "Live demo", href: "/demo" },
   { label: "Pricing", href: "/pricing" },
   { label: "FAQ", href: "#faq" },
 ] as const;
@@ -100,7 +101,7 @@ const features = [
       "Statuses: New → Contacted → Booked → Lost",
       "Full chat transcript on every lead",
       "Search & filter by service, date, status",
-      "One-click contact: call, email, or text",
+      "One-click contact: call or email",
     ],
     visual: <AnimatedPipelineVisual />,
   },
@@ -221,6 +222,7 @@ export default async function LandingPage() {
             ))}
           </nav>
           <div className="hidden items-center gap-2.5 md:flex">
+            <a href="/demo" className="rounded-lg border border-[#3A3D2A] px-3 py-2 text-sm font-semibold text-[#E2E54B] transition hover:bg-[#1A1B1E]">Try live demo</a>
             <a
               href="/login"
               className="rounded-lg px-3 py-2 text-sm font-medium text-[#F7F8F8] transition hover:bg-[#1A1B1E]"
@@ -242,10 +244,10 @@ export default async function LandingPage() {
             }
             rightSlot={
               <a
-                href="/signup"
+                href="/demo"
                 className="inline-flex items-center gap-1 rounded-md bg-[#E2E54B] px-3 py-1.5 text-xs font-semibold text-[#08090A]"
               >
-                Get started
+                Live demo
               </a>
             }
           />
@@ -276,17 +278,17 @@ export default async function LandingPage() {
             <Reveal>
               <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
                 <a
-                  href="/signup"
+                  href="/demo"
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#E2E54B] px-6 py-3.5 text-sm font-semibold text-[#08090A] transition hover:bg-[#E2E54B]/90 sm:w-auto"
                 >
-                  Get More Consultations
+                  Try live demo
                   <ArrowRight className="size-4" />
                 </a>
                 <a
-                  href="#how-it-works"
+                  href="mailto:sales@aivaspa.com?subject=AivaSpa%20walkthrough"
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#23252A] bg-[#121316] px-6 py-3.5 text-sm font-semibold text-[#F7F8F8] transition hover:bg-[#1A1B1E] sm:w-auto"
                 >
-                  Watch Demo
+                  Book a walkthrough
                 </a>
               </div>
             </Reveal>
@@ -297,7 +299,7 @@ export default async function LandingPage() {
                   <span className="size-1 rounded-full bg-[#E2E54B]" />
                   <span className="size-1 rounded-full bg-[#FF77E9]" />
                 </span>
-                Free 7-day Growth trial · No credit card · Cancel anytime
+                No signup required for the demo - About 2 minutes
               </p>
             </Reveal>
           </div>
@@ -450,6 +452,7 @@ export default async function LandingPage() {
               );
             })}
           </div>
+          <div className="mt-14 text-center"><a href="/demo" className="inline-flex items-center gap-2 rounded-xl border border-[#E2E54B] px-5 py-3 text-sm font-semibold text-[#E2E54B] hover:bg-[#1A1B1E]">Try live demo <ArrowRight className="size-4" /></a><p className="mt-2 text-xs text-[#62666D]">No signup required</p></div>
         </div>
       </section>
 
@@ -470,10 +473,10 @@ export default async function LandingPage() {
                   No code, no developers. Paste one snippet, upload your FAQs, and AivaSpa is greeting visitors the same day.
                 </p>
                 <a
-                  href="/signup"
+                  href="/demo"
                   className="mt-7 inline-flex items-center gap-2 text-sm font-semibold text-[#E2E54B] hover:text-[#E2E54B]/80"
                 >
-                  Start your free trial
+                  Try live demo
                   <ArrowRight className="size-3.5" />
                 </a>
               </div>
@@ -608,6 +611,8 @@ export default async function LandingPage() {
           <AnimatedFaq items={[...faqs]} />
         </div>
       </section>
+
+      <section className="border-t border-[#23252A]/60 py-16"><div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-5 px-5 text-center sm:flex-row sm:text-left"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#E2E54B]">Pricing</p><h2 className="mt-2 text-2xl font-bold text-[#F7F8F8]">Not ready to choose a plan?</h2><p className="mt-2 text-sm text-[#8A8F98]">Experience AivaSpa first, then compare Starter, Growth, and Pro.</p></div><div className="flex flex-col gap-2 sm:flex-row"><a href="/demo" className="rounded-xl bg-[#E2E54B] px-5 py-3 text-sm font-semibold text-[#08090A]">Try live demo</a><a href="/pricing" className="rounded-xl border border-[#23252A] px-5 py-3 text-sm font-semibold text-[#F7F8F8]">View pricing</a></div></div></section>
 
       {/* Closing CTA */}
       <section className="relative py-24 lg:py-32">
