@@ -2,34 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { installSupabaseMocks } from "./helpers/mock-supabase"
 
-vi.mock("@/lib/admin/queries", () => ({
-  getSystemHealth: vi.fn(async () => ({
-    status: "ok",
-    database: "ok",
-    realtime: "ok",
-    llm: "ok",
-    uptimeSeconds: 0,
-    openaiConfigured: true,
-    resendConfigured: true,
-    customCalendarConfigured: true,
-    totals: {
-      users: 5,
-      leads: 12,
-      chatSessions: 9,
-      webhooks: 3,
-      subscriptions: 4,
-    },
-    trends: {
-      leads: [1, 2, 3],
-      activeVisitors: [0, 0, 1, 2],
-      llmLatencyMs: [0, 1, 1, 0],
-      tokenUsage: [10, 20, 30],
-      errorRate: [0, 0, 0, 1.5],
-    },
-    lastUpdated: new Date().toISOString(),
-  })),
+vi.mock("@/lib/admin/control-centre", () => ({
+  getPlatformHealth: vi.fn(async () => [{
+    key: "database",
+    service: "Supabase database",
+    status: "operational",
+    latencyMs: 12,
+    lastCheckedAt: new Date().toISOString(),
+    message: "Database query succeeded",
+  }]),
 }))
-
 beforeEach(() => {
   vi.resetModules()
 })
@@ -62,8 +44,8 @@ describe("GET /api/admin/system-health", () => {
     const { GET } = await import("@/app/api/admin/system-health/route")
     const res = await GET()
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { status: string; totals: { leads: number } }
-    expect(body.status).toBe("ok")
-    expect(body.totals.leads).toBe(12)
+    const body = (await res.json()) as { status: string; services: { key: string }[] }
+    expect(body.status).toBe("operational")
+    expect(body.services[0]?.key).toBe("database")
   })
 })

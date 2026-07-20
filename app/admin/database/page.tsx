@@ -1,27 +1,4 @@
-import { AdminTopBar } from "@/components/admin/admin-shell"
-import { getDatabaseHealth } from "@/lib/admin/queries"
-import { DatabaseTable } from "./database-table"
-
+import { AdminPageBody, AdminPageHeader } from "@/components/admin/page-header"
+import { getDatabaseOperations } from "@/lib/admin/control-centre"
 export const dynamic = "force-dynamic"
-
-export default async function AdminDatabasePage() {
-  const rows = (await getDatabaseHealth()) as {
-    table: string
-    count: number
-    error: string | null
-  }[]
-
-  const total = rows.reduce((a, r) => a + r.count, 0)
-
-  return (
-    <>
-      <AdminTopBar
-        title="Database"
-        subtitle={`${rows.length} tables · ${total.toLocaleString()} total rows`}
-      />
-      <div className="p-5">
-        <DatabaseTable rows={rows} pageSize={50} empty="No tables." />
-      </div>
-    </>
-  )
-}
+export default async function AdminDatabasePage(){const data=await getDatabaseOperations();return <><AdminPageHeader title="Database health" description="Operational reachability, latency, RLS/realtime signals, migration, and important row counts." generatedAt={data.generatedAt} autoRefreshSeconds={60}/><AdminPageBody><section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[["Database",data.reachability],["Query latency",`${data.queryLatencyMs} ms`],["RLS policy health",data.rls],["Realtime",data.realtime]].map(([label,value])=><article key={label} className="rounded-xl border border-[#242830] bg-[#0E1013] p-4"><p className="text-xs text-[#89919A]">{label}</p><p className="mt-3 text-lg font-semibold capitalize text-[#ECEDEF]">{value}</p></article>)}</section><section className="overflow-hidden rounded-xl border border-[#242830] bg-[#0E1013]"><div className="border-b border-[#242830] px-4 py-3"><h2 className="text-sm font-semibold">Important data stores</h2><p className="mt-1 text-xs text-[#6E7680]">Migration target: {data.migration}. Counts are live snapshots.</p></div><div className="grid gap-px bg-[#242830] sm:grid-cols-2 xl:grid-cols-3">{data.rows.map((row)=><div key={row.table} className="flex items-center justify-between bg-[#0E1013] px-4 py-3"><div><p className="text-xs font-medium text-[#CFD3D7]">{row.label}</p><p className={`mt-1 text-[10px] capitalize ${row.status==="healthy"?"text-[#5DBE87]":"text-[#E17579]"}`}>{row.status}</p></div><p className="text-lg font-semibold tabular-nums">{row.count.toLocaleString()}</p></div>)}</div></section><section className="rounded-xl border border-[#242830] bg-[#0E1013] p-4"><h2 className="text-sm font-semibold">Unavailable provider metrics</h2><p className="mt-2 text-xs leading-relaxed text-[#727A84]">Connection-pool saturation, storage bytes, and database-level slow-query statistics require Supabase observability APIs that are not exposed to the application service role. They are intentionally shown as unavailable instead of mocked.</p></section></AdminPageBody></>}

@@ -1,24 +1,7 @@
-import { AdminTopBar } from "@/components/admin/admin-shell"
-import { getUserList } from "@/lib/admin/queries"
+import { AdminPageBody, AdminPageHeader } from "@/components/admin/page-header"
+import { UsersControlTable, type AdminUserRow } from "@/components/admin/users-control-table"
+import { getUsersDetailed } from "@/lib/admin/control-centre"
 import { requireAdmin } from "@/lib/admin/auth"
 
-import { UsersTable, type UserRow } from "./users-table"
-
 export const dynamic = "force-dynamic"
-
-export default async function AdminUsersPage() {
-  const admin = await requireAdmin()
-  const users = (await getUserList()) as UserRow[]
-
-  return (
-    <>
-      <AdminTopBar
-        title="Users"
-        subtitle={`${users.length} signed-up accounts · ${users.filter((u) => u.banned).length} banned`}
-      />
-      <div className="p-5">
-        <UsersTable rows={users} currentAdminId={admin.id} pageSize={50} empty="No users yet." />
-      </div>
-    </>
-  )
-}
+export default async function AdminUsersPage() { const [admin, rows] = await Promise.all([requireAdmin(), getUsersDetailed()]); return <><AdminPageHeader title="Users" description={`${rows.length} accounts with business, role, onboarding, and security context.`} generatedAt={new Date().toISOString()} /><AdminPageBody><UsersControlTable rows={rows as AdminUserRow[]} currentAdminId={admin.id} /></AdminPageBody></> }

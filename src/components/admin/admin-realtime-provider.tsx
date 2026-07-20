@@ -5,187 +5,80 @@ import { createClient } from "@/lib/supabase/client"
 
 export type AdminEvent = {
   id: string
-  source:
-    | "lead.created"
-    | "lead.updated"
-    | "conversation.started"
-    | "conversation.completed"
-    | "webhook.delivered"
-    | "webhook.failed"
-    | "notification.delivered"
-    | "notification.failed"
-    | "api_key.used"
-    | "user.signed_up"
-    | "subscription.changed"
-  severity: "info" | "warn" | "error" | "success"
+  eventType: string
+  category: string
+  businessId: string | null
+  businessName: string
+  status: string
   title: string
   detail: string
-  href?: string
   occurredAt: string
+  href: string | null
 }
 
-const MAX_EVENTS = 200
-
-type FeedState = {
+type FeedContextValue = {
   events: AdminEvent[]
   isPaused: boolean
-  lastEventAt: string | null
-  totalCount: number
-}
-
-type FeedContextValue = FeedState & {
+  pendingCount: number
+  connection: "connecting" | "live" | "reconnecting" | "offline"
   pause: () => void
   resume: () => void
   clear: () => void
-  push: (event: AdminEvent) => void
 }
 
 const FeedContext = React.createContext<FeedContextValue | null>(null)
+export function useAdminFeed() { const value = React.useContext(FeedContext); if (!value) throw new Error("useAdminFeed must be used inside AdminRealtimeProvider"); return value }
 
-export function useAdminFeed() {
-  const ctx = React.useContext(FeedContext)
-  if (!ctx) throw new Error("useAdminFeed must be used inside AdminRealtimeProvider")
-  return ctx
+function realtimeEvent(row: Record<string, unknown>): AdminEvent {
+  const metadata = (row.metadata ?? {}) as Record<string, unknown>
+  const eventType = String(row.event_type ?? "operational.event")
+  const category = String(row.category ?? "admin")
+  const readable = eventType.replaceAll(/[._]/g, " ").replace(/^./, (letter) => letter.toUpperCase())
+  return {
+    id: String(row.id), eventType, category,
+    businessId: typeof row.business_id === "string" ? row.business_id : null,
+    businessName: "Customer business",
+    status: String(row.status ?? "info"),
+    title: readable,
+    detail: String(metadata.summary ?? metadata.service ?? metadata.delivery_status ?? "New persisted platform event"),
+    occurredAt: String(row.occurred_at ?? new Date().toISOString()),
+    href: category === "leads" ? "/admin/leads" : category === "conversations" ? "/admin/conversations" : category === "bookings" ? "/admin/bookings" : category === "email" ? "/admin/email" : null,
+  }
 }
 
-const TABLE_TO_EVENT = {
-  leads: {
-    INSERT: (row: Record<string, unknown>): AdminEvent => ({
-      id: `lead-${row.id}-${row.created_at}`,
-      source: "lead.created",
-      severity: "success",
-      title: `New lead · ${String(row.name ?? "Visitor")}`,
-      detail: `${String(row.service ?? "Not specified")} · ${String(row.phone ?? "")}`,
-      occurredAt: String(row.created_at ?? new Date().toISOString()),
-    }),
-    UPDATE: (row: Record<string, unknown>): AdminEvent => ({
-      id: `lead-upd-${row.id}-${row.updated_at ?? row.last_activity_at ?? Date.now()}`,
-      source: "lead.updated",
-      severity: "info",
-      title: `Lead updated · ${String(row.name ?? "Visitor")}`,
-      detail: `Status: ${String(row.status ?? "—")}`,
-      occurredAt: String(row.updated_at ?? row.last_activity_at ?? new Date().toISOString()),
-    }),
-  },
-  chat_sessions: {
-    INSERT: (row: Record<string, unknown>): AdminEvent => ({
-      id: `chat-${row.session_id}-${row.created_at}`,
-      source: "conversation.started",
-      severity: "info",
-      title: `New chat · ${String(row.visitor_name ?? "Visitor")}`,
-      detail: String(row.source_url ?? ""),
-      occurredAt: String(row.created_at ?? new Date().toISOString()),
-    }),
-    UPDATE: (row: Record<string, unknown>): AdminEvent => ({
-      id: `chat-upd-${row.session_id}-${row.updated_at ?? Date.now()}`,
-      source: row.lead_captured
-        ? "conversation.completed"
-        : "conversation.started",
-      severity: row.lead_captured ? "success" : "info",
-      title: row.lead_captured
-        ? `Lead captured · ${String(row.visitor_name ?? "Visitor")}`
-        : `Chat updated · ${String(row.visitor_name ?? "Visitor")}`,
-      detail: `Status: ${String(row.status ?? "active")}`,
-      occurredAt: String(row.updated_at ?? new Date().toISOString()),
-    }),
-  },
-  webhook_deliveries: {
-    INSERT: (row: Record<string, unknown>): AdminEvent => ({
-      id: `wh-${row.id}`,
-      source: row.success ? "webhook.delivered" : "webhook.failed",
-      severity: row.success ? "success" : "error",
-      title: row.success
-        ? `Webhook ${String(row.response_status ?? "—")} · ${String(row.event ?? "—")}`
-        : `Webhook FAILED · ${String(row.event ?? "—")}`,
-      detail: String(row.error ?? ""),
-      occurredAt: String(row.created_at ?? new Date().toISOString()),
-    }),
-  },
-  notification_logs: {
-    INSERT: (row: Record<string, unknown>): AdminEvent => ({
-      id: `notif-${row.id}`,
-      source:
-        row.status === "delivered"
-          ? "notification.delivered"
-          : "notification.failed",
-      severity: row.status === "delivered" ? "success" : "warn",
-      title: `${String(row.channel ?? "—")} ${String(row.status ?? "—")}`,
-      detail: String(row.recipient ?? ""),
-      occurredAt: String(row.sent_at ?? new Date().toISOString()),
-    }),
-  },
-} as const
-
-export function AdminRealtimeProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = React.useState<FeedState>({
-    events: [],
-    isPaused: false,
-    lastEventAt: null,
-    totalCount: 0,
-  })
+export function AdminRealtimeProvider({ children, initialEvents = [] }: { children: React.ReactNode; initialEvents?: AdminEvent[] }) {
+  const [events, setEvents] = React.useState(initialEvents)
+  const [paused, setPaused] = React.useState(false)
+  const [queued, setQueued] = React.useState<AdminEvent[]>([])
+  const [connection, setConnection] = React.useState<FeedContextValue["connection"]>("connecting")
+  const [attempt, setAttempt] = React.useState(0)
+  const pausedRef = React.useRef(paused)
+  React.useEffect(() => { pausedRef.current = paused }, [paused])
 
   const push = React.useCallback((event: AdminEvent) => {
-    setState((prev) => {
-      if (prev.isPaused) {
-        return { ...prev, totalCount: prev.totalCount + 1, lastEventAt: event.occurredAt }
-      }
-      const dedup = [event, ...prev.events.filter((e) => e.id !== event.id)]
-      return {
-        ...prev,
-        events: dedup.slice(0, MAX_EVENTS),
-        lastEventAt: event.occurredAt,
-        totalCount: prev.totalCount + 1,
-      }
-    })
+    if (pausedRef.current) setQueued((current) => current.some((item) => item.id === event.id) ? current : [event, ...current].slice(0, 200))
+    else setEvents((current) => [event, ...current.filter((item) => item.id !== event.id)].slice(0, 300))
   }, [])
 
   React.useEffect(() => {
     const supabase = createClient()
-    const channel = supabase.channel(`admin-feed-${Date.now()}`)
-
-    const bind = (
-      table: keyof typeof TABLE_TO_EVENT,
-      events: Array<"INSERT" | "UPDATE" | "DELETE">,
-    ) => {
-      const handlers = TABLE_TO_EVENT[table] as Record<string, (row: Record<string, unknown>) => AdminEvent>
-      for (const evt of events) {
-        const handler = handlers[evt]
-        if (!handler) continue
-        channel.on(
-          "postgres_changes",
-          { event: evt, schema: "public", table },
-          (payload) => {
-            const row =
-              (payload.eventType === "DELETE" ? payload.old : payload.new) ?? {}
-            push(handler(row as Record<string, unknown>))
-          },
-        )
+    const channel = supabase.channel(`admin-operations-${attempt}`).on("postgres_changes", { event: "INSERT", schema: "public", table: "admin_events" }, (payload) => push(realtimeEvent(payload.new as Record<string, unknown>)))
+    channel.subscribe((status) => {
+      if (status === "SUBSCRIBED") setConnection("live")
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        setConnection("reconnecting")
+        window.setTimeout(() => setAttempt((value) => value + 1), Math.min(30_000, 1000 * 2 ** Math.min(attempt, 5)))
       }
-    }
+      if (status === "CLOSED") setConnection("offline")
+    })
+    return () => { void supabase.removeChannel(channel) }
+  }, [attempt, push])
 
-    bind("leads", ["INSERT", "UPDATE"])
-    bind("chat_sessions", ["INSERT", "UPDATE"])
-    bind("webhook_deliveries", ["INSERT"])
-    bind("notification_logs", ["INSERT"])
-
-    channel.subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [push])
-
-  const value = React.useMemo<FeedContextValue>(
-    () => ({
-      ...state,
-      pause: () => setState((s) => ({ ...s, isPaused: true })),
-      resume: () =>
-        setState((s) => ({ ...s, isPaused: false, totalCount: 0 })),
-      clear: () => setState((s) => ({ ...s, events: [], totalCount: 0 })),
-      push,
-    }),
-    [state, push],
-  )
-
+  const value = React.useMemo<FeedContextValue>(() => ({
+    events, isPaused: paused, pendingCount: queued.length, connection,
+    pause: () => setPaused(true),
+    resume: () => { setEvents((current) => [...queued, ...current].filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index).slice(0, 300)); setQueued([]); setPaused(false) },
+    clear: () => setEvents([]),
+  }), [events, paused, queued, connection])
   return <FeedContext.Provider value={value}>{children}</FeedContext.Provider>
 }

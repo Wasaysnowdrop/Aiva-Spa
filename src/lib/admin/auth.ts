@@ -3,6 +3,7 @@ import { cache } from "react"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { isEmailAllowedAsAdmin } from "@/lib/admin/allowlist"
+import { canAdmin, normalizeAdminRole, type AdminPermission, type AdminRole } from "@/lib/admin/permissions"
 
 export type AdminUser = {
   id: string
@@ -12,6 +13,7 @@ export type AdminUser = {
   appMetadata: Record<string, unknown>
   userMetadata: Record<string, unknown>
   isAdmin: boolean
+  role: AdminRole
 }
 
 export const isAdminUser = (
@@ -38,6 +40,7 @@ export const requireAdmin = async (): Promise<AdminUser> => {
     appMetadata: (user.app_metadata ?? {}) as Record<string, unknown>,
     userMetadata: (user.user_metadata ?? {}) as Record<string, unknown>,
     isAdmin: true,
+    role: normalizeAdminRole(user.app_metadata?.admin_role),
   }
 }
 
@@ -62,6 +65,7 @@ export async function requireAdminApi(): Promise<
       appMetadata: (user.app_metadata ?? {}) as Record<string, unknown>,
       userMetadata: (user.user_metadata ?? {}) as Record<string, unknown>,
       isAdmin: true,
+      role: normalizeAdminRole(user.app_metadata?.admin_role),
     },
   }
 }
@@ -80,5 +84,15 @@ export const getAdminUserOrNull = cache(async (): Promise<AdminUser | null> => {
     appMetadata: (user.app_metadata ?? {}) as Record<string, unknown>,
     userMetadata: (user.user_metadata ?? {}) as Record<string, unknown>,
     isAdmin: true,
+    role: normalizeAdminRole(user.app_metadata?.admin_role),
   }
 })
+
+export async function requireAdminPermission(permission: AdminPermission) {
+  const result = await requireAdminApi()
+  if (!result.ok) return result
+  if (!canAdmin(result.admin.role, permission)) {
+    return { ok: false as const, status: 403 as const, error: "Your admin role does not allow this action." }
+  }
+  return result
+}

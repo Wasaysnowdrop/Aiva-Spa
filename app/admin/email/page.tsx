@@ -1,0 +1,6 @@
+import { AdminPageBody, AdminPageHeader } from "@/components/admin/page-header"
+import { AdminEmailTable } from "@/components/admin/operations-tables"
+import { getOperationsData } from "@/lib/admin/control-centre"
+
+export const dynamic = "force-dynamic"
+export default async function EmailDeliveryPage() { const data=await getOperationsData(); const sent=data.emails.length, delivered=data.emails.filter((row)=>row.status==="delivered").length, failed=data.emails.filter((row)=>row.status==="failed").length; const rate=sent?delivered/sent*100:null; return <><AdminPageHeader title="Email delivery" description="Resend delivery health and masked recipient diagnostics. SMS is not part of this view." generatedAt={new Date().toISOString()} autoRefreshSeconds={60} /><AdminPageBody><section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[["Emails recorded",sent],["Delivered",delivered],["Failed",failed],["Delivery rate",rate==null?"—":`${rate.toFixed(1)}%`]].map(([label,value])=><article key={String(label)} className="rounded-xl border border-[#242830] bg-[#0E1013] p-4"><p className="text-xs text-[#89919A]">{label}</p><p className="mt-3 text-3xl font-semibold">{value}</p></article>)}</section><AdminEmailTable rows={data.emails} /></AdminPageBody></> }

@@ -1251,6 +1251,7 @@ export async function runSetupAssistantTurn(
         messages: attemptMessages,
         responseFormat: { type: "json_object" },
         failureMode: "throw",
+        usageContext: { purpose: "onboarding" },
         options: { temperature: 0.2, maxTokens: 1800, timeoutMs: 12_000 },
       })
       model = result.model

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdminApi } from "@/lib/admin/auth";
+import { requireAdminPermission } from "@/lib/admin/auth";
 import { checkActionLimit } from "@/lib/security/check-action-limit";
 import { LIMITS } from "@/lib/security/limits";
 import { isEmailAllowedAsAdmin } from "@/lib/admin/allowlist";
@@ -22,11 +22,11 @@ async function recordAdminAudit(
     const admin = createAdminClient();
     const h = await headers();
     await admin.from("admin_audit_log").insert({
-      admin_user_id: null,
-      admin_email: "system",
+      admin_user_id: String(metadata.actorUserId ?? ""),
+      admin_email: String(metadata.actorEmail ?? "system"),
       action,
       target,
-      metadata,
+      metadata: Object.fromEntries(Object.entries(metadata).filter(([key]) => !key.startsWith("actor"))),
       ip: h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
       user_agent: h.get("user-agent")?.slice(0, 500) ?? null,
     } as never);
@@ -61,7 +61,7 @@ export async function banUserAction(
   userId: string,
   reason: string,
 ): Promise<AdminUserResult> {
-  const auth = await requireAdminApi();
+  const auth = await requireAdminPermission("users:write");
   if (!auth.ok) return { ok: false, error: auth.error };
 
   const limit = await checkActionLimit(LIMITS.actionAdminUsers);
@@ -115,7 +115,7 @@ export async function banUserAction(
   );
   if (insertErr) console.error("[admin-users] banned_users upsert failed", insertErr);
 
-  await recordAdminAudit("user.ban", userId, {
+  await recordAdminAudit("user.ban", userId, { actorUserId: auth.admin.id, actorEmail: auth.admin.email,
     email: user.email,
     reason: cleanedReason || null,
   });
@@ -131,7 +131,7 @@ export async function banUserAction(
 export async function unbanUserAction(
   userId: string,
 ): Promise<AdminUserResult> {
-  const auth = await requireAdminApi();
+  const auth = await requireAdminPermission("users:write");
   if (!auth.ok) return { ok: false, error: auth.error };
 
   const limit = await checkActionLimit(LIMITS.actionAdminUsers);
@@ -168,7 +168,7 @@ export async function unbanUserAction(
   if (updateRowErr)
     console.error("[admin-users] banned_users update failed", updateRowErr);
 
-  await recordAdminAudit("user.unban", userId, { email: user.email });
+  await recordAdminAudit("user.unban", userId, { actorUserId: auth.admin.id, actorEmail: auth.admin.email, email: user.email });
   revalidatePath("/admin/users");
   revalidatePath("/admin/audit");
   return { ok: true };
@@ -180,7 +180,7 @@ export async function unbanUserAction(
 export async function deleteUserAction(
   userId: string,
 ): Promise<AdminUserResult> {
-  const auth = await requireAdminApi();
+  const auth = await requireAdminPermission("users:write");
   if (!auth.ok) return { ok: false, error: auth.error };
 
   const limit = await checkActionLimit(LIMITS.actionAdminUsers);
@@ -223,7 +223,7 @@ export async function deleteUserAction(
   const { error: delErr } = await admin.auth.admin.deleteUser(userId);
   if (delErr) return { ok: false, error: delErr.message };
 
-  await recordAdminAudit("user.delete", userId, { email });
+  await recordAdminAudit("user.delete", userId, { actorUserId: auth.admin.id, actorEmail: auth.admin.email, email });
   revalidatePath("/admin/users");
   revalidatePath("/admin/audit");
   return { ok: true };
@@ -236,7 +236,7 @@ export async function setAdminFlagAction(
   userId: string,
   isAdmin: boolean,
 ): Promise<AdminUserResult> {
-  const auth = await requireAdminApi();
+  const auth = await requireAdminPermission("users:write");
   if (!auth.ok) return { ok: false, error: auth.error };
 
   const limit = await checkActionLimit(LIMITS.actionAdminUsers);
@@ -292,10 +292,27 @@ export async function setAdminFlagAction(
     /* non-fatal */
   }
 
-  await recordAdminAudit(isAdmin ? "user.promote_admin" : "user.demote_admin", userId, {
+  await recordAdminAudit(isAdmin ? "user.promote_admin" : "user.demote_admin", userId, { actorUserId: auth.admin.id, actorEmail: auth.admin.email,
     email: user.email,
   });
   revalidatePath("/admin/users");
   revalidatePath("/admin/audit");
   return { ok: true };
+}
+
+export async function revokeUserSessionsAction(userId: string): Promise<AdminUserResult> {
+  const auth = await requireAdminPermission("users:write")
+  if (!auth.ok) return { ok: false, error: auth.error }
+  const limit = await checkActionLimit(LIMITS.actionAdminUsers)
+  if (!limit.ok) return { ok: false, error: limit.error }
+  if (userId === auth.admin.id) return { ok: false, error: "Use sign out for your own session." }
+  const { user, error } = await loadUser(userId)
+  if (error || !user) return { ok: false, error: error ?? "User not found" }
+  const admin = createAdminClient()
+  const { error: signOutError } = await admin.auth.admin.signOut(userId)
+  if (signOutError) return { ok: false, error: "Sessions could not be revoked." }
+  await recordAdminAudit("user.sessions_revoke", userId, { actorUserId: auth.admin.id, actorEmail: auth.admin.email, email: user.email })
+  revalidatePath(`/admin/users/${userId}`)
+  revalidatePath("/admin/audit")
+  return { ok: true }
 }

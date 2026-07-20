@@ -1,280 +1,69 @@
-import {
-  Activity,
-  Bot,
-  Database,
-  Gauge,
-  ListChecks,
-  Mail,
-  MessageSquare,
-  ShieldCheck,
-  Users,
-  Webhook,
-} from "lucide-react"
-
-import { getSystemHealth } from "@/lib/admin/queries"
-import { KpiCard } from "@/components/admin/kpi-card"
-import { LiveFeed } from "@/components/admin/live-feed"
-import { LiveTicker } from "@/components/admin/live-ticker"
-import { StatusPill } from "@/components/admin/status-pill"
-import { AdminTopBar } from "@/components/admin/admin-shell"
-import { Sparkline } from "@/components/admin/sparkline"
-import { LatencyHistogram } from "@/components/admin/latency-histogram"
-import { ErrorRateChart } from "@/components/admin/error-rate-chart"
+import Link from "next/link"
+import { AlertTriangle, ArrowDownRight, ArrowUpRight, CheckCircle2, Clock3, ExternalLink, Minus, Server } from "lucide-react"
+import { AdminPageBody, AdminPageHeader } from "@/components/admin/page-header"
+import { getAdminOverview, type OperationalStatus } from "@/lib/admin/control-centre"
 
 export const dynamic = "force-dynamic"
 
-function pctDelta(curr: number, prev: number): number {
-  if (prev === 0) return curr > 0 ? 100 : 0
-  return ((curr - prev) / prev) * 100
+const statusStyle: Record<OperationalStatus, string> = {
+  operational: "border-[#24523A] bg-[#10261A] text-[#65D69A]",
+  degraded: "border-[#5A4A20] bg-[#261F0E] text-[#E7C65C]",
+  outage: "border-[#633032] bg-[#2A1416] text-[#F1797D]",
+  unknown: "border-[#353A42] bg-[#17191D] text-[#A0A6AF]",
+  not_configured: "border-[#353A42] bg-[#17191D] text-[#767D87]",
 }
 
-function lastValue(arr: number[]): number {
-  if (arr.length === 0) return 0
-  return arr[arr.length - 1] ?? 0
-}
-
-function sum(arr: number[]): number {
-  return arr.reduce((a, b) => a + b, 0)
-}
-
-function max(arr: number[]): number {
-  return arr.reduce((a, b) => Math.max(a, b), 0)
+function delta(value: number | null, previous: number | null) {
+  if (value == null || previous == null) return null
+  if (value === previous) return { value: 0, up: false }
+  if (previous === 0) return { value: 100, up: value > 0 }
+  const change = ((value - previous) / previous) * 100
+  return { value: Math.abs(change), up: change > 0 }
 }
 
 export default async function AdminOverviewPage() {
-  const health = await getSystemHealth()
-  const lastHourLeads = health.trends.leads.slice(-1)[0] ?? 0
-  const prevHourLeads = health.trends.leads.slice(-2, -1)[0] ?? 0
-  const leadsDelta = pctDelta(lastHourLeads, prevHourLeads)
-  const activeVisitors = lastValue(health.trends.activeVisitors)
-  const maxVisitors = max(health.trends.activeVisitors)
-  const maxLatency = max(health.trends.llmLatencyMs)
-  const totalTokens = sum(health.trends.tokenUsage)
-  const errorRate = lastValue(health.trends.errorRate)
+  const snapshot = await getAdminOverview()
+  const overall = snapshot.health.some((item) => item.status === "outage") ? "outage" : snapshot.health.some((item) => item.status === "degraded") ? "degraded" : "operational"
+  return <>
+    <AdminPageHeader title="Admin overview" description="Platform health, customer activity, delivery, AI, and incidents in one operational view." generatedAt={snapshot.generatedAt} autoRefreshSeconds={60} />
+    <AdminPageBody>
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#242830] bg-[#0E1013] px-4 py-3">
+        <div className="flex items-center gap-3"><span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold capitalize ${statusStyle[overall]}`}><span className="size-1.5 rounded-full bg-current" />{overall}</span><span className="text-xs text-[#7D848E]">Production · {snapshot.totalUsers} registered users</span></div>
+        <Link href="/admin/incidents" className="inline-flex items-center gap-1.5 text-xs font-medium text-[#D9DC43] hover:text-[#EEF05B]">Review incidents <ExternalLink className="size-3" /></Link>
+      </section>
 
-  const integrations = [
-    { key: "nara", label: "Nara AI Router", ok: health.naraConfigured },
-    { key: "resend", label: "Resend email", ok: health.resendConfigured },
-    { key: "calendar", label: "Custom Calendar", ok: health.customCalendarConfigured },
-  ]
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {snapshot.metrics.map((metric) => {
+          const change = delta(metric.value, metric.previous)
+          return <article key={metric.key} className="rounded-xl border border-[#242830] bg-[#0E1013] p-4">
+            <div className="flex items-start justify-between gap-3"><p className="text-xs font-medium text-[#9299A3]">{metric.label}</p>{change ? <span className={`inline-flex items-center gap-1 text-[11px] ${change.up ? "text-[#62C98F]" : change.value === 0 ? "text-[#747B85]" : "text-[#F0797D]"}`}>{change.value === 0 ? <Minus className="size-3" /> : change.up ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}{change.value.toFixed(0)}%</span> : null}</div>
+            <p className="mt-3 text-3xl font-semibold tracking-tight text-[#F5F6F7]">{metric.value == null ? "—" : metric.value.toLocaleString(undefined, { maximumFractionDigits: 1 })}{metric.suffix}</p>
+            <p className="mt-3 text-[11px] leading-relaxed text-[#69717B]">{metric.explanation}</p>
+            <p className="mt-2 text-[10px] text-[#4F5660]">Source: {metric.source} · {new Date(snapshot.generatedAt).toLocaleTimeString()}</p>
+          </article>
+        })}
+      </section>
 
-  return (
-    <>
-      <AdminTopBar
-        title="Overview"
-        subtitle={`Last refresh ${new Date(health.lastUpdated).toLocaleTimeString()} · uptime ${Math.floor(health.uptimeSeconds / 60)}m`}
-        right={
-          <>
-            <StatusPill
-              status={health.status === "ok" ? "ok" : "warn"}
-              label={`System ${health.status}`}
-            />
-            <LiveTicker />
-          </>
-        }
-      />
-      <div className="space-y-5 p-5">
-        <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <KpiCard
-            label="Active visitors"
-            value={activeVisitors}
-            hint={`Peak ${maxVisitors} (15m)`}
-            trend={health.trends.activeVisitors}
-            tone="default"
-            icon={<Activity className="size-3.5" />}
-          />
-          <KpiCard
-            label="Leads · last hour"
-            value={lastHourLeads}
-            delta={leadsDelta}
-            trend={health.trends.leads.slice(-12)}
-            tone="success"
-            icon={<ListChecks className="size-3.5" />}
-          />
-          <KpiCard
-            label="LLM tokens · 60m"
-            value={totalTokens}
-            trend={health.trends.tokenUsage}
-            tone="warn"
-            icon={<Bot className="size-3.5" />}
-          />
-          <KpiCard
-            label="Webhook fail rate"
-            value={`${errorRate.toFixed(1)}%`}
-            tone={errorRate > 5 ? "danger" : errorRate > 1 ? "warn" : "default"}
-            trend={health.trends.errorRate}
-            icon={<Webhook className="size-3.5" />}
-          />
-          <KpiCard
-            label="Total leads"
-            value={health.totals.leads}
-            hint="All time"
-            tone="default"
-            icon={<Mail className="size-3.5" />}
-          />
-          <KpiCard
-            label="Total users"
-            value={health.totals.users}
-            hint="Signed up"
-            tone="default"
-            icon={<Users className="size-3.5" />}
-          />
-        </section>
+      <section>
+        <div className="mb-3 flex items-center gap-2"><Server className="size-4 text-[#DDE047]" /><h2 className="text-sm font-semibold text-[#E9EBED]">Platform health</h2></div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {snapshot.health.map((item) => <article key={item.key} className="rounded-xl border border-[#242830] bg-[#0E1013] p-4">
+            <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-medium text-[#E4E6E8]">{item.service}</h3><span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize ${statusStyle[item.status]}`}>{item.status.replaceAll("_", " ")}</span></div>
+            <p className="mt-2 text-xs text-[#7F8791]">{item.message}</p>
+            <div className="mt-3 flex items-center justify-between text-[10px] text-[#59616B]"><span>{item.latencyMs == null ? "No latency sample" : `${item.latencyMs} ms`}</span><span>{new Date(item.lastCheckedAt).toLocaleTimeString()}</span></div>
+          </article>)}
+        </div>
+      </section>
 
-        <section className="grid gap-5 lg:grid-cols-3">
-          <div className="rounded-2xl border border-[#23252A] bg-[#0B0C0E] p-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Gauge className="size-4 text-[#5E6AD2]" />
-                <h2 className="text-sm font-semibold text-[#F7F8F8]">Health</h2>
-              </div>
-            </div>
-            <ul className="mt-3 space-y-2 text-xs">
-              <li className="flex items-center justify-between">
-                <span className="text-[#8A8F98]">Database</span>
-                <StatusPill
-                  status={
-                    health.database === "ok"
-                      ? "ok"
-                      : health.database === "degraded"
-                        ? "warn"
-                        : "error"
-                  }
-                  label={health.database}
-                />
-              </li>
-              <li className="flex items-center justify-between">
-                <span className="text-[#8A8F98]">Realtime</span>
-                <StatusPill
-                  status={health.database === "ok" ? "ok" : "warn"}
-                  label={health.database === "ok" ? "ok" : "degraded"}
-                />
-              </li>
-              <li className="flex items-center justify-between">
-                <span className="text-[#8A8F98]">LLM provider</span>
-                <StatusPill
-                  status={health.llm === "ok" ? "ok" : "warn"}
-                  label={health.llm === "ok" ? "live" : "mock"}
-                />
-              </li>
-            </ul>
-            <div className="mt-4 border-t border-[#1A1B1E] pt-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#62666D]">
-                Integrations
-              </p>
-              <ul className="mt-2 space-y-1.5 text-xs">
-                {integrations.map((i) => (
-                  <li key={i.key} className="flex items-center justify-between">
-                    <span className="text-[#8A8F98]">{i.label}</span>
-                    <StatusPill
-                      status={i.ok ? "ok" : "muted"}
-                      label={i.ok ? "configured" : "missing"}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-[#23252A] bg-[#0B0C0E] p-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Database className="size-4 text-[#E2E54B]" />
-                <h2 className="text-sm font-semibold text-[#F7F8F8]">Row counts</h2>
-              </div>
-            </div>
-            <ul className="mt-3 grid grid-cols-2 gap-2 text-xs">
-              {Object.entries(health.totals).map(([key, value]) => (
-                <li
-                  key={key}
-                  className="flex items-center justify-between rounded-md border border-[#1A1B1E] bg-[#0B0C0E] px-2 py-1.5"
-                >
-                  <span className="text-[10px] text-[#8A8F98]">{key}</span>
-                  <span className="font-mono text-xs font-semibold tabular-nums text-[#F7F8F8]">
-                    {value}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-3 text-[10px] text-[#62666D]">
-              Snapshot via SELECT count(*) · refreshes on every page load
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-[#23252A] bg-[#0B0C0E] p-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Bot className="size-4 text-[#22D3EE]" />
-                <h2 className="text-sm font-semibold text-[#F7F8F8]">LLM · 60m</h2>
-              </div>
-              <span className="text-[10px] text-[#62666D]">
-                Peak {maxLatency} messages
-              </span>
-            </div>
-            <div className="mt-3">
-              <LatencyHistogram data={health.trends.llmLatencyMs} />
-            </div>
-            <div className="mt-3 border-t border-[#1A1B1E] pt-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#62666D]">
-                Webhook errors (5m buckets)
-              </p>
-              <div className="mt-2">
-                <ErrorRateChart data={health.trends.errorRate} />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="grid gap-5 lg:grid-cols-2">
-          <div className="rounded-2xl border border-[#23252A] bg-[#0B0C0E] p-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ListChecks className="size-4 text-[#4CB782]" />
-                <h2 className="text-sm font-semibold text-[#F7F8F8]">
-                  Leads · last 24h (hourly)
-                </h2>
-              </div>
-              <span className="text-[10px] text-[#62666D]">
-                {sum(health.trends.leads)} total
-              </span>
-            </div>
-            <div className="mt-3">
-              <Sparkline
-                data={health.trends.leads}
-                width={800}
-                height={120}
-                stroke="#4CB782"
-                fill="rgba(76, 183, 130, 0.12)"
-              />
-            </div>
-            <p className="mt-2 text-[10px] text-[#62666D]">
-              X axis = last 24h, rightmost = most recent hour
-            </p>
-          </div>
-          <LiveFeed maxHeight={420} />
-        </section>
-
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard
-            label="Chat sessions"
-            value={health.totals.chatSessions}
-            tone="default"
-            icon={<MessageSquare className="size-3.5" />}
-          />
-          <KpiCard
-            label="Webhooks"
-            value={health.totals.webhooks}
-            tone="default"
-            icon={<Webhook className="size-3.5" />}
-          />
-          <KpiCard
-            label="Subscriptions"
-            value={health.totals.subscriptions}
-            tone="default"
-            icon={<ShieldCheck className="size-3.5" />}
-          />
-        </section>
-      </div>
-    </>
-  )
+      <section className="rounded-xl border border-[#242830] bg-[#0E1013]">
+        <div className="flex items-center justify-between border-b border-[#242830] px-4 py-3"><div><h2 className="text-sm font-semibold text-[#ECEDEF]">Recent platform activity</h2><p className="mt-0.5 text-xs text-[#707781]">Important persisted events, newest first.</p></div><Link href="/admin/live" className="text-xs text-[#DDE047]">Open live activity</Link></div>
+        {snapshot.events.length ? <ul className="divide-y divide-[#20242A]">{snapshot.events.map((event) => <li key={event.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+          <span className={`flex size-8 items-center justify-center rounded-lg ${event.status === "error" ? "bg-[#2A1517] text-[#F1787C]" : "bg-[#16231B] text-[#61CC91]"}`}>{event.status === "error" ? <AlertTriangle className="size-4" /> : <CheckCircle2 className="size-4" />}</span>
+          <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-[#DFE2E5]">{event.title}</p><p className="mt-0.5 truncate text-xs text-[#727A84]">{event.detail}</p></div>
+          <span className="inline-flex items-center gap-1 text-[11px] text-[#626A74]"><Clock3 className="size-3" />{new Date(event.occurredAt).toLocaleString()}</span>
+          {event.href ? <Link href={event.href} aria-label={`Open ${event.title}`} className="text-[#858C96] hover:text-white"><ExternalLink className="size-3.5" /></Link> : null}
+        </li>)}</ul> : <div className="px-5 py-10 text-center"><CheckCircle2 className="mx-auto size-7 text-[#4D9F71]" /><p className="mt-3 text-sm text-[#C7CBD0]">No important platform activity yet</p><p className="mt-1 text-xs text-[#676F79]">New leads, bookings, subscription changes, email failures, and admin actions will appear here.</p></div>}
+      </section>
+    </AdminPageBody>
+  </>
 }

@@ -1,22 +1,5 @@
-import { AdminTopBar } from "@/components/admin/admin-shell"
-import { getRecentChats } from "@/lib/admin/queries"
-
-import { ConversationsTable, type ChatRow } from "./conversations-table"
-
+import { AdminPageBody, AdminPageHeader } from "@/components/admin/page-header"
+import { AdminConversationsTable } from "@/components/admin/operations-tables"
+import { getOperationsData } from "@/lib/admin/control-centre"
 export const dynamic = "force-dynamic"
-
-export default async function AdminConversationsPage() {
-  const chats = (await getRecentChats(200)) as ChatRow[]
-
-  return (
-    <>
-      <AdminTopBar
-        title="Conversations"
-        subtitle={`${chats.length} most recent chat sessions`}
-      />
-      <div className="p-5">
-        <ConversationsTable rows={chats} pageSize={50} empty="No chat sessions yet." />
-      </div>
-    </>
-  )
-}
+export default async function AdminConversationsPage() { const data=await getOperationsData(); return <><AdminPageHeader title="Conversations" description="Production, onboarding, internal, test, and billable classifications without transcript exposure." generatedAt={new Date().toISOString()} /><AdminPageBody><AdminConversationsTable rows={data.conversations} /></AdminPageBody></> }

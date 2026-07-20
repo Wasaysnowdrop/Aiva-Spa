@@ -1,5 +1,6 @@
 import { kbAwareFallback } from "./fallback"
 import { loadKnowledge, type KnowledgeBundle } from "./retrieval"
+import { recordAiUsage, type AiUsageContext } from "./usage"
 
 export type ChatRole = "system" | "user" | "assistant" | "tool"
 
@@ -23,6 +24,7 @@ export type LlmChatInput = {
   fallbackKnowledge?: KnowledgeBundle
   failureMode?: "fallback" | "throw"
   options?: LlmOptions
+  usageContext?: AiUsageContext
 }
 
 export type LlmChatResult = {
@@ -83,6 +85,9 @@ function getNaraConfig() {
 }
 
 export async function llmChat(input: LlmChatInput): Promise<LlmChatResult> {
+  const startedAt = Date.now()
+  const requestId = crypto.randomUUID()
+  const promptText = input.messages.map((message) => message.content).join("\n")
   const provider = resolveLlmProvider()
   if (provider === "nara") {
     try {
@@ -90,22 +95,32 @@ export async function llmChat(input: LlmChatInput): Promise<LlmChatResult> {
       if (!result.content || !result.content.trim()) {
         if (input.failureMode === "throw") throw new Error("LLM returned empty content")
         console.warn("LLM returned empty content, serving canned reply")
-        return gracefulFallback(input)
+        const fallback = await gracefulFallback(input)
+        await recordAiUsage({ requestId, context: input.usageContext, provider: "nara", model: result.model, promptText, completionText: fallback.content, usage: result.usage, latencyMs: Date.now() - startedAt, status: "fallback", errorCode: "empty_response" })
+        return fallback
       }
+      await recordAiUsage({ requestId, context: input.usageContext, provider: result.provider, model: result.model, promptText, completionText: result.content, usage: result.usage, latencyMs: Date.now() - startedAt, status: "success" })
       return result
     } catch (err) {
-      if (input.failureMode === "throw") throw err
+      if (input.failureMode === "throw") {
+        await recordAiUsage({ requestId, context: input.usageContext, provider: "nara", model: input.options?.model ?? "unknown", promptText, completionText: "", latencyMs: Date.now() - startedAt, status: "error", errorCode: err instanceof Error ? err.name : "provider_error" })
+        throw err
+      }
       // Widget chat remains resilient when the upstream provider is unavailable.
       console.warn(
         `LLM call failed (${err instanceof Error ? err.message : "unknown"}), serving canned reply`,
       )
-      return gracefulFallback(input)
+      const fallback = await gracefulFallback(input)
+      await recordAiUsage({ requestId, context: input.usageContext, provider: "nara", model: fallback.model, promptText, completionText: fallback.content, latencyMs: Date.now() - startedAt, status: "fallback", errorCode: err instanceof Error ? err.name : "provider_error" })
+      return fallback
     }
   }
   if (input.failureMode === "throw") {
     throw new Error("NARA_API_KEY is not configured")
   }
-  return callMock(input)
+  const fallback = await callMock(input)
+  await recordAiUsage({ requestId, context: input.usageContext, provider: fallback.provider, model: fallback.model, promptText, completionText: fallback.content, latencyMs: Date.now() - startedAt, status: "fallback", errorCode: "provider_not_configured" })
+  return fallback
 }
 function loadFallbackKnowledge(input: LlmChatInput): Promise<KnowledgeBundle> {
   return input.fallbackKnowledge
@@ -348,74 +363,67 @@ export type StreamEvent =
 export type LlmStreamHandle = AsyncIterable<StreamEvent>
 
 export async function* streamLlmChat(input: LlmChatInput): LlmStreamHandle {
+  const startedAt = Date.now()
+  const requestId = crypto.randomUUID()
+  const promptText = input.messages.map((message) => message.content).join("\n")
   const cfg = getNaraConfig()
   const provider = resolveLlmProvider()
   const modelName = input.options?.model || cfg.model
   const timeoutMs = input.options?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
 
   if (provider !== "nara" || !cfg.apiKey) {
-    const r = callMock(input)
-    const text = (await r).content
-    yield { type: "chunk", text }
-    yield { type: "done", model: (await r).model, provider: "mock" }
+    const result = await callMock(input)
+    await recordAiUsage({ requestId, context: input.usageContext, provider: result.provider, model: result.model, promptText, completionText: result.content, latencyMs: Date.now() - startedAt, status: "fallback", errorCode: "provider_not_configured" })
+    yield { type: "chunk", text: result.content }
+    yield { type: "done", model: result.model, provider: "mock" }
     return
   }
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
   const signal = input.options?.signal ?? controller.signal
-
   let res: Response
   try {
     res = await fetch(`${cfg.baseUrl}/chat/completions`, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${cfg.apiKey}`,
-      },
+      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}` },
       body: JSON.stringify({
         model: modelName,
-        messages: input.messages.map((m) => ({
-          role: m.role,
-          content: m.content,
-          ...(m.name ? { name: m.name } : {}),
-        })),
+        messages: input.messages.map((message) => ({ role: message.role, content: message.content, ...(message.name ? { name: message.name } : {}) })),
         temperature: input.options?.temperature ?? 0.4,
         max_tokens: input.options?.maxTokens ?? 800,
         stream: true,
+        stream_options: { include_usage: true },
       }),
       signal,
     })
-  } catch (err) {
+  } catch (error) {
     clearTimeout(timeout)
-    yield {
-      type: "error",
-      message: err instanceof Error ? err.message : "network error",
-    }
+    const message = error instanceof Error ? error.message : "network error"
+    await recordAiUsage({ requestId, context: input.usageContext, provider: "nara", model: modelName, promptText, completionText: "", latencyMs: Date.now() - startedAt, status: "error", errorCode: error instanceof Error ? error.name : "network_error" })
+    yield { type: "error", message }
     return
   }
 
   if (!res.ok || !res.body) {
     clearTimeout(timeout)
     const errText = await res.text().catch(() => "")
-    yield {
-      type: "error",
-      message: `Nara stream failed (${res.status}): ${errText.slice(0, 200)}`,
-    }
+    await recordAiUsage({ requestId, context: input.usageContext, provider: "nara", model: modelName, promptText, completionText: "", latencyMs: Date.now() - startedAt, status: "error", errorCode: `http_${res.status}` })
+    yield { type: "error", message: `Nara stream failed (${res.status}): ${errText.slice(0, 200)}` }
     return
   }
 
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buf = ""
+  let completionText = ""
   let sawAnyChunk = false
-
+  let usage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined
   try {
     while (true) {
       const { value, done } = await reader.read()
       if (done) break
       buf += decoder.decode(value, { stream: true })
-
       let idx: number
       while ((idx = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, idx).trimEnd()
@@ -424,33 +432,27 @@ export async function* streamLlmChat(input: LlmChatInput): LlmStreamHandle {
         const data = line.slice(5).trim()
         if (!data || data === "[DONE]") continue
         try {
-          const json = JSON.parse(data) as {
-            choices?: { delta?: { content?: string } }[]
-          }
+          const json = JSON.parse(data) as { choices?: { delta?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } }
+          if (json.usage) usage = { promptTokens: json.usage.prompt_tokens ?? 0, completionTokens: json.usage.completion_tokens ?? 0, totalTokens: json.usage.total_tokens ?? 0 }
           const chunk = json.choices?.[0]?.delta?.content
-          if (chunk) {
-            sawAnyChunk = true
-            yield { type: "chunk", text: chunk }
-          }
-        } catch {
-          // ignore malformed SSE lines
-        }
+          if (chunk) { sawAnyChunk = true; completionText += chunk; yield { type: "chunk", text: chunk } }
+        } catch { /* ignore malformed provider chunks */ }
       }
     }
-  } catch (err) {
-    clearTimeout(timeout)
-    yield {
-      type: "error",
-      message: err instanceof Error ? err.message : "stream read error",
-    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "stream read error"
+    await recordAiUsage({ requestId, context: input.usageContext, provider: "nara", model: modelName, promptText, completionText, usage, latencyMs: Date.now() - startedAt, status: "error", errorCode: error instanceof Error ? error.name : "stream_error" })
+    yield { type: "error", message }
     return
   } finally {
     clearTimeout(timeout)
   }
 
   if (!sawAnyChunk) {
+    await recordAiUsage({ requestId, context: input.usageContext, provider: "nara", model: modelName, promptText, completionText: "", usage, latencyMs: Date.now() - startedAt, status: "error", errorCode: "empty_stream" })
     yield { type: "error", message: "empty stream" }
     return
   }
+  await recordAiUsage({ requestId, context: input.usageContext, provider: "nara", model: modelName, promptText, completionText, usage, latencyMs: Date.now() - startedAt, status: "success" })
   yield { type: "done", model: modelName, provider: "nara" }
 }

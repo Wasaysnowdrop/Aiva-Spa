@@ -116,7 +116,12 @@ export async function runConversationTurn(
     messageCount: messages.length,
     temperature: 0.7,
   })
-  const result = await llmChat({ messages, fallbackKnowledge: kb, options: { temperature: 0.7, maxTokens: 800, timeoutMs: 20_000 } })
+  const result = await llmChat({
+    messages,
+    fallbackKnowledge: kb,
+    usageContext: { businessId: input.userId, purpose: "visitor_chat" },
+    options: { temperature: 0.7, maxTokens: 800, timeoutMs: 20_000 },
+  })
   console.log("[chat] AI response received", {
     model: result.model,
     provider: result.provider,
@@ -323,6 +328,7 @@ export async function streamConversationTurn(
     for await (const ev of streamLlmChat({
       messages,
       fallbackKnowledge: kb,
+      usageContext: { businessId: input.userId, purpose: "visitor_chat" },
       options: { temperature: 0.7, maxTokens: 800, timeoutMs: 20_000 },
     })) {
       if (ev.type === "chunk") {
