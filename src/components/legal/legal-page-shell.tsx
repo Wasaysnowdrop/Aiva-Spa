@@ -174,9 +174,9 @@ function LegalFooter() {
     {
       title: "Legal",
       links: [
-        { label: "Privacy Policy", href: "/legal/privacy" },
-        { label: "Terms of Service", href: "/legal/terms" },
-        { label: "HIPAA Notice", href: "/legal/hipaa" },
+        { label: "Privacy Policy", href: "/privacy" },
+        { label: "Terms of Service", href: "/terms" },
+        { label: "HIPAA Notice", href: "/hipaa" },
         { label: "System Status", href: "/status" },
       ],
     },
@@ -224,13 +224,13 @@ function LegalFooter() {
         <div className="mt-12 flex flex-col items-start justify-between gap-3 border-t border-[#23252A]/60 pt-6 text-xs text-[#62666D] md:flex-row md:items-center">
           <p>© 2026 AivaSpa, Inc. All rights reserved.</p>
           <div className="flex flex-wrap items-center gap-4">
-            <Link href="/legal/privacy" className="hover:text-[#F7F8F8]">
+            <Link href="/privacy" className="hover:text-[#F7F8F8]">
               Privacy
             </Link>
-            <Link href="/legal/terms" className="hover:text-[#F7F8F8]">
+            <Link href="/terms" className="hover:text-[#F7F8F8]">
               Terms
             </Link>
-            <Link href="/legal/hipaa" className="hover:text-[#F7F8F8]">
+            <Link href="/hipaa" className="hover:text-[#F7F8F8]">
               HIPAA Notice
             </Link>
             <Link href="/status" className="hover:text-[#F7F8F8]">

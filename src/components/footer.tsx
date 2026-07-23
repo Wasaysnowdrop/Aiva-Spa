@@ -2,19 +2,21 @@ import { ArrowRight, Bot, CalendarCheck, Mail, MapPin, MessageCircle, Phone, Shi
 import Link from "next/link";
 import { Logo } from "@/components/logo";
 
-const exploreLinks = [
-    ["Homepage", "/"],
-    ["How It Works?", "/#how-it-works"],
-    ["Features", "/#features"],
-    ["Frequently Asked Questions", "/#faq"],
-    ["Contact", "/#contact"],
+const aboutLinks = [
+    ["About", "/about"],
+    ["Customers", "/customers"],
+    ["Pricing", "/pricing"],
+    ["Contact", "/contact"],
+    ["Careers", "/careers"],
+    ["Press", "/press"],
 ] as const;
 
-const legalLinks = [
-    ["Privacy Policy", "/legal/privacy"],
-    ["Terms of Service", "/legal/terms"],
-    ["HIPAA Notice", "/legal/hipaa"],
-    ["System Status", "/status"],
+const docsLinks = [
+    ["Knowledge Base", "/knowledge-base"],
+    ["Changelog", "/changelog"],
+    ["HIPAA Notice", "/hipaa"],
+    ["Privacy Policy", "/privacy"],
+    ["Terms of Service", "/terms"],
 ] as const;
 
 const stats = [
@@ -104,8 +106,8 @@ export function Footer() {
                         </div>
                     </div>
 
-                    <FooterColumn title="Explore" links={exploreLinks} />
-                    <FooterColumn title="Legal" links={legalLinks} />
+                    <FooterColumn title="About" links={aboutLinks} />
+                    <FooterColumn title="Resources" links={docsLinks} />
 
                     <div>
                         <h3 className="text-lg font-semibold text-white">Contact</h3>

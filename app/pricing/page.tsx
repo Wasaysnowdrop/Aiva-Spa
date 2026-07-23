@@ -137,24 +137,28 @@ const faqItems: FaqItem[] = [
 
 const footerColumns = [
   {
-    title: "Product",
-    color: "#E2E54B",
-    links: ["Chat widget", "AI engine", "Lead dashboard", "Notifications", "Analytics", "Integrations"],
-  },
-  {
-    title: "Features",
-    color: "#E2E54B",
-    links: ["24/7 receptionist", "Approved KB answers", "Lead capture", "Email alerts", "Custom branding", "Multi-location"],
-  },
-  {
-    title: "Company",
+    title: "About",
     color: "#FF77E9",
     links: ["About", "Customers", "Pricing", "Contact", "Careers", "Press"],
+    hrefs: ["/about", "/customers", "/pricing", "/contact", "/careers", "/press"],
   },
   {
     title: "Resources",
     color: "#22D3EE",
-    links: ["Docs", "Knowledge base", "Changelog", "HIPAA notice", "Privacy", "Terms"],
+    links: ["Knowledge Base", "Changelog", "HIPAA Notice", "Privacy Policy", "Terms of Service"],
+    hrefs: ["/knowledge-base", "/changelog", "/hipaa", "/privacy", "/terms"],
+  },
+  {
+    title: "Product",
+    color: "#E2E54B",
+    links: ["Chat widget", "AI engine", "Lead dashboard", "Notifications", "Analytics", "Integrations"],
+    hrefs: ["/#features", "/#features", "/#features", "/#features", "/#features", "/#features"],
+  },
+  {
+    title: "Contact",
+    color: "#34D399",
+    links: ["hello@aivaspa.com", "(555) 014-8231", "Remote-first SaaS"],
+    hrefs: ["mailto:hello@aivaspa.com", "tel:+15550148231", "#"],
   },
 ] as const;
 
@@ -585,11 +589,11 @@ export default async function PricingPage() {
                     {col.title}
                   </h3>
                   <ul className="mt-4 space-y-2.5 text-sm text-[#8A8F98]">
-                    {col.links.map((link) => (
+                    {col.links.map((link, i) => (
                       <li key={link}>
-                        <a href="#" className="inline-block transition hover:translate-x-1 hover:text-[#F7F8F8]">
+                        <Link href={col.hrefs[i]} className="inline-block transition hover:translate-x-1 hover:text-[#F7F8F8]">
                           {link}
-                        </a>
+                        </Link>
                       </li>
                     ))}
                   </ul>
@@ -601,9 +605,9 @@ export default async function PricingPage() {
           <div className="mt-14 flex flex-col items-start justify-between gap-4 border-t border-[#23252A]/60 pt-6 text-xs text-[#62666D] md:flex-row md:items-center">
             <p>&copy; 2026 AivaSpa, Inc. All rights reserved.</p>
             <div className="flex items-center gap-5">
-              <Link href="/legal/privacy" className="hover:text-[#F7F8F8]">Privacy</Link>
-              <Link href="/legal/terms" className="hover:text-[#F7F8F8]">Terms</Link>
-              <Link href="/legal/hipaa" className="hover:text-[#F7F8F8]">HIPAA Notice</Link>
+              <Link href="/privacy" className="hover:text-[#F7F8F8]">Privacy</Link>
+              <Link href="/terms" className="hover:text-[#F7F8F8]">Terms</Link>
+              <Link href="/hipaa" className="hover:text-[#F7F8F8]">HIPAA Notice</Link>
               <Link href="/status" className="hover:text-[#F7F8F8]">Status</Link>
             </div>
           </div>
