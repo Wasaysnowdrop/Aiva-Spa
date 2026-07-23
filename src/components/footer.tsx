@@ -7,8 +7,6 @@ const aboutLinks = [
     ["Customers", "/customers"],
     ["Pricing", "/pricing"],
     ["Contact", "/contact"],
-    ["Careers", "/careers"],
-    ["Press", "/press"],
 ] as const;
 
 const docsLinks = [

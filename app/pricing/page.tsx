@@ -139,8 +139,8 @@ const footerColumns = [
   {
     title: "About",
     color: "#FF77E9",
-    links: ["About", "Customers", "Pricing", "Contact", "Careers", "Press"],
-    hrefs: ["/about", "/customers", "/pricing", "/contact", "/careers", "/press"],
+    links: ["About", "Customers", "Pricing", "Contact"],
+    hrefs: ["/about", "/customers", "/pricing", "/contact"],
   },
   {
     title: "Resources",
