@@ -75,7 +75,7 @@ const positions = [
 const process = [
   { step: "01", title: "Apply", body: "Submit your application and resume. We review every one." },
   { step: "02", title: "Intro call", body: "30-minute call with our team to learn about you and share our vision." },
-  { step: "03", title: "Skills assessment", role: "A take-home project or technical conversation, depending on the role." },
+  { step: "03", title: "Skills assessment", body: "A take-home project or technical conversation, depending on the role." },
   { step: "04", title: "Final interview", body: "Meet the team leads and founders. Culture and values alignment." },
   { step: "05", title: "Offer", body: "We move fast. Expect an offer within 1 week of your final interview." },
 ] as const;
